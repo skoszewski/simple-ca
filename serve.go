@@ -26,6 +26,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	_ "embed"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -53,6 +54,11 @@ var servedFiles = map[string]struct {
 	"crl.pem":     {"crl.pem", "application/x-pem-file", false},
 }
 
+var (
+	oidPKCS7Data       = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 1}
+	oidPKCS7SignedData = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 2}
+)
+
 // tailwindPath is the URL of the browser build of Tailwind CSS, tailwindJS, which the index page
 // loads; it is dist/index.global.js of the npm package @tailwindcss/browser, under the MIT licence
 // of assets/tailwindcss-browser-LICENSE.
@@ -77,6 +83,16 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
         <div class="bg-slate-900 px-6 py-4 text-slate-100">
           <h1 class="text-xl font-semibold">{{.Title}}</h1>
           <p class="mt-1 text-sm text-slate-300">CA certificates and certificate revocation lists, served by simple-ca</p>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-sky-200 bg-sky-50 px-6 py-4">
+          <div>
+            <h2 class="text-base font-semibold text-sky-950">CA bundle</h2>
+            <p class="text-sm text-sky-900">The root CA and all its issuing CAs in one file, to install or trust as a whole</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <a class="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-600" href="/ca_bundle.p7b">CA bundle (P7B)</a>
+            <a class="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-600" href="/ca_bundle.pem">CA bundle (PEM)</a>
+          </div>
         </div>
         <main class="divide-y divide-slate-200">
           {{- range .CAs}}
@@ -116,10 +132,6 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
           </section>
           {{- end}}
         </main>
-        <div class="border-t border-slate-200 bg-slate-50 px-6 py-4 text-sm text-slate-600">
-          <a class="font-medium text-slate-900 underline hover:text-slate-700" href="/ca_bundle.pem">CA bundle (PEM)</a>
-          - the root CA and all its issuing CAs
-        </div>
       </div>
     </div>
   </body>
@@ -137,7 +149,7 @@ type indexCA struct {
 
 // newServeMux returns the handler serving an index page at /, the files of servedFiles of the
 // root CA in rootDir at /NAME, those of each of its issuing CAs at /CA/NAME, and ca_bundle.pem of
-// the root CA. The files are read on each request.
+// the root CA, also as the PKCS#7 file ca_bundle.p7b. The files are read on each request.
 func newServeMux(rootDir string) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -245,6 +257,60 @@ func newServeMux(rootDir string) *http.ServeMux {
 
 	mux.HandleFunc("GET /ca_bundle.pem", func(w http.ResponseWriter, r *http.Request) {
 		serve(w, r, rootDir, "ca_bundle.pem")
+	})
+	mux.HandleFunc("GET /ca_bundle.p7b", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+		b, err := os.ReadFile(filepath.Join(rootDir, "ca_bundle.pem"))
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			log.Printf("%s: %v", r.URL.Path, err)
+			http.Error(w, "could not read the file", http.StatusInternalServerError)
+			return
+		}
+		var certs []byte
+		for rest := b; ; {
+			var block *pem.Block
+			block, rest = pem.Decode(rest)
+			if block == nil {
+				break
+			}
+			if block.Type == "CERTIFICATE" {
+				certs = append(certs, block.Bytes...)
+			}
+		}
+
+		// The certificates of ca_bundle.pem as a degenerate PKCS#7 SignedData of RFC 2315, with no
+		// content and no signers.
+		emptySet := asn1.RawValue{Tag: asn1.TagSet, IsCompound: true}
+		signedData, err := asn1.Marshal(struct {
+			Version          int
+			DigestAlgorithms asn1.RawValue
+			ContentInfo      struct{ ContentType asn1.ObjectIdentifier }
+			Certificates     asn1.RawValue
+			SignerInfos      asn1.RawValue
+		}{
+			Version:          1,
+			DigestAlgorithms: emptySet,
+			ContentInfo:      struct{ ContentType asn1.ObjectIdentifier }{oidPKCS7Data},
+			Certificates:     asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: certs},
+			SignerInfos:      emptySet,
+		})
+		if err == nil {
+			b, err = asn1.Marshal(struct {
+				ContentType asn1.ObjectIdentifier
+				Content     asn1.RawValue
+			}{oidPKCS7SignedData, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: signedData}})
+		}
+		if err != nil {
+			log.Printf("%s: %v", r.URL.Path, err)
+			http.Error(w, "could not build the file", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-pkcs7-certificates")
+		w.Write(b)
 	})
 	for name := range servedFiles {
 		mux.HandleFunc("GET /"+name, func(w http.ResponseWriter, r *http.Request) {

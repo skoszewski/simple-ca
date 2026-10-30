@@ -991,6 +991,10 @@ func TestServe(t *testing.T) {
 	if strings.Contains(string(page), "https://") {
 		t.Fatalf("the index page loads a resource from another site:\n%s", page)
 	}
+	bundleAt := strings.Index(string(page), `href="/ca_bundle.pem"`)
+	if bundleAt < 0 || bundleAt > strings.Index(string(page), "<section") {
+		t.Fatalf("the index page does not offer the CA bundle above the CAs:\n%s", page)
+	}
 	status, typ, script := get("GET", tailwindPath)
 	if status != http.StatusOK || typ != "text/javascript; charset=utf-8" || !bytes.Equal(script, tailwindJS) ||
 		!bytes.Contains(script, []byte(`"4.3.3"`)) {
@@ -1027,6 +1031,36 @@ func TestServe(t *testing.T) {
 	}
 	if status, _, body := get("GET", "/ca_bundle.pem"); status != http.StatusOK || !bytes.Equal(body, bundle) {
 		t.Fatalf("GET /ca_bundle.pem: %d", status)
+	}
+	status, typ, body = get("GET", "/ca_bundle.p7b")
+	if status != http.StatusOK || typ != "application/x-pkcs7-certificates" {
+		t.Fatalf("GET /ca_bundle.p7b: %d %s", status, typ)
+	}
+	p7bPath := filepath.Join(t.TempDir(), "ca_bundle.p7b")
+	if err := os.WriteFile(p7bPath, body, 0o644); err != nil {
+		t.Fatalf("write %s: %v", p7bPath, err)
+	}
+	out, err := exec.Command("openssl", "pkcs7", "-inform", "DER", "-in", p7bPath, "-print_certs").CombinedOutput()
+	if err != nil {
+		t.Fatalf("openssl pkcs7: %v\n%s", err, out)
+	}
+	var p7bCerts, bundleCerts [][]byte
+	for rest := out; ; {
+		var block *pem.Block
+		if block, rest = pem.Decode(rest); block == nil {
+			break
+		}
+		p7bCerts = append(p7bCerts, block.Bytes)
+	}
+	for rest := bundle; ; {
+		var block *pem.Block
+		if block, rest = pem.Decode(rest); block == nil {
+			break
+		}
+		bundleCerts = append(bundleCerts, block.Bytes)
+	}
+	if len(bundleCerts) < 2 || !slices.EqualFunc(p7bCerts, bundleCerts, bytes.Equal) {
+		t.Fatalf("ca_bundle.p7b holds %d certificates, want the %d of ca_bundle.pem", len(p7bCerts), len(bundleCerts))
 	}
 	if status, _, _ := get("HEAD", "/ca_cert.pem"); status != http.StatusOK {
 		t.Fatalf("HEAD /ca_cert.pem: %d", status)
@@ -1095,6 +1129,93 @@ func TestInitialCRL(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(caDir, crlNumberFile)); err != nil || strings.TrimSpace(string(b)) != "02" {
 		t.Fatalf("make-ca of an existing CA changed its CRL number: %q, %v", b, err)
 	}
+}
+
+func TestSign(t *testing.T) {
+	caDir := t.TempDir()
+	csrDir := t.TempDir()
+
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing_ca", ""); err != nil {
+		t.Fatalf("makeCA issuing: %v", err)
+	}
+	issuingDir := filepath.Join(caDir, "issuing_ca")
+	csrPath := filepath.Join(csrDir, "web.csr")
+	out, err := exec.Command("openssl", "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+		"-nodes", "-keyout", filepath.Join(csrDir, "web_key.pem"), "-out", csrPath,
+		"-subj", "/C=PL/O=Example/CN=web.example.com",
+		"-addext", "subjectAltName=DNS:web.example.com,IP:192.0.2.1,RID:1.3.6.1.4.1.99999.1",
+		"-addext", "basicConstraints=critical,CA:TRUE",
+		"-addext", "keyUsage=keyCertSign,cRLSign",
+		"-addext", "extendedKeyUsage=timeStamping").CombinedOutput()
+	if err != nil {
+		t.Fatalf("openssl req: %v\n%s", err, out)
+	}
+
+	certPath := filepath.Join(issuingDir, "web_cert.pem")
+	for _, answer := range []string{"n\n", "\n", ""} {
+		if err := signCSR(csrPath, issuingDir, "", "server", 30, nil, nil, false, strings.NewReader(answer)); err == nil {
+			t.Fatalf("signCSR answered %q succeeded, want an error", answer)
+		}
+		if fileExists(certPath) {
+			t.Fatalf("signCSR answered %q wrote %s", answer, certPath)
+		}
+		if entries, err := readIndex(issuingDir); err != nil || len(entries) != 0 {
+			t.Fatalf("signCSR answered %q recorded %+v, %v", answer, entries, err)
+		}
+	}
+	if err := signCSR(csrPath, issuingDir, "", "server", 30, []string{"codeSigning"}, nil, false, strings.NewReader("Yes\n")); err != nil {
+		t.Fatalf("signCSR: %v", err)
+	}
+	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
+	cert, err := loadCert(certPath)
+	if err != nil {
+		t.Fatalf("loadCert: %v", err)
+	}
+	if got := nameString(cert.Subject); got != "/C=PL/O=Example/CN=web.example.com" {
+		t.Fatalf("subject %q, want that of the request", got)
+	}
+	if !slices.Equal(cert.DNSNames, []string{"web.example.com"}) || len(cert.IPAddresses) != 1 ||
+		cert.IPAddresses[0].String() != "192.0.2.1" {
+		t.Fatalf("SANs %v %v, want those of the request", cert.DNSNames, cert.IPAddresses)
+	}
+	text, err := exec.Command("openssl", "x509", "-in", certPath, "-noout", "-text").CombinedOutput()
+	if err != nil {
+		t.Fatalf("openssl x509: %v\n%s", err, text)
+	}
+	if !strings.Contains(string(text), "Registered ID:1.3.6.1.4.1.99999.1") {
+		t.Fatalf("registeredID SAN of the request not copied:\n%s", text)
+	}
+	if cert.IsCA || cert.KeyUsage != x509.KeyUsageDigitalSignature|x509.KeyUsageKeyEncipherment {
+		t.Fatalf("IsCA %v, key usage %v, want those of the server type", cert.IsCA, cert.KeyUsage)
+	}
+	if !slices.Equal(cert.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageCodeSigning}) {
+		t.Fatalf("extended key usage %v, want those of the server type and codeSigning", cert.ExtKeyUsage)
+	}
+	if days := cert.NotAfter.Sub(cert.NotBefore).Hours() / 24; days != 30 {
+		t.Fatalf("valid for %v days, want 30", days)
+	}
+	entries, err := readIndex(issuingDir)
+	if err != nil {
+		t.Fatalf("readIndex: %v", err)
+	}
+	if len(entries) != 1 || entries[0].serial != serialHex(cert.SerialNumber) {
+		t.Fatalf("index.txt entries %+v, want the signed certificate", entries)
+	}
+
+	if err := signCSR(csrPath, issuingDir, "", "server", 30, nil, nil, true, nil); err == nil || !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("signing again: %v, want an error for the existing certificate", err)
+	}
+	if err := signCSR(certPath, issuingDir, t.TempDir(), "server", 30, nil, nil, true, nil); err == nil {
+		t.Fatal("signing a certificate file succeeded, want an error")
+	}
+	forceDir := t.TempDir()
+	if err := signCSR(csrPath, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err != nil {
+		t.Fatalf("signCSR with force: %v", err)
+	}
+	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(forceDir, "web_cert.pem"))
 }
 
 func TestEntryStatus(t *testing.T) {

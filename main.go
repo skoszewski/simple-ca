@@ -88,6 +88,7 @@ var commands = []struct {
 }{
 	{"make-ca", "Create a root or issuing CA.", runMakeCA},
 	{"make-cert", "Create a server or user certificate signed by the CA.", runMakeCert},
+	{"sign", "Sign a certificate signing request with the CA.", runSign},
 	{"make-pfx", "Create a PKCS#12 (PFX) bundle for a leaf certificate.", runMakePFX},
 	{"make-crl", "Generate a CRL for a CA.", runMakeCRL},
 	{"revoke-cert", "Revoke a certificate.", runRevokeCert},
@@ -189,23 +190,7 @@ func runMakeCert(args []string) error {
 	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, the root CA or an issuing CA")
 	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.yaml")
 	days := fs.Int("days", 365, "validity period in `days`")
-	var ekus, kus []string
-	fs.Func("eku", "extended key `usage` added to those of the type, a name such as clientAuth or a\n"+
-		"numeric OID; repeated for more", func(s string) error {
-		ekus = append(ekus, s)
-		return nil
-	})
-	fs.Func("ku", "comma-separated key `usages` added to those of the type, such as\n"+
-		"digitalSignature,keyEncipherment; repeated for more", func(s string) error {
-		for _, ku := range strings.Split(s, ",") {
-			ku = strings.TrimSpace(ku)
-			if ku == "" {
-				return fmt.Errorf("empty key usage in '%s'", s)
-			}
-			kus = append(kus, ku)
-		}
-		return nil
-	})
+	ekus, kus := usageFlags(fs)
 	rest, given, err := parseArgs(fs, args, 1, -1)
 	if err != nil {
 		return err
@@ -218,7 +203,58 @@ func runMakeCert(args []string) error {
 	if !given["days"] && cfg.Days.Cert > 0 {
 		*days = cfg.Days.Cert
 	}
-	return makeCert(rest[0], rest[1:], dir, *certDir, *certType, *days, ekus, kus)
+	return makeCert(rest[0], rest[1:], dir, *certDir, *certType, *days, *ekus, *kus)
+}
+
+// usageFlags defines the --eku and --ku options of fs and returns the extended key usages and
+// key usages they are given.
+func usageFlags(fs *flag.FlagSet) (ekus, kus *[]string) {
+	ekus, kus = new([]string), new([]string)
+	fs.Func("eku", "extended key `usage` added to those of the type, a name such as clientAuth or a\n"+
+		"numeric OID; repeated for more", func(s string) error {
+		*ekus = append(*ekus, s)
+		return nil
+	})
+	fs.Func("ku", "comma-separated key `usages` added to those of the type, such as\n"+
+		"digitalSignature,keyEncipherment; repeated for more", func(s string) error {
+		for _, ku := range strings.Split(s, ",") {
+			ku = strings.TrimSpace(ku)
+			if ku == "" {
+				return fmt.Errorf("empty key usage in '%s'", s)
+			}
+			*kus = append(*kus, ku)
+		}
+		return nil
+	})
+	return ekus, kus
+}
+
+// runSign runs the sign subcommand.
+func runSign(args []string) error {
+	fs := newFlagSet("sign", "CSR_FILE",
+		"Sign the certificate signing request in CSR_FILE, PEM or DER, with the CA in --ca-dir.\n\n"+
+			"Only the subject and the subject alternative names of the request are copied; the type\n"+
+			"sets the key usages and extended key usages. NAME.EXT is written as NAME_cert.pem.\n"+
+			"The certificate is shown and signed once the answer to the question is y.")
+	certDir := fs.String("cert-dir", "", "output `directory` (default: the CA directory)")
+	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, the root CA or an issuing CA")
+	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.yaml")
+	days := fs.Int("days", 365, "validity period in `days`")
+	force := fs.Bool("force", false, "sign without asking")
+	ekus, kus := usageFlags(fs)
+	rest, given, err := parseArgs(fs, args, 1, 1)
+	if err != nil {
+		return err
+	}
+	dir := resolveCADir(*caDir)
+	cfg, err := loadRootConfig(dir)
+	if err != nil {
+		return err
+	}
+	if !given["days"] && cfg.Days.Cert > 0 {
+		*days = cfg.Days.Cert
+	}
+	return signCSR(rest[0], dir, *certDir, *certType, *days, *ekus, *kus, *force, os.Stdin)
 }
 
 // runMakePFX runs the make-pfx subcommand.

@@ -52,8 +52,12 @@ Linux, macOS and Windows without hash symlinks.
 ## Commands
 
 ```sh
-simple-ca make-ca     [--ca-dir DIR] [--days N] [--ca-publish-base-url URL] [--issuing-ca NAME] [--write-conf] CA_NAME
-simple-ca make-cert   [--ca-dir DIR] [--cert-dir DIR] [--days N] [--type server|user|none] [--ku USAGES] [--eku USAGE ...] CN|EMAIL [EMAIL|CN] [SAN ...]
+simple-ca make-ca     [--ca-dir DIR] [--days N] [--ca-publish-base-url URL]
+                      [--issuing-ca NAME] [--write-conf] CA_NAME
+simple-ca make-cert   [--ca-dir DIR] [--cert-dir DIR] [--days N] [--type server|user|none]
+                      [--ku USAGES] [--eku USAGE ...] CN|EMAIL [EMAIL|CN] [SAN ...]
+simple-ca sign        [--ca-dir DIR] [--cert-dir DIR] [--days N] [--type server|user|none]
+                      [--ku USAGES] [--eku USAGE ...] [--force] CSR_FILE
 simple-ca make-pfx    [--ca-dir DIR] [--password PASS] CERT_PATH
 simple-ca make-crl    [--ca-dir DIR] [--days N]
 simple-ca revoke-cert [--ca-dir DIR] CERT_PATH
@@ -104,7 +108,8 @@ can be used side by side:
 
 ```sh
 simple-ca make-ca --ca-dir /tmp/ca --issuing-ca servers --write-conf "My Servers CA"
-openssl ca -config /tmp/ca/servers/openssl.cnf -extensions ext_user -in alice.csr -out alice_cert.pem
+openssl ca -config /tmp/ca/servers/openssl.cnf -extensions ext_user \
+  -in alice.csr -out alice_cert.pem
 openssl ca -config /tmp/ca/servers/openssl.cnf -gencrl -out /tmp/ca/servers/crl.pem
 ```
 
@@ -174,7 +179,33 @@ simple-ca make-cert web.example.com web 192.0.2.1 2001:db8::1 1.3.6.1.4.1.99999.
 simple-ca make-cert --type user alice@example.com "Alice Example" a.example@example.org
 simple-ca make-cert --type user --ku keyEncipherment "Alice Example" alice@example.com
 simple-ca make-cert --eku 1.3.6.1.4.1.99999.10 device01.example.com
-simple-ca make-cert --type none --ku digitalSignature,keyAgreement --eku clientAuth device02.example.com
+simple-ca make-cert --type none --ku digitalSignature,keyAgreement --eku clientAuth \
+  device02.example.com
+```
+
+### sign
+
+Signs the certificate signing request in `CSR_FILE`, a PEM or DER file whose signature must be
+valid, with the CA in the CA directory, and records the certificate in `index.txt` of that CA.
+Only the subject and the subject alternative names of the request are copied, as they are; the
+name rules of the type are not checked. The key usages and extended key usages are those of the
+type, with `--ku` and `--eku` added as for [make-cert](#make-cert), and the other extensions of
+the request are left out. The AIA and CRL Distribution Point URLs are those of the CA.
+
+The certificate is written to the CA directory, or to `--cert-dir`, named after the request file:
+`web.csr` is written as `web_cert.pem`. A certificate that exists is an error. `--type` defaults
+to `server` and `--days` to 365.
+
+The certificate is shown, with the fields of [info](#info), and `sign` asks
+`Sign this certificate? [y/N]`. It is written and recorded after `y` or `yes`; any other answer,
+or no input, leaves it unsigned and exits with status 1. `--force` signs without asking.
+
+```sh
+openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+  -keyout web_key.pem -out web.csr -subj "/O=Example/CN=web.example.com" \
+  -addext "subjectAltName=DNS:web.example.com,IP:192.0.2.1"
+simple-ca sign --ca-dir /tmp/ca/servers web.csr
+simple-ca sign --ca-dir /tmp/ca/servers --type user --cert-dir . --force alice.csr
 ```
 
 ### make-pfx
@@ -256,15 +287,17 @@ default.
 | `/crl.crl` | `crl.pem` of the root CA, as DER | `application/pkix-crl` |
 | `/crl.pem` | `crl.pem` of the root CA | `application/x-pem-file` |
 | `/ca_bundle.pem` | `ca_bundle.pem` | `application/x-pem-file` |
+| `/ca_bundle.p7b` | the certificates of `ca_bundle.pem`, as PKCS#7 | `application/x-pkcs7-certificates` |
 | `/NAME/...` | the same four files of the issuing CA `NAME` | |
 
 The index page lists the root CA and all its issuing CAs, also when `--ca-dir` is an issuing CA,
 each with its subject, issuer, serial number, validity period, days left before it expires,
 marked when fewer than 30 are left, key and SHA-256 fingerprint, and its current CRL, with its
-number, the count of revoked certificates and its next update, marked when overdue. It links to
-the certificate and CRL of each CA, in DER and PEM, and to the CA bundle. It is styled with the browser
-build of Tailwind CSS 4.3.3, embedded in the executable and served at
-`/assets/tailwindcss-browser-4.3.3.js`, so the page loads nothing from other sites.
+number, the count of revoked certificates and its next update, marked when overdue. The CA bundle
+is offered at the top of the page, above the CAs, as P7B, which Windows opens and imports with
+all its certificates, and as PEM; each CA links to its certificate and CRL, in DER and PEM. The
+page is styled with the browser build of Tailwind CSS 4.3.3, embedded in the executable and
+served at `/assets/tailwindcss-browser-4.3.3.js`, so the page loads nothing from other sites.
 
 The files are read on each request, so a CRL written by `make-crl` is served at once; a file that
 does not exist is `404 Not Found`. No other file is served. Each
@@ -304,7 +337,7 @@ types:
 
 - `ca_publish_base_url` - base URL for the AIA and CRL Distribution Point extensions.
 - `days` - defaults for `--days`: `ca`, `cert`, `crl`.
-- `types` - certificate types for `make-cert --type`, by name, of letters, digits and
+- `types` - certificate types for `make-cert --type` and `sign --type`, by name, of letters, digits and
   underscores. A type named `server`, `user` or `none` redefines the built-in type, and any
   other name defines a new type. Each type has:
   - `names` - the name rules of the subject and SANs, `server` or `user`, as described under
