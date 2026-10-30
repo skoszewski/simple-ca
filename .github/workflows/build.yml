@@ -1,0 +1,130 @@
+# A semver tag with a leading v on a commit on main, naming the newest CHANGELOG.md entry, is
+# checked, built for every platform it is published for, and published as a release, with the
+# tag's message as its notes and as a prerelease for a prerelease version. Each executable is
+# given the tag as its version and published in a tar.gz, or a zip for Windows, named after its
+# version, without the v, and its platform.
+
+name: build
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf 'these files are not gofmt clean:\n%s\n' "$unformatted" >&2
+            exit 1
+          fi
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64, windows/arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build
+        id: build
+        env:
+          CGO_ENABLED: "0"
+          PLATFORM: ${{ matrix.platform }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          export GOOS="${PLATFORM%%/*}" GOARCH="${PLATFORM##*/}"
+          binary="simple-ca"
+          if [ "$GOOS" = "windows" ]; then
+            binary="$binary.exe"
+          fi
+          version="${TAG#v}"
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/$binary" .
+          mkdir -p dist
+          if [ "$GOOS" = "windows" ]; then
+            archive="simple-ca-$version-$GOOS-$GOARCH.zip"
+            (cd build && zip -9 "../dist/$archive" "$binary")
+          else
+            archive="simple-ca-$version-$GOOS-$GOARCH.tar.gz"
+            tar -czf "dist/$archive" -C build "$binary"
+          fi
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/${{ steps.build.outputs.archive }}
+          archive: false
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Semver tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          number='(0|[1-9][0-9]*)'
+          identifier='(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)'
+          semver="^v$number\.$number\.$number(-$identifier(\.$identifier)*)?$"
+          if ! [[ "$TAG" =~ $semver ]]; then
+            echo "'$TAG' is not a semver tag with a leading v" >&2
+            exit 1
+          fi
+      - name: Tag on main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "'$TAG' is not on main" >&2
+            exit 1
+          fi
+      - name: Tag of the newest CHANGELOG.md entry
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          newest="$(awk '/^## / { print $2; exit }' CHANGELOG.md)"
+          if [ "v$newest" != "$TAG" ]; then
+            echo "'$TAG' is not the version of the newest CHANGELOG.md entry, '$newest'" >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+          skip-decompress: true
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=()
+          if [[ "$TAG" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$TAG" dist/* --verify-tag --title "$TAG" --notes-from-tag "${prerelease[@]}"
