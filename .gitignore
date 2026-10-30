@@ -25,6 +25,14 @@ profile.cov
 go.work
 go.work.sum
 
+# Build outputs
+/simple-ca
+/simple-ca-*
+/build/
+/dist/
+/tmp/
+/ca/
+
 # env file
 .env
 
