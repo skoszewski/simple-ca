@@ -2,8 +2,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -400,8 +405,8 @@ func TestOpenSSLCA(t *testing.T) {
 	if len(crl.RevokedCertificateEntries) != 1 || crl.RevokedCertificateEntries[0].SerialNumber.Cmp(alice.SerialNumber) != 0 {
 		t.Fatalf("CRL of openssl ca lists %+v, want only alice", crl.RevokedCertificateEntries)
 	}
-	if crl.Number.Int64() != 1 {
-		t.Fatalf("CRL of openssl ca has number %d, want 1", crl.Number)
+	if crl.Number.Int64() != 2 {
+		t.Fatalf("CRL of openssl ca has number %d, want 2, after the first CRL of make-ca", crl.Number)
 	}
 }
 
@@ -437,7 +442,7 @@ func TestRevokeAndCRL(t *testing.T) {
 	}
 
 	crlPath := filepath.Join(caDir, "issuing_ca", "crl.pem")
-	for want := int64(1); want <= 2; want++ {
+	for want := int64(2); want <= 3; want++ {
 		if err := makeCRL(filepath.Join(caDir, "issuing_ca"), 30); err != nil {
 			t.Fatalf("makeCRL: %v", err)
 		}
@@ -524,7 +529,7 @@ func TestListAndInfo(t *testing.T) {
 	if err := showInfo(&out, filepath.Join(caDir, "issuing_ca")); err != nil {
 		t.Fatalf("showInfo issuing: %v", err)
 	}
-	for _, s := range []string{"CN=Issuing CA", "yes, path length 0", "1 valid, 1 revoked, 0 expired", "CRL:", "number 1, 1 revoked", "Next CRL number:"} {
+	for _, s := range []string{"CN=Issuing CA", "yes, path length 0", "1 valid, 1 revoked, 0 expired", "CRL:", "number 2, 1 revoked", "Next CRL number:"} {
 		if !strings.Contains(out.String(), s) {
 			t.Fatalf("info of the issuing CA lacks %q:\n%s", s, out.String())
 		}
@@ -533,7 +538,7 @@ func TestListAndInfo(t *testing.T) {
 	if err := showInfo(&out, caDir); err != nil {
 		t.Fatalf("showInfo root: %v", err)
 	}
-	for _, s := range []string{"root CA", "yes, path length 1", "1 valid, 0 revoked, 0 expired", "CRL:", "none", "Issuing CAs:", "issuing_ca"} {
+	for _, s := range []string{"root CA", "yes, path length 1", "1 valid, 0 revoked, 0 expired", "CRL:", "number 1, 0 revoked", "Issuing CAs:", "issuing_ca"} {
 		if !strings.Contains(out.String(), s) {
 			t.Fatalf("info of the root CA lacks %q:\n%s", s, out.String())
 		}
@@ -909,6 +914,186 @@ func TestWriteOpenSSLConf(t *testing.T) {
 	if out, err := exec.Command("openssl", "verify", "-crl_check", "-CAfile", filepath.Join(caDir, "ca_bundle.pem"),
 		"-CRLfile", filepath.Join(work, "crl.pem"), certPath).CombinedOutput(); err == nil || !strings.Contains(string(out), "revoked") {
 		t.Fatalf("expected the certificate to be reported revoked:\n%s", out)
+	}
+}
+
+func TestServe(t *testing.T) {
+	caDir := t.TempDir()
+	server := httptest.NewServer(newServeMux(caDir))
+	defer server.Close()
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	if err := makeCA(caDir, "Test CA", 3650, "", server.URL); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing_ca", ""); err != nil {
+		t.Fatalf("makeCA issuing: %v", err)
+	}
+	if err := makeCert("web.example.com", nil, filepath.Join(caDir, "issuing_ca"), "", "server", 365, nil, nil); err != nil {
+		t.Fatalf("makeCert: %v", err)
+	}
+
+	get := func(method, path string) (int, string, []byte) {
+		req, err := http.NewRequest(method, server.URL+path, nil)
+		if err != nil {
+			t.Fatalf("NewRequest %s: %v", path, err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		return resp.StatusCode, resp.Header.Get("Content-Type"), body
+	}
+
+	leaf, err := loadCert(filepath.Join(caDir, "issuing_ca", "web_cert.pem"))
+	if err != nil {
+		t.Fatalf("loadCert: %v", err)
+	}
+	issuing, err := loadCert(filepath.Join(caDir, "issuing_ca", "ca_cert.pem"))
+	if err != nil {
+		t.Fatalf("loadCert: %v", err)
+	}
+	aia := strings.TrimPrefix(leaf.IssuingCertificateURL[0], server.URL)
+	if status, typ, body := get("GET", aia); status != http.StatusOK || typ != "application/pkix-cert" || !bytes.Equal(body, issuing.Raw) {
+		t.Fatalf("GET %s: %d %s, the DER of the issuing CA: %v", aia, status, typ, bytes.Equal(body, issuing.Raw))
+	}
+	cdp := strings.TrimPrefix(leaf.CRLDistributionPoints[0], server.URL)
+	if status, _, _ := get("GET", cdp); status != http.StatusOK {
+		t.Fatalf("GET %s, the first CRL of make-ca: %d, want 200", cdp, status)
+	}
+	if err := makeCA(caDir, "Short CA", 10, "short_ca", ""); err != nil {
+		t.Fatalf("makeCA short: %v", err)
+	}
+	status, typ, page := get("GET", "/")
+	if status != http.StatusOK || typ != "text/html; charset=utf-8" {
+		t.Fatalf("GET /: %d %s", status, typ)
+	}
+	fingerprint := sha256.Sum256(issuing.Raw)
+	for _, s := range []string{"<title>Test CA - simple-ca</title>", `font-semibold">Test CA</h1>`, "served by simple-ca",
+		"/CN=Issuing CA", "issuing CA issuing_ca",
+		"issuing CA short_ca", "<dd>/CN=Test CA</dd>", serialHex(issuing.SerialNumber),
+		`<span class="whitespace-nowrap">` + colonHex(fingerprint[:8]) + `:</span><span class="whitespace-nowrap">` +
+			colonHex(fingerprint[8:16]) + `:</span><span class="whitespace-nowrap">` + colonHex(fingerprint[16:24]) +
+			`:</span><span class="whitespace-nowrap">` + colonHex(fingerprint[24:]) + `</span>`,
+		"RSA 4096 bits", issuing.NotBefore.UTC().Format(displayTimeFormat), "3650 days left",
+		`bg-amber-100 text-amber-800">10 days left`, `href="/ca_cert.crt"`, `href="/issuing_ca/ca_cert.pem"`,
+		"<dd>number 1, 0 revoked, next update ", `href="/issuing_ca/crl.crl"`, `<script src="` + tailwindPath + `">`} {
+		if !strings.Contains(string(page), s) {
+			t.Fatalf("the index page lacks %q:\n%s", s, page)
+		}
+	}
+	if strings.Contains(string(page), "https://") {
+		t.Fatalf("the index page loads a resource from another site:\n%s", page)
+	}
+	status, typ, script := get("GET", tailwindPath)
+	if status != http.StatusOK || typ != "text/javascript; charset=utf-8" || !bytes.Equal(script, tailwindJS) ||
+		!bytes.Contains(script, []byte(`"4.3.3"`)) {
+		t.Fatalf("GET %s: %d %s, %d bytes", tailwindPath, status, typ, len(script))
+	}
+	if status, _, _ := get("GET", "/assets/"); status != http.StatusNotFound {
+		t.Fatalf("GET /assets/: %d, want 404", status)
+	}
+	if err := makeCRL(filepath.Join(caDir, "issuing_ca"), 30); err != nil {
+		t.Fatalf("makeCRL: %v", err)
+	}
+	if _, _, page := get("GET", "/"); !strings.Contains(string(page), "<dd>number 2, 0 revoked, next update ") {
+		t.Fatalf("the index page lacks the second CRL of the issuing CA:\n%s", page)
+	}
+	status, typ, body := get("GET", cdp)
+	if status != http.StatusOK || typ != "application/x-pem-file" {
+		t.Fatalf("GET %s: %d %s", cdp, status, typ)
+	}
+	if block, _ := pem.Decode(body); block == nil || block.Type != "X509 CRL" {
+		t.Fatalf("GET %s is not a PEM CRL:\n%s", cdp, body)
+	}
+	status, typ, body = get("GET", "/issuing_ca/crl.crl")
+	if status != http.StatusOK || typ != "application/pkix-crl" {
+		t.Fatalf("GET /issuing_ca/crl.crl: %d %s", status, typ)
+	}
+	crl, err := x509.ParseRevocationList(body)
+	if err != nil || crl.CheckSignatureFrom(issuing) != nil {
+		t.Fatalf("the DER CRL does not parse or is not signed by the issuing CA: %v", err)
+	}
+
+	bundle, err := os.ReadFile(filepath.Join(caDir, "ca_bundle.pem"))
+	if err != nil {
+		t.Fatalf("read ca_bundle.pem: %v", err)
+	}
+	if status, _, body := get("GET", "/ca_bundle.pem"); status != http.StatusOK || !bytes.Equal(body, bundle) {
+		t.Fatalf("GET /ca_bundle.pem: %d", status)
+	}
+	if status, _, _ := get("HEAD", "/ca_cert.pem"); status != http.StatusOK {
+		t.Fatalf("HEAD /ca_cert.pem: %d", status)
+	}
+
+	for _, c := range []struct {
+		method, path string
+		status       int
+	}{
+		{"GET", "/ca_key.pem", http.StatusNotFound},
+		{"GET", "/issuing_ca/ca_key.pem", http.StatusNotFound},
+		{"GET", "/issuing_ca/web_cert.pem", http.StatusNotFound},
+		{"GET", "/missing/ca_cert.crt", http.StatusNotFound},
+		{"GET", "/issuing_ca/../ca_key.pem", http.StatusNotFound},
+		{"GET", "/crl.pem", http.StatusOK},
+		{"POST", "/ca_cert.crt", http.StatusMethodNotAllowed},
+	} {
+		if status, _, _ := get(c.method, c.path); status != c.status {
+			t.Fatalf("%s %s: %d, want %d", c.method, c.path, status, c.status)
+		}
+	}
+}
+
+func TestInitialCRL(t *testing.T) {
+	caDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(caDir, configFile), []byte("days:\n  crl: 7\n"), 0o644); err != nil {
+		t.Fatalf("write %s: %v", configFile, err)
+	}
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing_ca", ""); err != nil {
+		t.Fatalf("makeCA issuing: %v", err)
+	}
+	for _, dir := range []string{caDir, filepath.Join(caDir, "issuing_ca")} {
+		ca, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
+		if err != nil {
+			t.Fatalf("loadCert: %v", err)
+		}
+		b, err := os.ReadFile(filepath.Join(dir, "crl.pem"))
+		if err != nil {
+			t.Fatalf("make-ca wrote no CRL in %s: %v", dir, err)
+		}
+		block, _ := pem.Decode(b)
+		if block == nil {
+			t.Fatalf("no PEM block in the CRL of %s", dir)
+		}
+		crl, err := x509.ParseRevocationList(block.Bytes)
+		if err != nil {
+			t.Fatalf("ParseRevocationList: %v", err)
+		}
+		if err := crl.CheckSignatureFrom(ca); err != nil {
+			t.Fatalf("the CRL of %s is not signed by its CA: %v", dir, err)
+		}
+		if crl.Number.Int64() != 1 || len(crl.RevokedCertificateEntries) != 0 {
+			t.Fatalf("the first CRL of %s has number %d and %d entries", dir, crl.Number, len(crl.RevokedCertificateEntries))
+		}
+		if days := crl.NextUpdate.Sub(crl.ThisUpdate).Hours() / 24; days != 7 {
+			t.Fatalf("the first CRL of %s is valid for %v days, want days.crl, 7", dir, days)
+		}
+	}
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA second run: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(caDir, crlNumberFile)); err != nil || strings.TrimSpace(string(b)) != "02" {
+		t.Fatalf("make-ca of an existing CA changed its CRL number: %q, %v", b, err)
 	}
 }
 

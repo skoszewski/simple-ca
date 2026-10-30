@@ -60,6 +60,7 @@ simple-ca revoke-cert [--ca-dir DIR] CERT_PATH
 simple-ca info        [--ca-dir DIR]
 simple-ca info        CERT_FILE
 simple-ca list        [--ca-dir DIR] [--valid] [--revoked] [--expired]
+simple-ca serve       [--ca-dir DIR] [--address ADDRESS] [--port PORT]
 simple-ca --version
 ```
 
@@ -76,6 +77,10 @@ Without `--issuing-ca`, creates the root CA in the CA directory. With `--issuing
 creates an issuing CA in `CA_DIR/NAME/`, signed by the root CA in the CA directory, and adds it
 to `ca_bundle.pem` and to `index.txt` of the root CA. The CA directory must not hold an issuing
 CA. A CA that exists is left as it is. `--days` defaults to 3650.
+
+A new CA starts with an empty CRL, number 1, valid for `days.crl` of `simple-ca.yaml`, 30 days
+without it, so the CRL Distribution Point URL of its certificates has a CRL to serve from the
+start. `make-crl` renews it before its next update.
 
 `--ca-publish-base-url URL` is stored in `simple-ca.yaml` and embeds AIA (Authority Information
 Access) and CRL Distribution Point extensions in the issuing CAs and certificates issued from
@@ -236,6 +241,44 @@ valid    2027-10-30 21:51:52 UTC  -                        22AECF2AC0EE6D9185176
 revoked  2027-10-30 21:51:52 UTC  2026-10-30 21:51:52 UTC  12193ECDF2A38AF35B12C657CD52BC5C4CC7626D  /CN=alice.example.com
 ```
 
+### serve
+
+Serves the certificates and CRLs of the root CA of the CA directory, and of all its issuing CAs,
+over HTTP, until it is stopped with Ctrl-C. `--address` is the address of the interface it listens
+on, `127.0.0.1` by default and all interfaces when empty, and `--port` the TCP port, 8080 by
+default.
+
+| URL | File | Content type |
+|---|---|---|
+| `/` | an index page of the CAs, with links to their files | `text/html` |
+| `/ca_cert.crt` | `ca_cert.pem` of the root CA, as DER | `application/pkix-cert` |
+| `/ca_cert.pem` | `ca_cert.pem` of the root CA | `application/x-pem-file` |
+| `/crl.crl` | `crl.pem` of the root CA, as DER | `application/pkix-crl` |
+| `/crl.pem` | `crl.pem` of the root CA | `application/x-pem-file` |
+| `/ca_bundle.pem` | `ca_bundle.pem` | `application/x-pem-file` |
+| `/NAME/...` | the same four files of the issuing CA `NAME` | |
+
+The index page lists the root CA and all its issuing CAs, also when `--ca-dir` is an issuing CA,
+each with its subject, issuer, serial number, validity period, days left before it expires,
+marked when fewer than 30 are left, key and SHA-256 fingerprint, and its current CRL, with its
+number, the count of revoked certificates and its next update, marked when overdue. It links to
+the certificate and CRL of each CA, in DER and PEM, and to the CA bundle. It is styled with the browser
+build of Tailwind CSS 4.3.3, embedded in the executable and served at
+`/assets/tailwindcss-browser-4.3.3.js`, so the page loads nothing from other sites.
+
+The files are read on each request, so a CRL written by `make-crl` is served at once; a file that
+does not exist is `404 Not Found`. No other file is served. Each
+request is logged to the standard error.
+
+The URLs are those `--ca-publish-base-url` writes into the certificates, so with the base URL set
+to the address of the server, the AIA and CRL Distribution Point URLs of the certificates are
+served:
+
+```sh
+simple-ca make-ca --ca-dir /tmp/ca --ca-publish-base-url http://pki.example.com:8080 "My Root CA"
+simple-ca serve --ca-dir /tmp/ca --address "" --port 8080
+```
+
 ## simple-ca.yaml
 
 The settings of the root CA and its issuing CAs, in the root CA directory; a command working with
@@ -357,3 +400,7 @@ workflow.
 ## Licence
 
 MIT, see [LICENSE](LICENSE).
+
+`assets/tailwindcss-browser-4.3.3.js` is `dist/index.global.js` of the npm package
+`@tailwindcss/browser` 4.3.3, copyright Tailwind Labs, Inc., under the MIT licence of
+[assets/tailwindcss-browser-LICENSE](assets/tailwindcss-browser-LICENSE).

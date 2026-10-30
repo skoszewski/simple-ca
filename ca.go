@@ -72,7 +72,8 @@ func rebuildCABundle(caDir string) error {
 // ---- makeCA -----------------------------------------------------------------
 
 // makeCA creates the root CA in caDir, or with issuingCA set an issuing CA in caDir/issuingCA
-// signed by the root CA in caDir, and skips a CA that exists.
+// signed by the root CA in caDir, with its database and an empty first CRL valid for days.crl of
+// simple-ca.yaml, 30 days without it, and skips a CA that exists.
 func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 	if days < 1 {
 		return errors.New("--days must be a positive integer")
@@ -105,6 +106,10 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 		}
 	}
 	baseURL = cfg.CAPublishBaseURL
+	crlDays := 30
+	if cfg.Days.CRL > 0 {
+		crlDays = cfg.Days.CRL
+	}
 
 	rootCertPath := filepath.Join(caDir, "ca_cert.pem")
 	rootKeyPath := filepath.Join(caDir, "ca_key.pem")
@@ -147,6 +152,9 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 			return err
 		}
 		if err := initCADatabase(caDir); err != nil {
+			return err
+		}
+		if err := makeCRL(caDir, crlDays); err != nil {
 			return err
 		}
 		return rebuildCABundle(caDir)
@@ -219,6 +227,9 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 			return err
 		}
 		if err := recordIssued(caDir, issued); err != nil {
+			return err
+		}
+		if err := makeCRL(issuingCADir, crlDays); err != nil {
 			return err
 		}
 	}

@@ -89,6 +89,19 @@ func colonHex(b []byte) string {
 	return strings.Join(parts, ":")
 }
 
+// keyDescription names the type and size of the public key of cert, such as "RSA 4096 bits".
+func keyDescription(cert *x509.Certificate) string {
+	switch k := cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		return fmt.Sprintf("RSA %d bits", k.N.BitLen())
+	case *ecdsa.PublicKey:
+		return fmt.Sprintf("ECDSA %s", k.Curve.Params().Name)
+	case ed25519.PublicKey:
+		return "Ed25519"
+	}
+	return fmt.Sprintf("%T", cert.PublicKey)
+}
+
 // writeCertFields writes the fields of cert to w as tab-separated lines, its validity judged at
 // the time now; a field the certificate does not have is left out.
 func writeCertFields(w io.Writer, cert *x509.Certificate, now time.Time) {
@@ -105,17 +118,7 @@ func writeCertFields(w io.Writer, cert *x509.Certificate, now time.Time) {
 	}
 	fmt.Fprintf(w, "Validity:\t%s\n", validity)
 	fmt.Fprintf(w, "Signature algorithm:\t%s\n", cert.SignatureAlgorithm)
-
-	key := fmt.Sprintf("%T", cert.PublicKey)
-	switch k := cert.PublicKey.(type) {
-	case *rsa.PublicKey:
-		key = fmt.Sprintf("RSA %d bits", k.N.BitLen())
-	case *ecdsa.PublicKey:
-		key = fmt.Sprintf("ECDSA %s", k.Curve.Params().Name)
-	case ed25519.PublicKey:
-		key = "Ed25519"
-	}
-	fmt.Fprintf(w, "Key:\t%s\n", key)
+	fmt.Fprintf(w, "Key:\t%s\n", keyDescription(cert))
 
 	if cert.BasicConstraintsValid && cert.IsCA {
 		pathLen := "unlimited"

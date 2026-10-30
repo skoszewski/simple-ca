@@ -27,10 +27,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // ---- version ----------------------------------------------------------------
@@ -89,6 +93,7 @@ var commands = []struct {
 	{"revoke-cert", "Revoke a certificate.", runRevokeCert},
 	{"info", "Show a CA, or the certificates in a file.", runInfo},
 	{"list", "List the certificates a CA issued.", runList},
+	{"serve", "Serve the CA certificates and CRLs over HTTP.", runServe},
 }
 
 // printUsage writes the usage of simple-ca to w.
@@ -302,6 +307,32 @@ func runList(args []string) error {
 		statuses = append(statuses, "expired")
 	}
 	return listCerts(os.Stdout, dir, statuses)
+}
+
+// runServe runs the serve subcommand until it fails or is interrupted.
+func runServe(args []string) error {
+	fs := newFlagSet("serve", "", "Serve the certificates and CRLs of the root CA of the CA in --ca-dir, and of its\n"+
+		"issuing CAs, over HTTP.")
+	caDir := fs.String("ca-dir", "", "`directory` of the root CA or of one of its issuing CAs")
+	address := fs.String("address", "127.0.0.1", "`address` of the interface to listen on; empty for all interfaces")
+	port := fs.Int("port", 8080, "TCP `port` to listen on")
+	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
+		return err
+	}
+	if *port < 1 || *port > 65535 {
+		return fmt.Errorf("--port must be from 1 to 65535, got %d", *port)
+	}
+	rootDir, _, err := locateCA(resolveCADir(*caDir))
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(*address, strconv.Itoa(*port)))
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Serving the CAs of %s on http://%s/\n", rootDir, listener.Addr())
+	server := &http.Server{Handler: newServeMux(rootDir), ReadHeaderTimeout: 10 * time.Second}
+	return server.Serve(listener)
 }
 
 // run runs the subcommand named by the first of args, or prints the usage or the version.
