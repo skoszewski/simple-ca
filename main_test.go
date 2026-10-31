@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1085,6 +1087,35 @@ func TestServe(t *testing.T) {
 	if strings.Contains(string(page), "https://") {
 		t.Fatalf("the index page loads a resource from another site:\n%s", page)
 	}
+	if !strings.Contains(string(page), `<section id="issuing_ca" `) {
+		t.Fatalf("the index page has no section with the ID issuing_ca:\n%s", page)
+	}
+
+	// /CA and /CA/ of an issuing CA redirect to its section of the index page.
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, c := range []struct {
+		method, path, location string
+		want                   int
+	}{
+		{"GET", "/issuing_ca", "/#issuing_ca", http.StatusFound},
+		{"GET", "/issuing_ca/", "/#issuing_ca", http.StatusFound},
+		{"HEAD", "/issuing_ca", "/#issuing_ca", http.StatusFound},
+		{"GET", "/nosuch", "", http.StatusNotFound},
+		{"GET", "/nosuch/", "", http.StatusNotFound},
+	} {
+		req, err := http.NewRequest(c.method, server.URL+c.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", c.method, c.path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != c.want || resp.Header.Get("Location") != c.location {
+			t.Fatalf("%s %s: %d to %q, want %d to %q", c.method, c.path, resp.StatusCode, resp.Header.Get("Location"), c.want, c.location)
+		}
+	}
 	bundleAt := strings.Index(string(page), `href="/ca_bundle.pem"`)
 	if bundleAt < 0 || bundleAt > strings.Index(string(page), "<section") {
 		t.Fatalf("the index page does not offer the CA bundle above the CAs:\n%s", page)
@@ -1490,5 +1521,357 @@ func TestEntryStatus(t *testing.T) {
 		if got != c.want {
 			t.Fatalf("entryStatus %+v = %q, want %q", c.entry, got, c.want)
 		}
+	}
+}
+
+func TestTokens(t *testing.T) {
+	caDir := t.TempDir()
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	token, err := makeToken(caDir, "deploy", time.Hour, []string{"server", "user"}, []string{"Example.COM."})
+	if err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	if strings.Count(token, ".") != 2 {
+		t.Fatalf("token %q is not a JWT", token)
+	}
+	info, err := os.Stat(filepath.Join(caDir, tokensFile))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("%s: %v, mode %v, want 0600", tokensFile, err, info.Mode().Perm())
+	}
+	db, err := loadTokens(caDir)
+	if err != nil {
+		t.Fatalf("loadTokens: %v", err)
+	}
+	tok := db.Tokens["deploy"]
+	if tok == nil || !slices.Equal(tok.Domains, []string{"example.com"}) || !slices.Equal(tok.Types, []string{"server", "user"}) ||
+		tok.Expires.Sub(tok.Issued) != time.Hour {
+		t.Fatalf("token entry %+v, want the domains, types and validity given", tok)
+	}
+
+	for _, c := range []struct {
+		name    string
+		types   []string
+		domains []string
+	}{
+		{"deploy", []string{"server"}, []string{"example.com"}},
+		{"bad name", []string{"server"}, []string{"example.com"}},
+		{"other", []string{"nosuch"}, []string{"example.com"}},
+		{"other", []string{"server"}, nil},
+		{"other", []string{"server"}, []string{"192.0.2.1"}},
+	} {
+		if _, err := makeToken(caDir, c.name, time.Hour, c.types, c.domains); err == nil {
+			t.Fatalf("makeToken %q %v %v succeeded, want an error", c.name, c.types, c.domains)
+		}
+	}
+
+	var out bytes.Buffer
+	if err := listTokens(&out, caDir); err != nil {
+		t.Fatalf("listTokens: %v", err)
+	}
+	if !strings.Contains(out.String(), "deploy") || !strings.Contains(out.String(), "valid") {
+		t.Fatalf("list-tokens output:\n%s\nwant the valid token deploy", out.String())
+	}
+	if err := revokeToken(caDir, "deploy"); err != nil {
+		t.Fatalf("revokeToken: %v", err)
+	}
+	if err := revokeToken(caDir, "deploy"); err == nil {
+		t.Fatal("revoking twice succeeded, want an error")
+	}
+	if err := revokeToken(caDir, "nosuch"); err == nil {
+		t.Fatal("revoking an unknown token succeeded, want an error")
+	}
+	out.Reset()
+	if err := listTokens(&out, caDir); err != nil || strings.Contains(out.String(), "deploy") {
+		t.Fatalf("list-tokens output:\n%s\n%v, want no revoked token", out.String(), err)
+	}
+	if db, err := loadTokens(caDir); err != nil || len(db.Tokens) != 0 {
+		t.Fatalf("tokens after revoking: %v, want none", err)
+	}
+	if _, err := makeToken(caDir, "deploy", time.Hour, []string{"server"}, []string{"example.com"}); err != nil {
+		t.Fatalf("makeToken with the name of a revoked token: %v", err)
+	}
+	if _, err := makeToken(caDir, "short", time.Millisecond, []string{"server"}, []string{"example.com"}); err == nil {
+		t.Fatal("makeToken valid for 1ms succeeded, want an error")
+	}
+
+	// purgeTokens removes the expired tokens alone.
+	if _, err := makeToken(caDir, "old", time.Hour, []string{"server"}, []string{"example.com"}); err != nil {
+		t.Fatalf("makeToken old: %v", err)
+	}
+	db, err = loadTokens(caDir)
+	if err != nil {
+		t.Fatalf("loadTokens: %v", err)
+	}
+	db.Tokens["old"].Expires = time.Now().Add(-time.Minute)
+	if err := db.save(caDir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if n, err := purgeTokens(caDir); err != nil || n != 1 {
+		t.Fatalf("purgeTokens: %d, %v, want 1 removed", n, err)
+	}
+	if db, err := loadTokens(caDir); err != nil || len(db.Tokens) != 1 || db.Tokens["deploy"] == nil {
+		t.Fatalf("tokens after purging: %v, want deploy alone", err)
+	}
+	if n, err := purgeTokens(t.TempDir()); err != nil || n != 0 {
+		t.Fatalf("purgeTokens without tokens-db.json: %d, %v, want 0", n, err)
+	}
+
+	// A held lock makes the commands wait and then fail, and its release lets them run.
+	lockPath := filepath.Join(caDir, tokensFile+".lock")
+	if fileExists(lockPath) {
+		t.Fatalf("%s left after the commands", lockPath)
+	}
+	unlock, err := lockTokens(caDir)
+	if err != nil {
+		t.Fatalf("lockTokens: %v", err)
+	}
+	wait := tokensLockWait
+	tokensLockWait = 200 * time.Millisecond
+	t.Cleanup(func() { tokensLockWait = wait })
+	if err := revokeToken(caDir, "deploy"); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("locked by process %d", os.Getpid())) {
+		t.Fatalf("revokeToken while locked: %v, want a lock error naming this process", err)
+	}
+	unlock()
+	if err := revokeToken(caDir, "deploy"); err != nil {
+		t.Fatalf("revokeToken after unlocking: %v", err)
+	}
+}
+
+func TestAPISign(t *testing.T) {
+	caDir := t.TempDir()
+	csrDir := t.TempDir()
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing_ca", ""); err != nil {
+		t.Fatalf("makeCA issuing: %v", err)
+	}
+	if err := makeCA(caDir, "Plain CA", 3650, "plain_ca", ""); err != nil {
+		t.Fatalf("makeCA plain: %v", err)
+	}
+	issuingDir := filepath.Join(caDir, "issuing_ca")
+	token, err := makeToken(issuingDir, "deploy", time.Hour, []string{"server", "user"}, []string{"example.com"})
+	if err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	rootToken, err := makeToken(caDir, "root", time.Hour, []string{"server"}, []string{"example.com"})
+	if err != nil {
+		t.Fatalf("makeToken root: %v", err)
+	}
+	serverOnly, err := makeToken(issuingDir, "server-only", time.Hour, []string{"server"}, []string{"example.com"})
+	if err != nil {
+		t.Fatalf("makeToken server-only: %v", err)
+	}
+	expired, err := makeToken(issuingDir, "expired", time.Hour, []string{"server"}, []string{"example.com"})
+	if err != nil {
+		t.Fatalf("makeToken expired: %v", err)
+	}
+	revoked, err := makeToken(issuingDir, "revoked", time.Hour, []string{"server"}, []string{"example.com"})
+	if err != nil {
+		t.Fatalf("makeToken revoked: %v", err)
+	}
+	if err := revokeToken(issuingDir, "revoked"); err != nil {
+		t.Fatalf("revokeToken: %v", err)
+	}
+	if _, err := makeToken(issuingDir, "revoked", time.Hour, []string{"server"}, []string{"example.com"}); err != nil {
+		t.Fatalf("makeToken with the name of the revoked token: %v", err)
+	}
+	db, err := loadTokens(issuingDir)
+	if err != nil {
+		t.Fatalf("loadTokens: %v", err)
+	}
+	db.Tokens["expired"].Expires = time.Now().Add(-time.Hour)
+	if err := db.save(issuingDir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	_, claims, _ := strings.Cut(token, ".")
+	claims, _, _ = strings.Cut(claims, ".")
+	algNone := "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0." + claims + "."
+
+	csr := func(name string, args ...string) string {
+		path := filepath.Join(csrDir, name+".csr")
+		out, err := exec.Command("openssl", append([]string{"req", "-new", "-newkey", "ec", "-pkeyopt",
+			"ec_paramgen_curve:P-256", "-nodes", "-keyout", filepath.Join(csrDir, name+"_key.pem"), "-out", path}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("openssl req: %v\n%s", err, out)
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		return string(b)
+	}
+	web := csr("web", "-subj", "/CN=web.example.com", "-addext", "subjectAltName=DNS:web.example.com,DNS:*.web.example.com")
+	alice := csr("alice", "-subj", "/CN=Alice Example/emailAddress=alice@example.com")
+	outside := csr("outside", "-subj", "/CN=web.example.org")
+	withIP := csr("ip", "-subj", "/CN=web.example.com", "-addext", "subjectAltName=IP:192.0.2.1")
+	withO := csr("org", "-subj", "/O=Example/CN=web.example.com")
+
+	server := httptest.NewServer(newServeMux(caDir))
+	defer server.Close()
+	post := func(path, token, contentType, body string) (int, map[string]string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, server.URL+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", contentType)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var m map[string]string
+		json.NewDecoder(resp.Body).Decode(&m)
+		return resp.StatusCode, m
+	}
+	request := func(csr, certType string) string {
+		b, _ := json.Marshal(map[string]string{"csr": csr, "type": certType})
+		return string(b)
+	}
+
+	status, resp := post("/issuing_ca/api/sign", token, "application/json", request(web, ""))
+	if status != http.StatusOK {
+		t.Fatalf("signing web: %d %v", status, resp)
+	}
+	certPath := filepath.Join(csrDir, "web_cert.pem")
+	if err := os.WriteFile(certPath, []byte(resp["certificate"]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
+	cert, err := loadCert(certPath)
+	if err != nil {
+		t.Fatalf("loadCert: %v", err)
+	}
+	if !slices.Equal(cert.DNSNames, []string{"web.example.com", "*.web.example.com"}) || resp["serial"] != serialHex(cert.SerialNumber) {
+		t.Fatalf("DNS names %v, serial %s, want those of the request and the certificate", cert.DNSNames, resp["serial"])
+	}
+	if strings.Count(resp["chain"], "BEGIN CERTIFICATE") != 2 {
+		t.Fatalf("chain:\n%s\nwant the certificate and the issuing CA", resp["chain"])
+	}
+	if entries, err := readIndex(issuingDir); err != nil || len(entries) != 1 || entries[0].serial != resp["serial"] {
+		t.Fatalf("index.txt %+v, %v, want the issued certificate", entries, err)
+	}
+	if db, err := loadTokens(issuingDir); err != nil || !slices.Equal(db.Tokens["deploy"].Certs, []string{resp["serial"]}) {
+		t.Fatalf("certs of the token: %v, want the issued certificate", err)
+	}
+
+	status, resp = post("/issuing_ca/api/sign", token, "application/json", request(alice, "user"))
+	if status != http.StatusOK {
+		t.Fatalf("signing alice: %d %v", status, resp)
+	}
+	status, resp = post("/api/sign", rootToken, "application/json", request(web, ""))
+	if status != http.StatusOK || strings.Count(resp["chain"], "BEGIN CERTIFICATE") != 1 {
+		t.Fatalf("signing with the root CA: %d %v, want the certificate alone in the chain", status, resp)
+	}
+
+	for _, c := range []struct {
+		name, path, token, contentType, body string
+		want                                 int
+	}{
+		{"no token", "/issuing_ca/api/sign", "", "application/json", request(web, ""), http.StatusUnauthorized},
+		{"other CA token", "/issuing_ca/api/sign", rootToken, "application/json", request(web, ""), http.StatusUnauthorized},
+		{"expired token", "/issuing_ca/api/sign", expired, "application/json", request(web, ""), http.StatusUnauthorized},
+		{"revoked token", "/issuing_ca/api/sign", revoked, "application/json", request(web, ""), http.StatusUnauthorized},
+		{"alg none", "/issuing_ca/api/sign", algNone, "application/json", request(web, ""), http.StatusUnauthorized},
+		{"garbage token", "/issuing_ca/api/sign", "abc", "application/json", request(web, ""), http.StatusUnauthorized},
+		{"name outside", "/issuing_ca/api/sign", token, "application/json", request(outside, ""), http.StatusForbidden},
+		{"IP SAN", "/issuing_ca/api/sign", token, "application/json", request(withIP, ""), http.StatusForbidden},
+		{"O attribute", "/issuing_ca/api/sign", token, "application/json", request(withO, ""), http.StatusForbidden},
+		{"email in server", "/issuing_ca/api/sign", token, "application/json", request(alice, "server"), http.StatusForbidden},
+		{"DNS in user", "/issuing_ca/api/sign", token, "application/json", request(web, "user"), http.StatusForbidden},
+		{"type not allowed", "/issuing_ca/api/sign", serverOnly, "application/json", request(alice, "user"), http.StatusForbidden},
+		{"bad csr", "/issuing_ca/api/sign", token, "application/json", request("nonsense", ""), http.StatusBadRequest},
+		{"unknown field", "/issuing_ca/api/sign", token, "application/json", `{"csr":"x","days":5}`, http.StatusBadRequest},
+		{"content type", "/issuing_ca/api/sign", token, "text/plain", request(web, ""), http.StatusUnsupportedMediaType},
+		{"no tokens", "/plain_ca/api/sign", token, "application/json", request(web, ""), http.StatusNotFound},
+		{"no CA", "/nosuch/api/sign", token, "application/json", request(web, ""), http.StatusNotFound},
+	} {
+		if status, resp := post(c.path, c.token, c.contentType, c.body); status != c.want {
+			t.Fatalf("%s: status %d %v, want %d", c.name, status, resp, c.want)
+		}
+	}
+	if entries, err := readIndex(issuingDir); err != nil || len(entries) != 2 {
+		t.Fatalf("index.txt %+v, %v, want the two certificates issued", entries, err)
+	}
+
+	form, err := http.Get(server.URL + "/issuing_ca/sign")
+	if err != nil {
+		t.Fatal(err)
+	}
+	formPage, _ := io.ReadAll(form.Body)
+	form.Body.Close()
+	if form.StatusCode != http.StatusOK || !strings.Contains(string(formPage), `action="/issuing_ca/sign"`) ||
+		!strings.Contains(string(formPage), `type="password"`) {
+		t.Fatalf("GET /issuing_ca/sign: %d\n%s\nwant the form", form.StatusCode, formPage)
+	}
+	signed, err := http.PostForm(server.URL+"/issuing_ca/sign", url.Values{"csr": {web}, "token": {token}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	download, _ := io.ReadAll(signed.Body)
+	signed.Body.Close()
+	if signed.StatusCode != http.StatusOK || signed.Header.Get("Content-Disposition") != "attachment; filename=web_cert.pem" {
+		t.Fatalf("POST /issuing_ca/sign: %d %q, want web_cert.pem as a download", signed.StatusCode, signed.Header.Get("Content-Disposition"))
+	}
+	if err := os.WriteFile(certPath, download, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
+	refused, err := http.PostForm(server.URL+"/issuing_ca/sign", url.Values{"csr": {outside}, "token": {revoked}, "type": {"user"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusedPage, _ := io.ReadAll(refused.Body)
+	refused.Body.Close()
+	if refused.StatusCode != http.StatusUnauthorized || !strings.Contains(string(refusedPage), "unknown token") ||
+		!strings.Contains(string(refusedPage), "<option value=\"user\" selected>") {
+		t.Fatalf("POST with a revoked token: %d\n%s\nwant the form with the error and the type kept", refused.StatusCode, refusedPage)
+	}
+	noForm, err := http.Get(server.URL + "/plain_ca/sign")
+	if err != nil {
+		t.Fatal(err)
+	}
+	noFormPage, _ := io.ReadAll(noForm.Body)
+	noForm.Body.Close()
+	if noForm.StatusCode != http.StatusOK || !strings.Contains(string(noFormPage), "has no tokens yet") ||
+		strings.Contains(string(noFormPage), "<form") {
+		t.Fatalf("GET /plain_ca/sign: %d\n%s\nwant the page saying the CA has no tokens", noForm.StatusCode, noFormPage)
+	}
+	noTokens, err := http.PostForm(server.URL+"/plain_ca/sign", url.Values{"csr": {web}, "token": {token}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noTokens.Body.Close()
+	if noTokens.StatusCode != http.StatusForbidden {
+		t.Fatalf("POST /plain_ca/sign: %d, want 403", noTokens.StatusCode)
+	}
+	if noCA, err := http.Get(server.URL + "/nosuch/sign"); err != nil || noCA.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /nosuch/sign: %v %v, want 404", noCA.StatusCode, err)
+	}
+
+	resp2, err := http.Get(server.URL + "/api/sign")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /api/sign: %d, want 405", resp2.StatusCode)
+	}
+	page, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if !strings.Contains(string(body), server.URL+"/issuing_ca/api/sign") || strings.Contains(string(body), "/plain_ca/api/sign") {
+		t.Fatalf("index page does not show the signing API of the CAs with tokens alone")
 	}
 }

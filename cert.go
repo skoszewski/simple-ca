@@ -96,6 +96,20 @@ func isHostname(s string) bool {
 	return len(s) <= 253 && hostnameRE.MatchString(s) && strings.Trim(last, "0123456789") != ""
 }
 
+// certFileName returns the name of the files of a certificate: the hostname CN up to its first
+// dot with the server name rules, else the CN, or the local part of the email address without a
+// CN, each run of characters besides letters, digits, - and _ as one _; empty when nothing is
+// left.
+func certFileName(cn, email string, userNames bool) string {
+	name := cn
+	if !userNames {
+		name, _, _ = strings.Cut(cn, ".")
+	} else if cn == "" {
+		name, _, _ = strings.Cut(email, "@")
+	}
+	return strings.Trim(fileNameRE.ReplaceAllString(name, "_"), "_")
+}
+
 // locateCA returns the root CA directory of the CA in caDir and the name of that CA as an
 // issuing CA: caDir and "" for a self-signed root CA, else the directory above caDir, where the
 // root CA keeps its issuing CAs, and the name of caDir.
@@ -240,15 +254,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 		publishURL += "/" + issuingCA
 	}
 
-	// The files are named after the hostname CN up to its first dot, or the user CN, or the local
-	// part of the emailAddress, each run of characters besides letters, digits, - and _ as one _.
-	certName := cn
-	if !userNames {
-		certName, _, _ = strings.Cut(cn, ".")
-	} else if cn == "" {
-		certName, _, _ = strings.Cut(email, "@")
-	}
-	certName = strings.Trim(fileNameRE.ReplaceAllString(certName, "_"), "_")
+	certName := certFileName(cn, email, userNames)
 	if certName == "" {
 		return fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", cmp.Or(cn, email))
 	}

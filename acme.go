@@ -620,9 +620,9 @@ func (ca *acmeCA) accountOrders(w http.ResponseWriter, req *acmeRequest, id stri
 	return nil
 }
 
-// allowed reports whether name is one of the allowed domains or below one.
-func (ca *acmeCA) allowed(name string) bool {
-	for _, d := range ca.domains {
+// inDomains reports whether name, in lower case, is one of domains or below one.
+func inDomains(name string, domains []string) bool {
+	for _, d := range domains {
 		d = strings.ToLower(strings.TrimSuffix(d, "."))
 		if name == d || strings.HasSuffix(name, "."+d) {
 			return true
@@ -654,7 +654,7 @@ func (ca *acmeCA) newOrder(w http.ResponseWriter, req *acmeRequest) error {
 			return problem(http.StatusBadRequest, "unsupportedIdentifier", "identifier type %q is not supported", id.Type)
 		case !isHostname(base):
 			return problem(http.StatusBadRequest, "rejectedIdentifier", "%q is not a DNS name", id.Value)
-		case !ca.allowed(base):
+		case !inDomains(base, ca.domains):
 			return problem(http.StatusBadRequest, "rejectedIdentifier", "%q is not under the domains of this CA", id.Value)
 		}
 		if !slices.Contains(names, name) {

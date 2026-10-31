@@ -64,26 +64,11 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 	if err != nil {
 		return err
 	}
-	der := data
-	if block, _ := pem.Decode(data); block != nil {
-		if block.Type != "CERTIFICATE REQUEST" && block.Type != "NEW CERTIFICATE REQUEST" {
-			return fmt.Errorf("no CERTIFICATE REQUEST PEM block in %s", csrPath)
-		}
-		der = block.Bytes
-	}
-	csr, err := x509.ParseCertificateRequest(der)
+	csr, err := parseCSR(data)
 	if err != nil {
 		return fmt.Errorf("%s: %w", csrPath, err)
 	}
-	if err := csr.CheckSignature(); err != nil {
-		return fmt.Errorf("%s: invalid signature: %w", csrPath, err)
-	}
-	var san *pkix.Extension
-	for _, ext := range csr.Extensions {
-		if ext.Id.Equal(oidSubjectAltName) {
-			san = &pkix.Extension{Id: oidSubjectAltName, Critical: len(csr.Subject.Names) == 0, Value: ext.Value}
-		}
-	}
+	san := csrSAN(csr)
 	if len(csr.Subject.Names) == 0 && san == nil {
 		return fmt.Errorf("%s has neither a subject nor subject alternative names", csrPath)
 	}
@@ -141,6 +126,37 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 	}
 	fmt.Printf("Certificate written to %s\n", certOut)
 	return recordIssued(caDir, cert)
+}
+
+// parseCSR parses a certificate signing request, PEM or DER, and checks its signature.
+func parseCSR(data []byte) (*x509.CertificateRequest, error) {
+	der := data
+	if block, _ := pem.Decode(data); block != nil {
+		if block.Type != "CERTIFICATE REQUEST" && block.Type != "NEW CERTIFICATE REQUEST" {
+			return nil, errors.New("no CERTIFICATE REQUEST PEM block")
+		}
+		der = block.Bytes
+	}
+	csr, err := x509.ParseCertificateRequest(der)
+	if err != nil {
+		return nil, err
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("invalid signature: %w", err)
+	}
+	return csr, nil
+}
+
+// csrSAN returns the subjectAltName extension of csr, critical when its subject is empty, or nil
+// when it has none.
+func csrSAN(csr *x509.CertificateRequest) *pkix.Extension {
+	var san *pkix.Extension
+	for _, ext := range csr.Extensions {
+		if ext.Id.Equal(oidSubjectAltName) {
+			san = &pkix.Extension{Id: oidSubjectAltName, Critical: len(csr.Subject.Names) == 0, Value: ext.Value}
+		}
+	}
+	return san
 }
 
 // ---- issueLeaf --------------------------------------------------------------

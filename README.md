@@ -30,6 +30,8 @@ CA_DIR/
   crl.pem                  root CA CRL (make-crl)
   openssl.cnf              configuration of openssl ca (make-ca --write-conf)
   acme.json                ACME accounts and orders of the root CA (serve)
+  tokens-db.json           signing API tokens of the root CA (make-token)
+  tokens-db.json.lock      lock of tokens-db.json while it is changed
   {name}_cert.pem          certificate issued by the root CA
   {name}_key.pem           key of a certificate issued by the root CA
   {name}.pfx               PKCS#12 bundle (make-pfx)
@@ -42,6 +44,8 @@ CA_DIR/
     crl.pem                issuing CA CRL (make-crl)
     openssl.cnf            configuration of openssl ca (make-ca --write-conf)
     acme.json              ACME accounts and orders of the issuing CA (serve)
+    tokens-db.json         signing API tokens of the issuing CA (make-token)
+    tokens-db.json.lock    lock of tokens-db.json while it is changed
     {name}_cert.pem        certificate issued by the issuing CA
     {name}_key.pem         key of a certificate issued by the issuing CA
 ```
@@ -70,6 +74,11 @@ simple-ca revoke-cert [--ca-dir DIR] [--reason REASON] CERT_PATH
 simple-ca info        [--ca-dir DIR]
 simple-ca info        CERT_FILE
 simple-ca list        [--ca-dir DIR] [--valid] [--revoked] [--expired]
+simple-ca make-token  [--ca-dir DIR] [--valid DURATION] [--type TYPE ...]
+                      --domain DOMAIN [--domain DOMAIN ...] NAME
+simple-ca list-tokens [--ca-dir DIR]
+simple-ca revoke-token [--ca-dir DIR] NAME
+simple-ca purge-tokens [--ca-dir DIR]
 simple-ca serve       [--ca-dir DIR] [--address ADDRESS] [--port PORT]
                       [--tls-cert FILE --tls-key FILE]
 simple-ca --version
@@ -292,6 +301,40 @@ valid    2027-10-30 21:51:52 UTC  -                        -              22AECF
 revoked  2027-10-30 21:51:52 UTC  2026-10-30 21:51:52 UTC  keyCompromise  12193ECDF2A38AF35B12C657CD52BC5C4CC7626D  /CN=alice.example.com
 ```
 
+### make-token, list-tokens, revoke-token and purge-tokens
+
+`make-token` creates the token `NAME` of the [signing API](#signing-api) of the CA in the CA
+directory, root or issuing CA, records it in `tokens-db.json` of that directory and prints it. The
+token is a JWT signed with the CA key (RS256), so it is valid for that CA alone; it is shown only
+once. It allows the certificate types of `--type`, repeated for more, `server` by default, and the
+names that are a `--domain`, repeated for more, or below one. It is valid for `--valid`, a
+duration such as `30m`, `8h` or `720h`, one hour by default, and at least one second. A name is
+made of letters, digits, `.`, `-` and `_`, and is held by one token of a CA at a time.
+
+`list-tokens` lists the tokens of the CA, with their status (`valid` or `expired`), expiry, types,
+domains and the count of certificates issued with them. `revoke-token` revokes the token `NAME` by
+removing it from `tokens-db.json`; the API refuses it from then on as an unknown token. Its name
+can be given to a new token, which has a new JWT ID, so the revoked token stays refused.
+`purge-tokens` removes the expired tokens from `tokens-db.json` and prints their count; `serve`
+does the same for all its CAs when it starts and every 5 minutes.
+
+```sh
+simple-ca make-token --ca-dir /tmp/ca/servers --valid 8h --type server --domain example.com deploy
+simple-ca list-tokens --ca-dir /tmp/ca/servers
+simple-ca revoke-token --ca-dir /tmp/ca/servers deploy
+simple-ca purge-tokens --ca-dir /tmp/ca/servers
+```
+
+```text
+NAME    STATUS  EXPIRES                  TYPES   DOMAINS      CERTS
+deploy  valid   2026-10-31 21:43:41 UTC  server  example.com  1
+```
+
+The commands and `serve` change `tokens-db.json` under a lock, the file `tokens-db.json.lock` next
+to it, which holds the PID of the process that has it. One process at a time creates the file and
+removes it when done; any other waits for it up to 10 seconds, then fails with the PID. A lock
+left by a process that was killed is removed by hand once that process is gone.
+
 ### serve
 
 Serves the certificates and CRLs of the root CA of the CA directory, and of all its issuing CAs,
@@ -311,8 +354,13 @@ certificate can be one of the CA itself.
 | `/ca_bundle.pem` | `ca_bundle.pem` | `application/x-pem-file` |
 | `/ca_bundle.p7b` | the certificates of `ca_bundle.pem`, as PKCS#7 | `application/x-pkcs7-certificates` |
 | `/NAME/...` | the same four files of the issuing CA `NAME` | |
+| `/NAME`, `/NAME/` | a redirect (`302 Found`) to `/#NAME`, the issuing CA `NAME` on the index page | |
 | `/acme/directory` | the ACME directory of the root CA, see [ACME](#acme) | `application/json` |
 | `/NAME/acme/directory` | the ACME directory of the issuing CA `NAME` | `application/json` |
+| `/api/sign` | the [signing API](#signing-api) of the root CA, `POST` | `application/json` |
+| `/NAME/api/sign` | the signing API of the issuing CA `NAME`, `POST` | `application/json` |
+| `/sign` | the [signing form](#signing-form) of the root CA | `text/html` |
+| `/NAME/sign` | the signing form of the issuing CA `NAME` | `text/html` |
 
 The index page lists the root CA and all its issuing CAs, also when `--ca-dir` is an issuing CA,
 each with its subject, issuer, serial number, validity period, days left before it expires,
@@ -371,6 +419,70 @@ simple-ca serve --ca-dir /tmp/ca --address 0.0.0.0 --port 8443 \
 LEGO_CA_CERTIFICATES=/tmp/ca/ca_cert.pem lego run --accept-tos --email admin@example.com \
   --server https://pki.example.com:8443/servers/acme/directory --domains web.example.com --http
 ```
+
+### Signing API
+
+`serve` signs certificate signing requests sent to `/api/sign` for the root CA and to
+`/NAME/api/sign` for the issuing CA `NAME`, for a CA whose key and `tokens-db.json` are in its
+directory; for any other it is `404 Not Found`. The index page shows the URL of each such CA. A
+request is a `POST` with a token of [make-token](#make-token-list-tokens-revoke-token-and-purge-tokens) of that
+CA as a bearer token, and a JSON body of at most 64 KiB:
+
+```json
+{"csr": "-----BEGIN CERTIFICATE REQUEST-----\n...", "type": "server"}
+```
+
+`csr` is the request in PEM. `type`, the first type of the token by
+default, is one of the types the token allows. The names of the request are checked by the name
+rules of the type, `names` of [simple-ca.json](#simple-cajson):
+
+- the subject holds only a CN and `emailAddress`, and the SANs only DNS names and email addresses;
+- `server` rules: the CN, when there is one, and every DNS name are hostnames or wildcards that
+  the token allows; at least one is there, and no email address;
+- `user` rules: the domain of every email address is one the token allows; at least one is
+  there, and no DNS name; the CN is free text.
+
+The certificate has the subject and the SANs of the request, and the key usages, extended key
+usages, AIA and CRL Distribution Point URLs of `make-cert` for the type; it is valid for
+`days.cert` of `simple-ca.json`, 365 days without it. It is recorded in `index.txt`, and its
+serial number in the entry of the token in `tokens-db.json`. The response is JSON:
+
+```json
+{"serial": "542458ED...", "certificate": "-----BEGIN CERTIFICATE-----\n...", "chain": "..."}
+```
+
+`chain` holds the certificate and, from an issuing CA, the issuing CA certificate. An error is
+`{"error": "..."}` with the status `400 Bad Request` for a malformed body or request,
+`401 Unauthorized` for a token that is missing, of another CA, expired or unknown, as a revoked
+token is, `403 Forbidden` for a type or a name the token does not allow, and
+`415 Unsupported Media Type` for a body that is not `application/json`. `tokens-db.json` is read
+on each request, so a token revoked by `revoke-token` is refused at once. Like [ACME](#acme), the API needs `serve` to write to the CA
+directories and read the CA keys; a token is sent in clear without `--tls-cert`.
+
+```sh
+TOKEN=$(simple-ca make-token --ca-dir /tmp/ca/servers --domain example.com deploy)
+openssl req -new -newkey rsa:2048 -nodes -keyout web_key.pem -subj /CN=web.example.com \
+  -addext subjectAltName=DNS:web.example.com -out web.csr
+jq -n --rawfile csr web.csr '{csr: $csr}' | curl -s -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' --data @- http://pki.example.com:8080/servers/api/sign |
+  jq -r .certificate > web_cert.pem
+```
+
+[examples/](examples/README.md) holds clients of the API in Python, Node.js, Go and the shell,
+which make a key and a request and write the key, the certificate and its chain.
+
+### Signing form
+
+`/sign` for the root CA and `/NAME/sign` for the issuing CA `NAME` are a page with a form of the
+[signing API](#signing-api); the index page links to it from each CA with tokens. For a CA without
+its key or without `tokens-db.json`, the page says so in place of the form, and a form sent to it
+is `403 Forbidden`; a `NAME` that is not an issuing CA is `404 Not Found`. The CSR is pasted in
+PEM, the certificate type is chosen from the types of `simple-ca.json`, the first type of the token
+by default, and the token is entered in a password field. The checks are those of the API. The
+signed certificate is downloaded as a PEM file named by the rules of
+[make-cert](#directory-layout), `web_cert.pem` for the CN `web.example.com`, or after its serial
+number for a request without a name. A refused request shows the form again with the error, the
+CSR and the type kept, and the token cleared.
 
 ## simple-ca.json
 
@@ -463,7 +575,7 @@ simple-ca list --ca-dir /tmp/ca
 `/usr/local/bin/simple-ca`, both run as the user `simple-ca`:
 
 - `simple-ca.service` runs `serve` on all interfaces, port 8080, with write access to
-  `/etc/simple-ca` for [ACME](#acme); `--tls-cert` and `--tls-key` are added to its command with
+  `/etc/simple-ca` for [ACME](#acme) and the [signing API](#signing-api); `--tls-cert` and `--tls-key` are added to its command with
   `systemctl edit simple-ca.service`;
 - `simple-ca-crl.service` runs `make-crl --all`, for the root CA in `/etc/simple-ca` and its
   issuing CAs;

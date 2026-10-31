@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.0
+
+feature: serve signs certificate signing requests at /api/sign and on the /sign page for JWT tokens made with make-token.
+
+- `serve` signs a CSR sent as JSON in a `POST` to `/api/sign` (root CA) or `/NAME/api/sign`
+  (issuing CA `NAME`), authenticated by a bearer token of that CA, and returns the certificate
+  and its chain as JSON; the certificate is recorded in `index.txt`.
+- A token allows certificate types and domains: the CN, DNS names and email domains of the
+  request must be a domain of the token or below one; other subject attributes and other SANs
+  are refused.
+- `make-token` creates a token, a JWT signed with the CA key, valid for `--valid`, one hour by
+  default, and records it in `tokens-db.json` of the CA directory; `list-tokens` lists the tokens
+  and `revoke-token` revokes one by removing it from `tokens-db.json`.
+- `purge-tokens` removes the expired tokens from `tokens-db.json`; `serve` removes those of all
+  its CAs when it starts and every 5 minutes.
+- The commands and `serve` change `tokens-db.json` under the lock file `tokens-db.json.lock`.
+- `/sign` and `/NAME/sign` are a form that takes a pasted CSR, a certificate type and a token,
+  and downloads the signed certificate as `NAME_cert.pem`; for a CA without tokens or without
+  its key, the page says so in place of the form.
+- The index page shows the signing API URL of each CA with tokens, and links to its form.
+- `examples/` holds clients of the signing API in Python, Node.js, Go and the shell, which make
+  an EC P-256 key and a request and write the key, the certificate and its chain; they read the
+  token from `SIMPLE_CA_TOKEN` or from the file `SIMPLE_CA_TOKEN_FILE` names.
+- `/NAME` and `/NAME/` of an issuing CA redirect to its section of the index page, `/#NAME`,
+  instead of `404 Not Found`.
+
 ## 1.1.0
 
 feature: simple-ca-mini.py, a Python 3 version of simple-ca driving the openssl command.

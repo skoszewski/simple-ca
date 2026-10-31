@@ -27,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -94,6 +95,10 @@ var commands = []struct {
 	{"revoke-cert", "Revoke a certificate.", runRevokeCert},
 	{"info", "Show a CA, or the certificates in a file.", runInfo},
 	{"list", "List the certificates a CA issued.", runList},
+	{"make-token", "Create a token of the signing API of a CA.", runMakeToken},
+	{"list-tokens", "List the tokens of the signing API of a CA.", runListTokens},
+	{"revoke-token", "Revoke a token of the signing API of a CA.", runRevokeToken},
+	{"purge-tokens", "Remove the expired tokens of the signing API of a CA.", runPurgeTokens},
 	{"serve", "Serve the CA certificates and CRLs over HTTP.", runServe},
 }
 
@@ -374,6 +379,74 @@ func runList(args []string) error {
 	return listCerts(os.Stdout, dir, statuses)
 }
 
+// runMakeToken runs the make-token subcommand.
+func runMakeToken(args []string) error {
+	fs := newFlagSet("make-token", "NAME",
+		"Create the token NAME of the signing API of the CA in --ca-dir, and print it.\n\n"+
+			"The token is a JWT signed with the CA key, valid for that CA alone. It allows the\n"+
+			"certificate types of --type, and the names of the --domain domains and below them.")
+	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	valid := fs.Duration("valid", time.Hour, "validity `period` of the token, such as 30m, 8h or 720h")
+	var certTypes, domains []string
+	fs.Func("type", "certificate `type` the token allows; repeated for more (default: server)", func(s string) error {
+		certTypes = append(certTypes, s)
+		return nil
+	})
+	fs.Func("domain", "`domain` whose names, and the names below it, the token allows; repeated for more", func(s string) error {
+		domains = append(domains, s)
+		return nil
+	})
+	rest, _, err := parseArgs(fs, args, 1, 1)
+	if err != nil {
+		return err
+	}
+	if len(certTypes) == 0 {
+		certTypes = []string{"server"}
+	}
+	token, err := makeToken(resolveCADir(*caDir), rest[0], *valid, certTypes, domains)
+	if err != nil {
+		return err
+	}
+	fmt.Println(token)
+	return nil
+}
+
+// runListTokens runs the list-tokens subcommand.
+func runListTokens(args []string) error {
+	fs := newFlagSet("list-tokens", "", "List the tokens of the signing API of the CA in --ca-dir.")
+	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
+		return err
+	}
+	return listTokens(os.Stdout, resolveCADir(*caDir))
+}
+
+// runRevokeToken runs the revoke-token subcommand.
+func runRevokeToken(args []string) error {
+	fs := newFlagSet("revoke-token", "NAME", "Revoke the token NAME of the signing API of the CA in --ca-dir.")
+	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	rest, _, err := parseArgs(fs, args, 1, 1)
+	if err != nil {
+		return err
+	}
+	return revokeToken(resolveCADir(*caDir), rest[0])
+}
+
+// runPurgeTokens runs the purge-tokens subcommand.
+func runPurgeTokens(args []string) error {
+	fs := newFlagSet("purge-tokens", "", "Remove the expired tokens of the signing API of the CA in --ca-dir.")
+	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
+		return err
+	}
+	n, err := purgeTokens(resolveCADir(*caDir))
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%d expired tokens removed\n", n)
+	return nil
+}
+
 // runServe runs the serve subcommand until it fails or is interrupted.
 func runServe(args []string) error {
 	fs := newFlagSet("serve", "", "Serve the certificates and CRLs of the root CA of the CA in --ca-dir, and of its\n"+
@@ -406,6 +479,29 @@ func runServe(args []string) error {
 		return err
 	}
 	server := &http.Server{Handler: newServeMux(rootDir), ReadHeaderTimeout: 10 * time.Second}
+
+	// The expired tokens of the root CA and its issuing CAs are removed on start and every
+	// tokensPurgeInterval.
+	go func() {
+		for {
+			dirs := []string{rootDir}
+			entries, _ := os.ReadDir(rootDir)
+			for _, e := range entries {
+				if e.IsDir() && fileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
+					dirs = append(dirs, filepath.Join(rootDir, e.Name()))
+				}
+			}
+			for _, d := range dirs {
+				n, err := purgeTokens(d)
+				if err != nil {
+					log.Printf("purging the tokens of %s: %v", d, err)
+				} else if n > 0 {
+					log.Printf("%d expired tokens of %s removed", n, d)
+				}
+			}
+			time.Sleep(tokensPurgeInterval)
+		}
+	}()
 	if *tlsCert != "" {
 		fmt.Printf("Serving the CAs of %s on https://%s/\n", rootDir, listener.Addr())
 		return server.ServeTLS(listener, *tlsCert, *tlsKey)

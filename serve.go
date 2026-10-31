@@ -34,6 +34,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,7 +97,7 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
         </div>
         <main class="divide-y divide-slate-200">
           {{- range .CAs}}
-          <section class="space-y-2 px-6 py-5">
+          <section{{if .ID}} id="{{.ID}}"{{end}} class="space-y-2 px-6 py-5">
             <div class="flex flex-wrap items-baseline justify-between gap-2">
               <h2 class="text-lg font-semibold">{{.Subject}}</h2>
               <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">{{.Role}}</span>
@@ -124,6 +125,10 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
               <dt class="text-slate-500">ACME directory</dt>
               <dd class="font-mono text-xs break-all sm:text-sm">{{.ACME}}</dd>
               {{- end}}
+              {{- if .API}}
+              <dt class="text-slate-500">Signing API</dt>
+              <dd class="font-mono text-xs break-all sm:text-sm">{{.API}}</dd>
+              {{- end}}
             </dl>
             <div class="flex flex-wrap gap-2 pt-1">
               <a class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700" href="{{.Path}}ca_cert.crt">Certificate (DER)</a>
@@ -131,6 +136,9 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
               {{- if .CRL}}
               <a class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700" href="{{.Path}}crl.crl">CRL (DER)</a>
               <a class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100" href="{{.Path}}crl.pem">CRL (PEM)</a>
+              {{- end}}
+              {{- if .API}}
+              <a class="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-600" href="{{.Path}}sign">Sign a request</a>
               {{- end}}
             </div>
           </section>
@@ -144,11 +152,12 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
 
 // indexCA is a CA of the index page: the fields of its certificate, its expiry as "expired" or the
 // days left, whether fewer than 30 days are left, its SHA-256 fingerprint in four groups of eight
-// bytes, its CRL, and the URL path of its files.
+// bytes, its CRL, the URL path of its files, the URLs of its ACME directory and signing API, and
+// the ID of its section, the name of an issuing CA.
 type indexCA struct {
-	Subject, Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME string
-	ExpiresSoon                                                                      bool
-	Fingerprint                                                                      []string
+	Subject, Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME, API, ID string
+	ExpiresSoon                                                                               bool
+	Fingerprint                                                                               []string
 }
 
 // newServeMux returns the handler serving an index page at /, the files of servedFiles of the
@@ -211,10 +220,13 @@ func newServeMux(rootDir string) *http.ServeMux {
 			if name == "" {
 				title = cert.Subject.CommonName
 			} else {
-				ca.Role, ca.Path = "issuing CA "+name, "/"+name+"/"
+				ca.Role, ca.Path, ca.ID = "issuing CA "+name, "/"+name+"/", name
 			}
 			if len(cfg.ACME.Domains) > 0 && fileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.ACME = origin + ca.Path + "acme/directory"
+			}
+			if fileExists(filepath.Join(dir, tokensFile)) && fileExists(filepath.Join(dir, "ca_key.pem")) {
+				ca.API = origin + ca.Path + "api/sign"
 			}
 			if b, err := os.ReadFile(filepath.Join(dir, "crl.pem")); err == nil {
 				ca.CRL = "unreadable"
@@ -361,6 +373,55 @@ func newServeMux(rootDir string) *http.ServeMux {
 			}
 			prefix := "/" + ca + "/acme"
 			acme.handle(w, r, rootDir, filepath.Join(rootDir, ca), prefix, strings.TrimPrefix(r.URL.Path, prefix+"/"))
+		})
+	}
+
+	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign, sharing
+	// the lock of the ACME server, which also writes index.txt.
+	mux.HandleFunc("POST /api/sign", func(w http.ResponseWriter, r *http.Request) {
+		apiSign(w, r, rootDir, &acme.mu)
+	})
+	mux.HandleFunc("GET /api/sign", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	})
+	mux.HandleFunc("POST /{ca}/api/sign", func(w http.ResponseWriter, r *http.Request) {
+		ca := r.PathValue("ca")
+		if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+			log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		apiSign(w, r, filepath.Join(rootDir, ca), &acme.mu)
+	})
+
+	// /CA and /CA/ of an issuing CA redirect to its section of the index page.
+	for _, pattern := range []string{"GET /{ca}", "GET /{ca}/{$}"} {
+		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+			ca := r.PathValue("ca")
+			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+				http.NotFound(w, r)
+				return
+			}
+			http.Redirect(w, r, (&url.URL{Path: "/", Fragment: ca}).String(), http.StatusFound)
+		})
+	}
+
+	// The signing form of the root CA at /sign and of each issuing CA at /CA/sign.
+	for _, method := range []string{"GET", "POST"} {
+		mux.HandleFunc(method+" /sign", func(w http.ResponseWriter, r *http.Request) {
+			signPage(w, r, rootDir, "/sign", &acme.mu)
+		})
+		mux.HandleFunc(method+" /{ca}/sign", func(w http.ResponseWriter, r *http.Request) {
+			ca := r.PathValue("ca")
+			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+				log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+				http.NotFound(w, r)
+				return
+			}
+			signPage(w, r, filepath.Join(rootDir, ca), "/"+ca+"/sign", &acme.mu)
 		})
 	}
 	return mux
