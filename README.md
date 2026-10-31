@@ -522,13 +522,12 @@ made since the last release.
 
 `./release.mjs`, run on `dev`, releases that entry:
 
-1. runs `./build.mjs check`;
-2. commits everything with the entry's summary line as the message, when anything is left to
+1. commits everything with the entry's summary line as the message, when anything is left to
    commit;
-3. makes the annotated tag `vx.y.z` with the entry as its message, which the workflow publishes
+2. makes the annotated tag `vx.y.z` with the entry as its message, which the workflow publishes
    as the release notes;
-4. fast-forwards `main` to `dev`;
-5. pushes `dev`, `main` and the tag in one atomic push; the tag builds and publishes the
+3. fast-forwards `main` to `dev`;
+4. pushes `dev`, `main` and the tag in one atomic push; the tag builds and publishes the
    release.
 
 ```sh

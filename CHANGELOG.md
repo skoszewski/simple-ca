@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+fix: release.mjs no longer runs the build and the tests.
+
+- `release.mjs` commits, tags and pushes without running `build.mjs check`; the release workflow
+  checks the sources.
+
 ## 1.0.0
 
 feature: initial release

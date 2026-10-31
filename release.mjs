@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-// Releases the newest CHANGELOG.md entry: checks the sources, commits everything on dev with the
-// entry's summary line, tags the commit vX.Y.Z with the entry as the release notes, moves main to
-// it, and pushes dev, main and the tag together.
+// Releases the newest CHANGELOG.md entry: commits everything on dev with the entry's summary line,
+// tags the commit vX.Y.Z with the entry as the release notes, moves main to it, and pushes dev,
+// main and the tag together.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -88,7 +88,6 @@ if (spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`], { cwd:
   fail(`tag ${tag} exists; add a new CHANGELOG.md entry first`);
 }
 
-run('node', 'build.mjs', 'check');
 if (read('git', 'status', '--porcelain') !== '') {
   run('git', 'add', '-A');
   run('git', 'commit', '-m', message);
