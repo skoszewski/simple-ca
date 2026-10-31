@@ -1,0 +1,4 @@
+simple-ca usr/bin/
+systemd/simple-ca.service usr/lib/systemd/system/
+systemd/simple-ca-crl.service usr/lib/systemd/system/
+systemd/simple-ca-crl.timer usr/lib/systemd/system/

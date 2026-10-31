@@ -373,7 +373,11 @@ func TestOpenSSLCA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
-	if err := revokeCert(filepath.Join(caDir, "alice_cert.pem"), caDir); err != nil {
+	bob, err := loadCert(filepath.Join(caDir, "bob_cert.pem"))
+	if err != nil {
+		t.Fatalf("loadCert: %v", err)
+	}
+	if err := revokeCert(filepath.Join(caDir, "alice_cert.pem"), caDir, "keyCompromise"); err != nil {
 		t.Fatalf("revokeCert: %v", err)
 	}
 
@@ -386,27 +390,97 @@ func TestOpenSSLCA(t *testing.T) {
 		"default_md = sha256\ndefault_crl_days = 1\n"), 0o644); err != nil {
 		t.Fatalf("write openssl.cnf: %v", err)
 	}
-	crlPath := filepath.Join(t.TempDir(), "crl.pem")
-	if out, err := exec.Command("openssl", "ca", "-config", cnf, "-gencrl", "-out", crlPath).CombinedOutput(); err != nil {
+	if out, err := exec.Command("openssl", "ca", "-config", cnf, "-revoke", filepath.Join(caDir, "bob_cert.pem"),
+		"-crl_reason", "CACompromise").CombinedOutput(); err != nil {
+		t.Fatalf("openssl ca -revoke:\n%s", out)
+	}
+
+	// Both CRLs, of openssl ca and of make-crl, list alice and bob with their reasons.
+	opensslCRL := filepath.Join(t.TempDir(), "crl.pem")
+	if out, err := exec.Command("openssl", "ca", "-config", cnf, "-gencrl", "-out", opensslCRL).CombinedOutput(); err != nil {
 		t.Fatalf("openssl ca -gencrl:\n%s", out)
 	}
-	b, err := os.ReadFile(crlPath)
-	if err != nil {
-		t.Fatalf("read CRL: %v", err)
+	if err := makeCRL(caDir, 30); err != nil {
+		t.Fatalf("makeCRL: %v", err)
 	}
-	block, _ := pem.Decode(b)
-	if block == nil {
-		t.Fatal("no PEM block in the CRL of openssl ca")
+	for i, crlPath := range []string{opensslCRL, filepath.Join(caDir, "crl.pem")} {
+		b, err := os.ReadFile(crlPath)
+		if err != nil {
+			t.Fatalf("read CRL: %v", err)
+		}
+		block, _ := pem.Decode(b)
+		if block == nil {
+			t.Fatalf("no PEM block in %s", crlPath)
+		}
+		crl, err := x509.ParseRevocationList(block.Bytes)
+		if err != nil {
+			t.Fatalf("ParseRevocationList: %v", err)
+		}
+		reasons := map[string]int{}
+		for _, e := range crl.RevokedCertificateEntries {
+			reasons[serialHex(e.SerialNumber)] = e.ReasonCode
+		}
+		if len(reasons) != 2 || reasons[serialHex(alice.SerialNumber)] != 1 || reasons[serialHex(bob.SerialNumber)] != 2 {
+			t.Fatalf("%s lists the reason codes %v, want alice keyCompromise (1) and bob CACompromise (2)", crlPath, reasons)
+		}
+		if want := int64(2 + i); crl.Number.Int64() != want {
+			t.Fatalf("%s has number %d, want %d", crlPath, crl.Number, want)
+		}
 	}
-	crl, err := x509.ParseRevocationList(block.Bytes)
-	if err != nil {
-		t.Fatalf("ParseRevocationList: %v", err)
+}
+
+func TestMakeCRLAll(t *testing.T) {
+	caDir := t.TempDir()
+
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
 	}
-	if len(crl.RevokedCertificateEntries) != 1 || crl.RevokedCertificateEntries[0].SerialNumber.Cmp(alice.SerialNumber) != 0 {
-		t.Fatalf("CRL of openssl ca lists %+v, want only alice", crl.RevokedCertificateEntries)
+	for _, name := range []string{"servers", "users"} {
+		if err := makeCA(caDir, name+" CA", 3650, name, ""); err != nil {
+			t.Fatalf("makeCA %s: %v", name, err)
+		}
 	}
-	if crl.Number.Int64() != 2 {
-		t.Fatalf("CRL of openssl ca has number %d, want 2, after the first CRL of make-ca", crl.Number)
+	if err := os.Mkdir(filepath.Join(caDir, "other"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := run([]string{"make-crl", "--ca-dir", filepath.Join(caDir, "users"), "--all"}); err != nil {
+		t.Fatalf("make-crl --all: %v", err)
+	}
+	for _, dir := range []string{caDir, filepath.Join(caDir, "servers"), filepath.Join(caDir, "users")} {
+		if b, err := os.ReadFile(filepath.Join(dir, crlNumberFile)); err != nil || strings.TrimSpace(string(b)) != "03" {
+			t.Fatalf("crlnumber of %s is %q, %v, want 03 after the second CRL", dir, b, err)
+		}
+	}
+	if fileExists(filepath.Join(caDir, "other", "crl.pem")) {
+		t.Fatal("make-crl --all wrote a CRL in a directory without a CA")
+	}
+	if err := run([]string{"make-crl", "--ca-dir", filepath.Join(caDir, "servers")}); err != nil {
+		t.Fatalf("make-crl: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(caDir, "users", crlNumberFile)); err != nil || strings.TrimSpace(string(b)) != "03" {
+		t.Fatalf("make-crl without --all changed the crlnumber of another CA: %q, %v", b, err)
+	}
+}
+
+func TestRevocationReason(t *testing.T) {
+	for _, c := range []struct {
+		revoked, name string
+		code          int
+	}{
+		{"261030120000Z", "", 0},
+		{"261030120000Z,unspecified", "unspecified", 0},
+		{"261030120000Z,superseded", "superseded", 4},
+		{"261030120000Z,keyTime,20261029120000Z", "keyTime", 1},
+		{"261030120000Z,holdInstruction,1.2.840.10040.2.2", "holdInstruction", 6},
+		{"261030120000Z,removeFromCRL", "removeFromCRL", 8},
+	} {
+		name, code, err := revocationReason(c.revoked)
+		if err != nil || name != c.name || code != c.code {
+			t.Fatalf("revocationReason(%q) = %q, %d, %v, want %q, %d", c.revoked, name, code, err, c.name, c.code)
+		}
+	}
+	if _, _, err := revocationReason("261030120000Z,bogus"); err == nil {
+		t.Fatal("revocationReason of an unknown reason succeeded, want an error")
 	}
 }
 
@@ -434,11 +508,20 @@ func TestRevokeAndCRL(t *testing.T) {
 		t.Fatalf("loadCert: %v", err)
 	}
 
-	if err := revokeCert(alicePath, filepath.Join(caDir, "issuing_ca")); err != nil {
+	if err := revokeCert(alicePath, filepath.Join(caDir, "issuing_ca"), "noSuchReason"); err == nil {
+		t.Fatal("revokeCert with an unknown reason succeeded, want an error")
+	}
+	if err := revokeCert(alicePath, filepath.Join(caDir, "issuing_ca"), "certificateHold"); err == nil {
+		t.Fatal("revokeCert with certificateHold succeeded, want an error")
+	}
+	if err := revokeCert(alicePath, filepath.Join(caDir, "issuing_ca"), "SUPERSEDED"); err != nil {
 		t.Fatalf("revokeCert: %v", err)
 	}
-	if err := revokeCert(alicePath, filepath.Join(caDir, "issuing_ca")); err != nil {
+	if err := revokeCert(alicePath, filepath.Join(caDir, "issuing_ca"), ""); err != nil {
 		t.Fatalf("revokeCert second run: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(caDir, "issuing_ca", indexFile)); err != nil || !strings.Contains(string(b), "Z,superseded\t") {
+		t.Fatalf("index.txt lacks the revocation reason superseded: %q, %v", b, err)
 	}
 
 	crlPath := filepath.Join(caDir, "issuing_ca", "crl.pem")
@@ -462,8 +545,9 @@ func TestRevokeAndCRL(t *testing.T) {
 			t.Fatalf("CRL number %d, want %d", crl.Number, want)
 		}
 		if len(crl.RevokedCertificateEntries) != 1 ||
-			crl.RevokedCertificateEntries[0].SerialNumber.Cmp(alice.SerialNumber) != 0 {
-			t.Fatalf("CRL entries %+v, want only alice", crl.RevokedCertificateEntries)
+			crl.RevokedCertificateEntries[0].SerialNumber.Cmp(alice.SerialNumber) != 0 ||
+			crl.RevokedCertificateEntries[0].ReasonCode != 4 {
+			t.Fatalf("CRL entries %+v, want only alice, superseded (4)", crl.RevokedCertificateEntries)
 		}
 	}
 
@@ -493,7 +577,7 @@ func TestListAndInfo(t *testing.T) {
 			t.Fatalf("makeCert %s: %v", name, err)
 		}
 	}
-	if err := revokeCert(filepath.Join(caDir, "issuing_ca", "alice_cert.pem"), filepath.Join(caDir, "issuing_ca")); err != nil {
+	if err := revokeCert(filepath.Join(caDir, "issuing_ca", "alice_cert.pem"), filepath.Join(caDir, "issuing_ca"), ""); err != nil {
 		t.Fatalf("revokeCert: %v", err)
 	}
 	if err := makeCRL(filepath.Join(caDir, "issuing_ca"), 30); err != nil {
@@ -622,7 +706,7 @@ func TestCADirRoles(t *testing.T) {
 		t.Fatal("expected make-ca to refuse an issuing CA directory")
 	}
 
-	if err := revokeCert(filepath.Join(issuingDir, "ca_cert.pem"), caDir); err != nil {
+	if err := revokeCert(filepath.Join(issuingDir, "ca_cert.pem"), caDir, ""); err != nil {
 		t.Fatalf("revokeCert of the issuing CA: %v", err)
 	}
 	if err := makeCRL(caDir, 30); err != nil {
@@ -905,7 +989,7 @@ func TestWriteOpenSSLConf(t *testing.T) {
 	if !strings.Contains(list.String(), serialHex(cert.SerialNumber)) {
 		t.Fatalf("the certificate of openssl ca is not listed:\n%s", list.String())
 	}
-	if err := revokeCert(certPath, issuingDir); err != nil {
+	if err := revokeCert(certPath, issuingDir, ""); err != nil {
 		t.Fatalf("revokeCert: %v", err)
 	}
 	if out, err := exec.Command("openssl", "ca", "-config", conf, "-gencrl", "-out", filepath.Join(work, "crl.pem")).CombinedOutput(); err != nil {

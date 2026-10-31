@@ -274,30 +274,59 @@ func runMakeCRL(args []string) error {
 	fs := newFlagSet("make-crl", "", "Generate the CRL of the CA in --ca-dir.")
 	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
 	days := fs.Int("days", 30, "CRL validity in `days`")
+	all := fs.Bool("all", false, "generate the CRLs of the root CA of --ca-dir and of all its issuing CAs")
 	_, given, err := parseArgs(fs, args, 0, 0)
 	if err != nil {
 		return err
 	}
 	dir := resolveCADir(*caDir)
-	cfg, err := loadRootConfig(dir)
+	rootDir, _, err := locateCA(dir)
+	if err != nil {
+		return err
+	}
+	cfg, err := loadConfig(rootDir)
 	if err != nil {
 		return err
 	}
 	if !given["days"] && cfg.Days.CRL > 0 {
 		*days = cfg.Days.CRL
 	}
-	return makeCRL(dir, *days)
+	if !*all {
+		return makeCRL(dir, *days)
+	}
+
+	// Every CA is tried, also after one fails.
+	entries, err := os.ReadDir(rootDir)
+	if err != nil {
+		return err
+	}
+	dirs := []string{rootDir}
+	for _, e := range entries {
+		sub := filepath.Join(rootDir, e.Name())
+		if e.IsDir() && fileExists(filepath.Join(sub, "ca_cert.pem")) && fileExists(filepath.Join(sub, "ca_key.pem")) {
+			dirs = append(dirs, sub)
+		}
+	}
+	var errs []error
+	for _, d := range dirs {
+		if err := makeCRL(d, *days); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", d, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // runRevokeCert runs the revoke-cert subcommand.
 func runRevokeCert(args []string) error {
 	fs := newFlagSet("revoke-cert", "CERT_PATH", "Revoke a certificate the CA in --ca-dir issued.")
 	caDir := fs.String("ca-dir", "", "`directory` of the CA that signed the certificate")
+	reason := fs.String("reason", "", "revocation `reason`: unspecified, keyCompromise, CACompromise, affiliationChanged,\n"+
+		"superseded or cessationOfOperation (default: none)")
 	rest, _, err := parseArgs(fs, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	return revokeCert(rest[0], resolveCADir(*caDir))
+	return revokeCert(rest[0], resolveCADir(*caDir), *reason)
 }
 
 // runInfo runs the info subcommand.

@@ -1,0 +1,22 @@
+[Unit]
+Description=simple-ca CRL generation for the root CA and the issuing CAs in /etc/simple-ca
+Documentation=https://github.com/skoszewski/simple-ca
+
+[Service]
+Type=oneshot
+User=simple-ca
+Group=simple-ca
+ExecStart=/usr/local/bin/simple-ca make-crl --ca-dir /etc/simple-ca --all
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/simple-ca
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes

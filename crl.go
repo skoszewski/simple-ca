@@ -35,6 +35,44 @@ import (
 	"time"
 )
 
+// ---- revocation reasons -----------------------------------------------------
+
+// crlReasons are the revocation reasons of index.txt in the names of "openssl ca", with their
+// reason codes of RFC 5280; revoke-cert takes the first six, and the last three are the pseudo
+// reasons OpenSSL writes with an extra field.
+var crlReasons = []struct {
+	name string
+	code int
+}{
+	{"unspecified", 0},
+	{"keyCompromise", 1},
+	{"CACompromise", 2},
+	{"affiliationChanged", 3},
+	{"superseded", 4},
+	{"cessationOfOperation", 5},
+	{"certificateHold", 6},
+	{"removeFromCRL", 8},
+	{"holdInstruction", 6},
+	{"keyTime", 1},
+	{"CAkeyTime", 2},
+}
+
+// revocationReason returns the name and the reason code of the reason in the revocation field of
+// an index.txt entry, date[,reason[,extra]], and "" when it has none.
+func revocationReason(revoked string) (string, int, error) {
+	_, rest, found := strings.Cut(revoked, ",")
+	if !found {
+		return "", 0, nil
+	}
+	name, _, _ := strings.Cut(rest, ",")
+	for _, r := range crlReasons {
+		if strings.EqualFold(r.name, name) {
+			return r.name, r.code, nil
+		}
+	}
+	return "", 0, fmt.Errorf("unknown revocation reason '%s'", name)
+}
+
 // ---- makeCRL ----------------------------------------------------------------
 
 // makeCRL writes crl.pem of the CA in caDir, listing the certificates its index.txt marks as
@@ -78,7 +116,11 @@ func makeCRL(caDir string, days int) error {
 		if err != nil {
 			return fmt.Errorf("invalid revocation date of serial %s in %s: %w", e.serial, filepath.Join(signingDir, indexFile), err)
 		}
-		revoked = append(revoked, x509.RevocationListEntry{SerialNumber: serial, RevocationTime: revokedAt})
+		_, reasonCode, err := revocationReason(e.revoked)
+		if err != nil {
+			return fmt.Errorf("serial %s in %s: %w", e.serial, filepath.Join(signingDir, indexFile), err)
+		}
+		revoked = append(revoked, x509.RevocationListEntry{SerialNumber: serial, RevocationTime: revokedAt, ReasonCode: reasonCode})
 	}
 
 	numberPath := filepath.Join(signingDir, crlNumberFile)
@@ -118,8 +160,20 @@ func makeCRL(caDir string, days int) error {
 
 // ---- revokeCert -------------------------------------------------------------
 
-// revokeCert marks the certificate at certPath as revoked in index.txt of the CA in caDir.
-func revokeCert(certPath, caDir string) error {
+// revokeCert marks the certificate at certPath as revoked in index.txt of the CA in caDir, for
+// reason, one of the first six of crlReasons in any letter case, or for no reason when empty.
+func revokeCert(certPath, caDir, reason string) error {
+	if reason != "" {
+		var names []string
+		for _, r := range crlReasons[:6] {
+			names = append(names, r.name)
+		}
+		i := slices.IndexFunc(names, func(name string) bool { return strings.EqualFold(name, reason) })
+		if i < 0 {
+			return fmt.Errorf("unknown revocation reason '%s': must be one of %s", reason, strings.Join(names, ", "))
+		}
+		reason = names[i]
+	}
 	if !fileExists(certPath) {
 		return fmt.Errorf("certificate not found: %s", certPath)
 	}
@@ -148,9 +202,16 @@ func revokeCert(certPath, caDir string) error {
 	}
 	entries[i].status = "R"
 	entries[i].revoked = time.Now().UTC().Format(utcTimeFormat)
+	if reason != "" {
+		entries[i].revoked += "," + reason
+	}
 	if err := writeIndex(signingDir, entries); err != nil {
 		return err
 	}
-	fmt.Printf("Certificate %s (serial %s) marked as revoked.\n", certPath, serial)
+	if reason != "" {
+		fmt.Printf("Certificate %s (serial %s) marked as revoked, reason %s.\n", certPath, serial, reason)
+	} else {
+		fmt.Printf("Certificate %s (serial %s) marked as revoked.\n", certPath, serial)
+	}
 	return nil
 }

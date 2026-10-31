@@ -32,6 +32,19 @@ go.work.sum
 /dist/
 /tmp/
 /ca/
+/simple-ca_*.deb
+/simple-ca_*.buildinfo
+/simple-ca_*.changes
+/debian-package/simple-ca
+/debian-package/systemd/
+/debian-package/debian/changelog
+/debian-package/debian/.debhelper/
+/debian-package/debian/debhelper-build-stamp
+/debian-package/debian/files
+/debian-package/debian/*.substvars
+/debian-package/debian/*.debhelper
+/debian-package/debian/*.debhelper.log
+/debian-package/debian/simple-ca/
 
 # env file
 .env

@@ -339,7 +339,7 @@ func listCerts(w io.Writer, caDir string, statuses []string) error {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "STATUS\tEXPIRES\tREVOKED\tSERIAL\tSUBJECT")
+	fmt.Fprintln(tw, "STATUS\tEXPIRES\tREVOKED\tREASON\tSERIAL\tSUBJECT")
 	now := time.Now()
 	for _, e := range entries {
 		status, err := entryStatus(e, now)
@@ -353,15 +353,22 @@ func listCerts(w io.Writer, caDir string, statuses []string) error {
 		if err != nil {
 			return fmt.Errorf("invalid expiry of serial %s: %w", e.serial, err)
 		}
-		revoked := "-"
+		revoked, reason := "-", "-"
 		if e.revoked != "" {
 			t, err := parseIndexTime(e.revoked)
 			if err != nil {
 				return fmt.Errorf("invalid revocation date of serial %s: %w", e.serial, err)
 			}
 			revoked = t.UTC().Format(displayTimeFormat)
+			name, _, err := revocationReason(e.revoked)
+			if err != nil {
+				return fmt.Errorf("serial %s: %w", e.serial, err)
+			}
+			if name != "" {
+				reason = name
+			}
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", status, expires.UTC().Format(displayTimeFormat), revoked, e.serial, e.subject)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", status, expires.UTC().Format(displayTimeFormat), revoked, reason, e.serial, e.subject)
 	}
 	return tw.Flush()
 }

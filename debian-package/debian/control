@@ -1,0 +1,22 @@
+Source: simple-ca
+Section: utils
+Priority: optional
+Maintainer: Slawomir Koszewski <slawek@koszewscy.waw.pl>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://github.com/skoszewski/simple-ca
+
+Package: simple-ca
+Architecture: any
+Depends: ${misc:Depends}
+Description: Simple Certificate Authority
+ Installs simple-ca, a single executable that creates and manages a root CA
+ and its issuing CAs, issues server and user certificates, signs certificate
+ signing requests, writes PKCS#12 bundles, revokes certificates and writes
+ CRLs, keeping its records in an index.txt shared with openssl ca.
+ .
+ The package adds the system user simple-ca and the CA directory
+ /etc/simple-ca, the service simple-ca.service, which serves the CA
+ certificates and CRLs over HTTP, and the timer simple-ca-crl.timer, which
+ renews the CRLs daily. Neither is enabled on installation.

@@ -59,8 +59,8 @@ simple-ca make-cert   [--ca-dir DIR] [--cert-dir DIR] [--days N] [--type server|
 simple-ca sign        [--ca-dir DIR] [--cert-dir DIR] [--days N] [--type server|user|none]
                       [--ku USAGES] [--eku USAGE ...] [--force] CSR_FILE
 simple-ca make-pfx    [--ca-dir DIR] [--password PASS] CERT_PATH
-simple-ca make-crl    [--ca-dir DIR] [--days N]
-simple-ca revoke-cert [--ca-dir DIR] CERT_PATH
+simple-ca make-crl    [--ca-dir DIR] [--days N] [--all]
+simple-ca revoke-cert [--ca-dir DIR] [--reason REASON] CERT_PATH
 simple-ca info        [--ca-dir DIR]
 simple-ca info        CERT_FILE
 simple-ca list        [--ca-dir DIR] [--valid] [--revoked] [--expired]
@@ -218,9 +218,19 @@ one. The password defaults to `changeit`. The bundle is encrypted with PBES2 (AE
 
 `revoke-cert` marks the certificate at `CERT_PATH` as revoked in `index.txt` of the CA in the CA
 directory, which signed it. An issuing CA is revoked from the root CA directory, with its
-`ca_cert.pem` as `CERT_PATH`. `make-crl` writes `crl.pem` of the CA in the CA directory, listing
-every revoked certificate, with the number in `crlnumber`, and raises the number. `--days`
-defaults to 30.
+`ca_cert.pem` as `CERT_PATH`.
+
+`--reason` records why, in any letter case: `unspecified`, `keyCompromise`, `CACompromise`,
+`affiliationChanged`, `superseded` or `cessationOfOperation`. Without it, no reason is recorded.
+The reason is stored in `index.txt` as `openssl ca -crl_reason` stores it, and the CRL gives it
+as the reason code of the entry; for `unspecified` and for no reason, the entry has no reason
+code. The reasons `openssl ca` records for revocations of its own, `certificateHold`,
+`removeFromCRL` and those of `-crl_hold` and `-crl_compromise`, are listed in the CRL as well.
+
+`make-crl` writes `crl.pem` of the CA in the CA directory, listing every revoked certificate,
+with the number in `crlnumber`, and raises the number. `--days` defaults to 30. With `--all`, it
+writes the CRLs of the root CA of the CA directory and of each of its issuing CAs whose key is
+there; a CA that fails does not stop the others, and the command then fails.
 
 ### info
 
@@ -262,14 +272,14 @@ SHA-256 fingerprint:     81:02:F1:BB:D7:4D:5E:94:25:D9:A6:61:8C:F4:93:41:80:74:B
 ### list
 
 Lists the certificates the CA in the CA directory issued, with their status, expiry, revocation
-date, serial and subject; those of a root CA include its issuing CAs. `--valid`, `--revoked` and `--expired` choose the
-certificates listed, and can be combined; without any of them every certificate is listed. A
-certificate is expired from its expiry on. The times are UTC.
+date and reason, serial and subject; those of a root CA include its issuing CAs. `--valid`,
+`--revoked` and `--expired` choose the certificates listed, and can be combined; without any of
+them every certificate is listed. A certificate is expired from its expiry on. The times are UTC.
 
 ```text
-STATUS   EXPIRES                  REVOKED                  SERIAL                                    SUBJECT
-valid    2027-10-30 21:51:52 UTC  -                        22AECF2AC0EE6D9185176A6CCEE9FC743F12EB9A  /CN=web.example.com
-revoked  2027-10-30 21:51:52 UTC  2026-10-30 21:51:52 UTC  12193ECDF2A38AF35B12C657CD52BC5C4CC7626D  /CN=alice.example.com
+STATUS   EXPIRES                  REVOKED                  REASON         SERIAL                                    SUBJECT
+valid    2027-10-30 21:51:52 UTC  -                        -              22AECF2AC0EE6D9185176A6CCEE9FC743F12EB9A  /CN=web.example.com
+revoked  2027-10-30 21:51:52 UTC  2026-10-30 21:51:52 UTC  keyCompromise  12193ECDF2A38AF35B12C657CD52BC5C4CC7626D  /CN=alice.example.com
 ```
 
 ### serve
@@ -390,6 +400,50 @@ simple-ca list --revoked
 simple-ca list --ca-dir /tmp/ca
 ```
 
+## systemd
+
+`systemd/` holds units for a CA in `/etc/simple-ca` and the executable in
+`/usr/local/bin/simple-ca`, both run as the user `simple-ca`:
+
+- `simple-ca.service` runs `serve` on all interfaces, port 8080;
+- `simple-ca-crl.service` runs `make-crl --all`, for the root CA in `/etc/simple-ca` and its
+  issuing CAs;
+- `simple-ca-crl.timer` starts `simple-ca-crl.service` daily, and on boot when a run was missed.
+
+```sh
+sudo install -m 755 simple-ca /usr/local/bin/simple-ca
+sudo useradd --system --home-dir /etc/simple-ca --no-create-home \
+  --shell /usr/sbin/nologin simple-ca
+sudo install -d -o simple-ca -g simple-ca -m 750 /etc/simple-ca
+sudo -u simple-ca simple-ca make-ca --ca-dir /etc/simple-ca \
+  --ca-publish-base-url http://ca.example.com:8080 "My Root CA"
+sudo -u simple-ca simple-ca make-ca --ca-dir /etc/simple-ca --issuing-ca servers "My Servers CA"
+sudo cp systemd/simple-ca.service systemd/simple-ca-crl.service systemd/simple-ca-crl.timer \
+  /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now simple-ca.service simple-ca-crl.timer
+```
+
+The CRL is renewed daily, well within `days.crl`, 30 days by default. Other settings, such as
+the port, are changed with `systemctl edit simple-ca.service`.
+
+## Debian package
+
+The releases include Debian packages for amd64 and arm64, `simple-ca_<version>_<arch>.deb`. The
+package installs `/usr/bin/simple-ca` and the units of [systemd](#systemd), which run it from
+there, adds the system user `simple-ca` and creates `/etc/simple-ca`, owned by it. The service
+and the timer are not enabled on installation, since the CA does not exist yet:
+
+```sh
+sudo apt install ./simple-ca_1.0.0-1_amd64.deb
+sudo -u simple-ca simple-ca make-ca --ca-dir /etc/simple-ca \
+  --ca-publish-base-url http://ca.example.com:8080 "My Root CA"
+sudo systemctl enable --now simple-ca.service simple-ca-crl.timer
+```
+
+The package version is that of the newest `CHANGELOG.md` entry with the Debian revision 1, and
+`x.y.z-n` is `x.y.z-n`; its `debian/changelog` is written from `CHANGELOG.md`.
+
 ## Building
 
 `./build.mjs` needs Node.js and Go; the tests need `openssl` on the `PATH`.
@@ -399,8 +453,14 @@ simple-ca list --ca-dir /tmp/ca
 ./build.mjs build linux/arm64  # build simple-ca-linux-arm64
 ./build.mjs test               # run the tests
 ./build.mjs check              # check formatting, vet and run the tests
-./build.mjs clean              # remove the built executables
+./build.mjs package            # build the Debian package for the host's architecture
+./build.mjs package arm64      # build the Debian package for arm64
+./build.mjs clean              # remove the built executables and package files
 ```
+
+`package` runs on a Debian or Ubuntu host with `dpkg-dev` and `debhelper`
+(`sudo apt install dpkg-dev debhelper`) and writes `simple-ca_<version>_<arch>.deb` to the
+repository root; the architecture is `amd64`, `arm64`, `armhf` or `i386`.
 
 ## Releasing
 
