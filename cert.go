@@ -24,6 +24,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -44,6 +45,7 @@ import (
 var (
 	hostnameRE = regexp.MustCompile(`(?i)^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
 	emailRE    = regexp.MustCompile(`^[!-?A-~]+@[!-?A-~]+\.[!-?A-~]+$`)
+	fileNameRE = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 	oidSubjectAltName = asn1.ObjectIdentifier{2, 5, 29, 17}
 	oidEmailAddress   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 1}
@@ -238,10 +240,17 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 		publishURL += "/" + issuingCA
 	}
 
-	// The files are named after the CN up to its first dot, or the local part of the emailAddress.
-	certName, _, _ := strings.Cut(cn, ".")
-	if cn == "" {
+	// The files are named after the hostname CN up to its first dot, or the user CN, or the local
+	// part of the emailAddress, each run of characters besides letters, digits, - and _ as one _.
+	certName := cn
+	if !userNames {
+		certName, _, _ = strings.Cut(cn, ".")
+	} else if cn == "" {
 		certName, _, _ = strings.Cut(email, "@")
+	}
+	certName = strings.Trim(fileNameRE.ReplaceAllString(certName, "_"), "_")
+	if certName == "" {
+		return fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", cmp.Or(cn, email))
 	}
 
 	subject := pkix.Name{CommonName: cn}

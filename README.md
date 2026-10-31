@@ -46,7 +46,11 @@ CA_DIR/
     {name}_key.pem         key of a certificate issued by the issuing CA
 ```
 
-`{name}` is the subject up to its first dot: `web.example.com` is written as `web_cert.pem`.
+`{name}` is the CN of a server certificate up to its first dot, the CN of a user certificate, or
+the part of the emailAddress before the `@` when there is no CN. Each run of characters other than
+letters, digits, hyphens and underscores becomes one `_`, without a leading or trailing `_`:
+`web.example.com` is written as `web_cert.pem`, `Alice Example` as `Alice_Example_cert.pem` and
+`a.example@example.org` as `a_example_cert.pem`.
 
 Use `ca_bundle.pem` with `openssl verify -CAfile CA_DIR/ca_bundle.pem`; this works the same on
 Linux, macOS and Windows without hash symlinks.
@@ -159,9 +163,9 @@ or FQDN is made of labels of letters, digits and hyphens, and its last label is 
 the addresses of email address SANs are ASCII.
 
 The certificate is signed by the CA in the CA directory, the root CA or an issuing CA, and
-written to that directory, or to `--cert-dir`, named after the CN up to its first dot, or the
-part of the emailAddress before the `@` when there is no CN. A certificate that exists is left
-as it is. `--days` defaults to 365.
+written to that directory, or to `--cert-dir`, named as described under
+[Directory layout](#directory-layout); a CN that gives no file name, such as `...`, is refused.
+A certificate that exists is left as it is. `--days` defaults to 365.
 
 `--ku USAGES` adds key usages to those of the type, as a comma-separated list, and `--eku USAGE`
 adds an extended key usage; both are repeated for more, and a usage the type has already is not
@@ -195,8 +199,11 @@ name rules of the type are not checked. The key usages and extended key usages a
 type, with `--ku` and `--eku` added as for [make-cert](#make-cert), and the other extensions of
 the request are left out. The AIA and CRL Distribution Point URLs are those of the CA.
 
-The certificate is written to the CA directory, or to `--cert-dir`, named after the request file:
-`web.csr` is written as `web_cert.pem`. A certificate that exists is an error. `--type` defaults
+The certificate is written to the CA directory, or to `--cert-dir`, named after the request file
+without its extension, with each run of characters other than letters, digits, hyphens and
+underscores replaced by one `_`, without a leading or trailing `_`: `web.csr` is written as
+`web_cert.pem` and `my web.v2.csr` as `my_web_v2_cert.pem`. A request file that gives no name,
+such as `+.csr`, and a certificate that exists are errors. `--type` defaults
 to `server` and `--days` to 365.
 
 The certificate is shown, with the fields of [info](#info), and `sign` asks
@@ -497,28 +504,32 @@ are run with `./build.mjs test` or `./build.mjs check`.
 ## Releasing
 
 `CHANGELOG.md` holds every release, newest first: a `## x.y.z` heading, a summary line between
-blank lines, and the changes as a list. The newest entry not yet tagged collects the changes
-made since the last release.
+blank lines, and the changes as a list. An entry is released once a commit on `dev` has its
+summary line as the message; the newest entry not yet released collects the changes made since
+the last release.
 
-`./release.mjs`, run on `dev`, releases that entry:
+`./release.mjs`, run on `dev`, releases the newest entry, without pushing anything: it commits
+everything with the entry's summary line as the message. Releases made this way stay on the
+machine; each next one needs a new entry, with a new version.
 
-1. commits everything with the entry's summary line as the message, when anything is left to
-   commit;
-2. makes the annotated tag `vx.y.z` with the entry as its message, which the workflow publishes
-   as the release notes;
+`./release.mjs --push` publishes the newest entry:
+
+1. commits everything with the entry's summary line as the message, when the entry is not
+   released yet;
+2. makes the annotated tag `vx.y.z` on `dev`; its message, which the workflow publishes as the
+   release notes, is the entry followed by the entries released since the last tagged one, each
+   under its own heading;
 3. fast-forwards `main` to `dev`;
-4. pushes `dev`, `main` and the tag in one atomic push; the tag builds and publishes the
-   release.
+4. pushes `dev`, `main` and the tag in one atomic push; the tag builds and publishes the release.
 
 ```sh
-./release.mjs                  # release the newest CHANGELOG.md entry
-./release.mjs -m "message"     # commit with another message
+./release.mjs                  # release the newest CHANGELOG.md entry, but push nothing
+./release.mjs --push           # publish the newest CHANGELOG.md entry
 ./release.mjs -n               # print the commands instead of running them
-./release.mjs --no-push        # commit, tag and move main, but push nothing
 ```
 
-It refuses when the tag exists, locally or on GitHub, so a released entry is never released
-again; the next change needs a new entry. Only a tag is built: pushing `dev` or `main` runs no
+It refuses to commit changes for a released entry, and to publish an entry whose tag is on
+GitHub; the next change needs a new entry. Only a tag is built: pushing `dev` or `main` runs no
 workflow.
 
 ## Licence

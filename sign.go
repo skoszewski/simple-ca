@@ -43,8 +43,8 @@ import (
 
 // signCSR issues a certificate of the type certType for the certificate signing request in
 // csrPath, a PEM or DER file, signed by the CA in caDir, writes it to certDir, the CA directory
-// when empty, as NAME_cert.pem for the request file NAME.EXT, and records it in index.txt of that
-// CA.
+// when empty, as NAME_cert.pem for the request file NAME.EXT, with each run of characters besides
+// letters, digits, - and _ in NAME as one _, and records it in index.txt of that CA.
 //
 // Only the subject and the subjectAltName extension of the request are copied, as they are; the
 // key usages and extended key usages are those of the type with kus and ekus added, as parsed by
@@ -94,8 +94,14 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 	if !dirExists(certDir) {
 		return fmt.Errorf("certificate directory %s does not exist", certDir)
 	}
+	// The certificate is named after the request file without its extension, each run of
+	// characters besides letters, digits, - and _ as one _.
 	base := filepath.Base(csrPath)
-	certOut := filepath.Join(certDir, strings.TrimSuffix(base, filepath.Ext(base))+"_cert.pem")
+	certName := strings.Trim(fileNameRE.ReplaceAllString(strings.TrimSuffix(base, filepath.Ext(base)), "_"), "_")
+	if certName == "" {
+		return fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", base)
+	}
+	certOut := filepath.Join(certDir, certName+"_cert.pem")
 	if fileExists(certOut) {
 		return fmt.Errorf("certificate %s exists", certOut)
 	}

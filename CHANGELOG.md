@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.3
+
+fix: make-cert and sign write safe certificate file names, and release.mjs publishes with --push only.
+
+- `make-cert` names the files of a user certificate after its whole CN, and replaces each run of
+  characters other than letters, digits, `-` and `_` with one `_`: `Alice Example` is written as
+  `Alice_Example_cert.pem`; a CN that gives no file name, such as `...`, is refused.
+- `sign` names the certificate after the request file by the same rule: `my web.v2.csr` is
+  written as `my_web_v2_cert.pem`; a request file that gives no name, such as `+.csr`, is refused.
+- `release.mjs` only commits the newest entry, with its summary line as the message, which marks
+  the entry as released; the next change needs a new entry.
+- `release.mjs --push` tags `dev`, moves `main` and pushes `dev`, `main` and the tag; the release
+  notes are the entries since the last tagged one. `--no-push` and `-m` are gone.
+
 ## 1.0.2
 
 fix: the releases have no Debian packages, and the release workflow runs no tests.

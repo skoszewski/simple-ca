@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // Releases the newest CHANGELOG.md entry: commits everything on dev with the entry's summary line,
-// tags the commit vX.Y.Z with the entry as the release notes, moves main to it, and pushes dev,
-// main and the tag together.
+// and with --push tags dev vX.Y.Z with the entries since the last tag as the release notes, moves
+// main to it, and pushes dev, main and the tag together.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,22 +12,23 @@ import { parseArgs } from 'node:util';
 
 const CHANGELOG = `${import.meta.dirname}/CHANGELOG.md`;
 
-const usage = `Usage: release.mjs [-h|--help] [-n|--dry-run] [--no-push] [-m|--message <message>]
+const usage = `Usage: release.mjs [-h|--help] [-n|--dry-run] [--push]
 
-  -m, --message  commit message; default: the summary line of the newest CHANGELOG.md entry,
-                 the line between blank lines right after its "## x.y.z" heading
   -n, --dry-run  print the commands instead of running them
-  --no-push      commit, tag and move main, but do not push
+  --push         also tag the release and push dev, main and the tag
 
-The tag is v and the version of the heading, x.y.z or a semver prerelease such as x.y.z-rc.1; its
-message, and so the GitHub release notes, is the entry below the heading. The release is made from
-dev: dev, main and the tag are pushed in one atomic push, and the tag builds the release.`;
+Without --push, the changes are committed with the summary line of the newest CHANGELOG.md entry,
+the line between blank lines right after its "## x.y.z" heading; that commit marks the entry as
+released, and the next change needs a new entry. With --push, the newest entry is committed when it
+is not yet, dev is tagged v and the version of the heading, x.y.z or a semver prerelease such as
+x.y.z-rc.1, main is moved to it, and dev, main and the tag are pushed in one atomic push; the tag
+builds the release. The tag's message, and so the GitHub release notes, are the entries since the
+last tagged one.`;
 
 const { values } = parseArgs({
   options: {
-    message: { type: 'string', short: 'm' },
     'dry-run': { type: 'boolean', short: 'n', default: false },
-    'no-push': { type: 'boolean', default: false },
+    push: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
 });
@@ -59,41 +60,52 @@ function read(command, ...args) {
   return result.stdout.trim();
 }
 
-// The newest entry: its version from the first "## " heading, its summary line when the heading is
-// followed by a blank line, one line that is not a "-" item, and another blank line, and its notes,
-// every line up to the next "## " heading.
+// The entries, newest first: each "## " heading with its version, and its body, every line up to
+// the next heading. The summary line of the newest entry follows its heading between blank lines,
+// and is neither a "-" item nor a heading.
 const lines = readFileSync(CHANGELOG, 'utf8').split('\n');
-const heading = lines.findIndex((line) => line.startsWith('## '));
-if (heading === -1) fail(`${CHANGELOG} has no "## x.y.z" entry`);
-const version = lines[heading].slice(3).trim();
+const headings = lines.flatMap((line, index) => (line.startsWith('## ') ? [index] : []));
+if (headings.length === 0) fail(`${CHANGELOG} has no "## x.y.z" entry`);
+const entries = headings.map((heading, i) => ({
+  version: lines[heading].slice(3).trim(),
+  body: lines.slice(heading + 1, headings[i + 1]).join('\n').trim(),
+}));
+const { version } = entries[0];
 const number = '(0|[1-9][0-9]*)';
 const identifier = '(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)';
 if (!new RegExp(`^${number}\\.${number}\\.${number}(-${identifier}(\\.${identifier})*)?$`).test(version)) {
   fail(`${CHANGELOG}: "${version}" is not a version such as 3.2.0 or 3.2.0-rc.1`);
 }
 const tag = `v${version}`;
-const [above, line, below] = lines.slice(heading + 1, heading + 4);
+const [above, line, below] = lines.slice(headings[0] + 1, headings[0] + 4);
 const summary = above?.trim() === '' && below?.trim() === '' && line?.trim() && !line.startsWith('-') && !line.startsWith('#') ? line.trim() : undefined;
-const next = lines.findIndex((line, index) => index > heading && line.startsWith('## '));
-const notes = lines.slice(heading + 1, next === -1 ? undefined : next).join('\n').trim() + '\n';
-
-const message = values.message ?? summary;
-if (!message) {
-  fail(`no commit message: pass -m, or put a summary line between blank lines right after the newest heading of ${CHANGELOG}`);
-}
+if (!summary) fail(`put a summary line between blank lines right after the newest heading of ${CHANGELOG}`);
 
 if (read('git', 'branch', '--show-current') !== 'dev') fail('a release is made from dev');
-if (spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`], { cwd: import.meta.dirname }).status === 0 ||
-  read('git', 'ls-remote', '--tags', 'origin', `refs/tags/${tag}`) !== '') {
-  fail(`tag ${tag} exists; add a new CHANGELOG.md entry first`);
-}
+const localTags = new Set(read('git', 'tag', '--list').split('\n'));
+const remoteTags = new Set(read('git', 'ls-remote', '--tags', 'origin').split('\n')
+  .map((ref) => ref.split('refs/tags/')[1]?.replace(/\^\{\}$/, '')).filter(Boolean));
+if (remoteTags.has(tag)) fail(`${tag} is published; add a new CHANGELOG.md entry first`);
 
-if (read('git', 'status', '--porcelain') !== '') {
+// The release commit of an entry is a commit on dev whose message is the entry's summary line.
+const hasCommits = spawnSync('git', ['rev-parse', '-q', '--verify', 'HEAD'], { cwd: import.meta.dirname }).status === 0;
+const committed = hasCommits && read('git', 'log', '--format=%s', 'dev').split('\n').includes(summary);
+const dirty = read('git', 'status', '--porcelain') !== '';
+if (committed && dirty) fail(`${version} is released; add a new CHANGELOG.md entry for the changes`);
+if (committed && !values.push) fail(`${version} is released; add a new CHANGELOG.md entry, or publish it with --push`);
+if (!committed && !dirty) fail(`nothing to commit for ${version}`);
+if (!committed) {
   run('git', 'add', '-A');
-  run('git', 'commit', '-m', message);
+  run('git', 'commit', '-m', summary);
 }
+if (!values.push) process.exit(0);
 
-// The notes are the tag's message, kept with their Markdown headings.
+// The notes, the tag's message kept with its Markdown headings, are the body of the newest entry
+// followed by the entries released since the last tagged one, each under its own heading.
+const last = entries.findIndex((entry, i) => i > 0 && (localTags.has(`v${entry.version}`) || remoteTags.has(`v${entry.version}`)));
+const notes = [entries[0].body, ...entries.slice(1, last === -1 ? undefined : last).map((entry) => `## ${entry.version}\n\n${entry.body}`)]
+  .join('\n\n') + '\n';
+if (localTags.has(tag)) fail(`tag ${tag} exists but is not published; push it with git push --atomic origin dev main ${tag}`);
 const notesDir = mkdtempSync(join(tmpdir(), 'release-'));
 const notesFile = join(notesDir, 'notes.md');
 writeFileSync(notesFile, notes);
@@ -103,6 +115,4 @@ try {
   rmSync(notesDir, { recursive: true, force: true });
 }
 run('git', 'fetch', '.', 'dev:main');
-if (values['no-push']) process.exit(0);
-
 run('git', 'push', '--atomic', 'origin', 'dev', 'main', tag);

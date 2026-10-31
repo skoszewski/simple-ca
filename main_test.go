@@ -120,9 +120,9 @@ func TestUserCert(t *testing.T) {
 	if err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing_ca"), "", "user", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert user: %v", err)
 	}
-	certPath := filepath.Join(caDir, "issuing_ca", "Alice Example_cert.pem")
+	certPath := filepath.Join(caDir, "issuing_ca", "Alice_Example_cert.pem")
 	if !fileExists(certPath) {
-		t.Fatal("Alice Example_cert.pem not created")
+		t.Fatal("Alice_Example_cert.pem not created")
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
 	assertEKU(t, certPath, "TLS Web Client Authentication")
@@ -214,11 +214,14 @@ func TestUserSubjects(t *testing.T) {
 		emails  []string
 		oid     string
 	}{
-		{[]string{"Alice Example", "alice@example.com", "a.example@example.org", "1.3.6.1.4.1.99999.2"}, "Alice Example",
+		{[]string{"Alice Example", "alice@example.com", "a.example@example.org", "1.3.6.1.4.1.99999.2"}, "Alice_Example",
 			"/CN=Alice Example/emailAddress=alice@example.com", []string{"alice@example.com", "a.example@example.org"}, "1.3.6.1.4.1.99999.2"},
 		{[]string{"bob@example.com", "Bob"}, "Bob", "/CN=Bob/emailAddress=bob@example.com", []string{"bob@example.com"}, ""},
 		{[]string{"carol@example.com"}, "carol", "/emailAddress=carol@example.com", []string{"carol@example.com"}, ""},
 		{[]string{"Dave"}, "Dave", "/CN=Dave", nil, ""},
+		{[]string{"../Frank Example", "frank@example.com"}, "Frank_Example",
+			"/CN=../Frank Example/emailAddress=frank@example.com", []string{"frank@example.com"}, ""},
+		{[]string{"g.example@example.com"}, "g_example", "/emailAddress=g.example@example.com", []string{"g.example@example.com"}, ""},
 	} {
 		if err := makeCert(c.args[0], c.args[1:], caDir, "", "user", 365, nil, nil); err != nil {
 			t.Fatalf("makeCert %v: %v", c.args, err)
@@ -253,6 +256,7 @@ func TestUserSubjects(t *testing.T) {
 		{"Eve", "eve@example.com", "Eve Example"},
 		{"Eve", "eve@example.com", "eve.example.com"},
 		{"Eve", "eve@example.com", "192.0.2.1"},
+		{"..."},
 	} {
 		if err := makeCert(args[0], args[1:], caDir, "", "user", 365, nil, nil); err == nil {
 			t.Fatalf("expected an error for %v", args)
@@ -645,7 +649,7 @@ func TestShowCert(t *testing.T) {
 	if err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing_ca"), "", "user", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
-	certPath := filepath.Join(caDir, "issuing_ca", "Alice Example_cert.pem")
+	certPath := filepath.Join(caDir, "issuing_ca", "Alice_Example_cert.pem")
 	cert, err := loadCert(certPath)
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
@@ -684,7 +688,7 @@ func TestShowCert(t *testing.T) {
 		}
 	}
 
-	if err := showCert(&b, filepath.Join(caDir, "issuing_ca", "Alice Example_key.pem")); err == nil {
+	if err := showCert(&b, filepath.Join(caDir, "issuing_ca", "Alice_Example_key.pem")); err == nil {
 		t.Fatal("expected an error for a file without a certificate")
 	}
 }
@@ -793,7 +797,7 @@ func TestKeyUsageAndNone(t *testing.T) {
 		if err := makeCert(c.cn, nil, caDir, "", c.certType, 365, c.ekus, c.kus); err != nil {
 			t.Fatalf("makeCert %s: %v", c.cn, err)
 		}
-		name, _, _ := strings.Cut(c.cn, ".")
+		name, _, _ := strings.Cut(strings.ReplaceAll(c.cn, " ", "_"), ".")
 		certPath := filepath.Join(caDir, name+"_cert.pem")
 		verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
 		cert, err := loadCert(certPath)
@@ -1447,6 +1451,24 @@ func TestSign(t *testing.T) {
 		t.Fatalf("signCSR with force: %v", err)
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(forceDir, "web_cert.pem"))
+
+	for _, c := range []struct{ file, cert string }{{"my web.v2.csr", "my_web_v2_cert.pem"}, {"db", "db_cert.pem"}} {
+		renamed := filepath.Join(csrDir, c.file)
+		if err := os.Link(csrPath, renamed); err != nil {
+			t.Fatalf("link %s: %v", renamed, err)
+		}
+		if err := signCSR(renamed, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err != nil {
+			t.Fatalf("signCSR %s: %v", c.file, err)
+		}
+		verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(forceDir, c.cert))
+	}
+	empty := filepath.Join(csrDir, "+.csr")
+	if err := os.Link(csrPath, empty); err != nil {
+		t.Fatalf("link %s: %v", empty, err)
+	}
+	if err := signCSR(empty, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err == nil {
+		t.Fatal("signing +.csr succeeded, want an error for the empty file name")
+	}
 }
 
 func TestEntryStatus(t *testing.T) {
