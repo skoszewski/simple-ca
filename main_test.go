@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -405,7 +406,7 @@ func TestOpenSSLCA(t *testing.T) {
 		t.Fatalf("openssl ca -revoke:\n%s", out)
 	}
 
-	// Both CRLs, of openssl ca and of make-crl, list alice and bob with their reasons.
+	// Both CRLs, of openssl ca and of crl create, list alice and bob with their reasons.
 	opensslCRL := filepath.Join(t.TempDir(), "crl.pem")
 	if out, err := exec.Command("openssl", "ca", "-config", cnf, "-gencrl", "-out", opensslCRL).CombinedOutput(); err != nil {
 		t.Fatalf("openssl ca -gencrl:\n%s", out)
@@ -453,8 +454,8 @@ func TestMakeCRLAll(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(caDir, "other"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := run([]string{"make-crl", "--ca-dir", filepath.Join(caDir, "users"), "--all"}); err != nil {
-		t.Fatalf("make-crl --all: %v", err)
+	if err := run([]string{"crl", "create", "--ca-dir", filepath.Join(caDir, "users"), "--all"}); err != nil {
+		t.Fatalf("crl create --all: %v", err)
 	}
 	for _, dir := range []string{caDir, filepath.Join(caDir, "servers"), filepath.Join(caDir, "users")} {
 		if b, err := os.ReadFile(filepath.Join(dir, crlNumberFile)); err != nil || strings.TrimSpace(string(b)) != "03" {
@@ -462,13 +463,13 @@ func TestMakeCRLAll(t *testing.T) {
 		}
 	}
 	if fileExists(filepath.Join(caDir, "other", "crl.pem")) {
-		t.Fatal("make-crl --all wrote a CRL in a directory without a CA")
+		t.Fatal("crl create --all wrote a CRL in a directory without a CA")
 	}
-	if err := run([]string{"make-crl", "--ca-dir", filepath.Join(caDir, "servers")}); err != nil {
-		t.Fatalf("make-crl: %v", err)
+	if err := run([]string{"crl", "create", "--ca-dir", filepath.Join(caDir, "servers")}); err != nil {
+		t.Fatalf("crl create: %v", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(caDir, "users", crlNumberFile)); err != nil || strings.TrimSpace(string(b)) != "03" {
-		t.Fatalf("make-crl without --all changed the crlnumber of another CA: %q, %v", b, err)
+		t.Fatalf("crl create without --all changed the crlnumber of another CA: %q, %v", b, err)
 	}
 }
 
@@ -713,7 +714,7 @@ func TestCADirRoles(t *testing.T) {
 		t.Fatalf("locateCA(%s) names an issuing CA %q, %v", caDir, name, err)
 	}
 	if err := makeCA(issuingDir, "Nested CA", 3650, "nested", ""); err == nil {
-		t.Fatal("expected make-ca to refuse an issuing CA directory")
+		t.Fatal("expected ca create to refuse an issuing CA directory")
 	}
 
 	if err := revokeCert(filepath.Join(issuingDir, "ca_cert.pem"), caDir, ""); err != nil {
@@ -1061,7 +1062,7 @@ func TestServe(t *testing.T) {
 	}
 	cdp := strings.TrimPrefix(leaf.CRLDistributionPoints[0], server.URL)
 	if status, _, _ := get("GET", cdp); status != http.StatusOK {
-		t.Fatalf("GET %s, the first CRL of make-ca: %d, want 200", cdp, status)
+		t.Fatalf("GET %s, the first CRL of ca create: %d, want 200", cdp, status)
 	}
 	if err := makeCA(caDir, "Short CA", 10, "short_ca", ""); err != nil {
 		t.Fatalf("makeCA short: %v", err)
@@ -1350,6 +1351,42 @@ func TestServeAddress(t *testing.T) {
 	}
 }
 
+func TestCommands(t *testing.T) {
+	caDir := t.TempDir()
+	if err := run([]string{"ca", "create", "--ca-dir", caDir, "Test CA"}); err != nil {
+		t.Fatalf("ca create: %v", err)
+	}
+	caCert := filepath.Join(caDir, "ca_cert.pem")
+	for _, c := range []struct {
+		args []string
+		want error
+	}{
+		{nil, errUsage},
+		{[]string{"-h"}, nil},
+		{[]string{"ca"}, errUsage},
+		{[]string{"cert"}, errUsage},
+		{[]string{"crl"}, errUsage},
+		{[]string{"token"}, errUsage},
+		{[]string{"cert", "-h"}, nil},
+		{[]string{"token", "--help"}, nil},
+		{[]string{"nosuch"}, errUsage},
+		{[]string{"cert", "nosuch"}, errUsage},
+		{[]string{"make-ca", "--ca-dir", caDir, "Old"}, errUsage},
+		{[]string{"list-tokens"}, errUsage},
+		{[]string{"cert", "create", "-h"}, flag.ErrHelp},
+		{[]string{"cert", "show"}, errUsage},
+		{[]string{"cert", "show", caCert}, nil},
+		{[]string{"ca", "show", "--ca-dir", caDir}, nil},
+		{[]string{"cert", "list", "--ca-dir", caDir}, nil},
+		{[]string{"token", "list", "--ca-dir", caDir}, nil},
+		{[]string{"crl", "create", "--ca-dir", caDir}, nil},
+	} {
+		if err := run(c.args); !errors.Is(err, c.want) {
+			t.Fatalf("run %q: %v, want %v", c.args, err, c.want)
+		}
+	}
+}
+
 func TestInitialCRL(t *testing.T) {
 	caDir := t.TempDir()
 
@@ -1369,7 +1406,7 @@ func TestInitialCRL(t *testing.T) {
 		}
 		b, err := os.ReadFile(filepath.Join(dir, "crl.pem"))
 		if err != nil {
-			t.Fatalf("make-ca wrote no CRL in %s: %v", dir, err)
+			t.Fatalf("ca create wrote no CRL in %s: %v", dir, err)
 		}
 		block, _ := pem.Decode(b)
 		if block == nil {
@@ -1393,7 +1430,7 @@ func TestInitialCRL(t *testing.T) {
 		t.Fatalf("makeCA second run: %v", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(caDir, crlNumberFile)); err != nil || strings.TrimSpace(string(b)) != "02" {
-		t.Fatalf("make-ca of an existing CA changed its CRL number: %q, %v", b, err)
+		t.Fatalf("ca create of an existing CA changed its CRL number: %q, %v", b, err)
 	}
 }
 
@@ -1571,7 +1608,7 @@ func TestTokens(t *testing.T) {
 		t.Fatalf("listTokens: %v", err)
 	}
 	if !strings.Contains(out.String(), "deploy") || !strings.Contains(out.String(), "valid") {
-		t.Fatalf("list-tokens output:\n%s\nwant the valid token deploy", out.String())
+		t.Fatalf("token list output:\n%s\nwant the valid token deploy", out.String())
 	}
 	if err := revokeToken(caDir, "deploy"); err != nil {
 		t.Fatalf("revokeToken: %v", err)
@@ -1584,7 +1621,7 @@ func TestTokens(t *testing.T) {
 	}
 	out.Reset()
 	if err := listTokens(&out, caDir); err != nil || strings.Contains(out.String(), "deploy") {
-		t.Fatalf("list-tokens output:\n%s\n%v, want no revoked token", out.String(), err)
+		t.Fatalf("token list output:\n%s\n%v, want no revoked token", out.String(), err)
 	}
 	if db, err := loadTokens(caDir); err != nil || len(db.Tokens) != 0 {
 		t.Fatalf("tokens after revoking: %v, want none", err)

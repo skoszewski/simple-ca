@@ -42,7 +42,7 @@ import (
 	"time"
 )
 
-// ---- info and list ----------------------------------------------------------
+// ---- ca show, cert show and cert list ---------------------------------------
 
 const displayTimeFormat = "2006-01-02 15:04:05 MST"
 
@@ -282,7 +282,7 @@ func showInfo(w io.Writer, caDir string) error {
 	writeCertFields(tw, cert, now)
 	fmt.Fprintf(tw, "Certificates:\t%d valid, %d revoked, %d expired\n", counts["valid"], counts["revoked"], counts["expired"])
 
-	// The CRL last written by make-crl and the number of the next one.
+	// The CRL last written by crl create and the number of the next one.
 	crlPath := filepath.Join(signingDir, "crl.pem")
 	b, err := os.ReadFile(crlPath)
 	switch {

@@ -6,7 +6,7 @@ Documentation=https://github.com/skoszewski/simple-ca
 Type=oneshot
 User=simple-ca
 Group=simple-ca
-ExecStart=/usr/local/bin/simple-ca make-crl --ca-dir /etc/simple-ca --all
+ExecStart=/usr/local/bin/simple-ca crl create --ca-dir /etc/simple-ca --all
 
 NoNewPrivileges=yes
 ProtectSystem=strict

@@ -415,7 +415,7 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, domains []string)
 // signWithToken signs the CSR csrData, PEM or DER, with the CA in caDir as a certificate of the
 // type certType, the first type of the token by default, for the JWT token of the CA's
 // tokens-db.json, records it in index.txt and in the token's entry, and returns it with the CA
-// certificate and the name of its file, NAME_cert.pem by the rules of make-cert, the serial
+// certificate and the name of its file, NAME_cert.pem by the rules of cert create, the serial
 // number for a request without a name. mu and the lock of tokens-db.json are held from the token
 // check to the writes of index.txt and tokens-db.json.
 func signWithToken(caDir, token string, csrData []byte, certType string, mu *sync.Mutex) (cert, caCert *x509.Certificate, fileName string, err error) {
@@ -644,7 +644,7 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, mu *sy
 		page.Unavailable = "This CA does not sign requests here: its key is not on this server."
 	case !fileExists(filepath.Join(caDir, tokensFile)):
 		page.Unavailable = "This CA has no tokens yet. Its administrator creates one with " +
-			"simple-ca make-token, with --ca-dir set to the directory of this CA."
+			"simple-ca token create, with --ca-dir set to the directory of this CA."
 	}
 
 	status := http.StatusOK

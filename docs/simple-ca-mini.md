@@ -24,7 +24,7 @@ CA_DIR/
   ca_bundle.pem            root and all issuing CA certificates concatenated
   {name}_cert.pem          certificate issued by the root CA
   {name}_key.pem           key of a certificate issued by the root CA
-  {name}.pfx               PKCS#12 bundle (make-pfx)
+  {name}.pfx               PKCS#12 bundle (cert pfx)
   {issuing_ca}/
     ca_cert.pem            issuing CA certificate
     ca_key.pem             issuing CA private key
@@ -43,22 +43,24 @@ alone.
 ## Commands
 
 ```sh
-simple-ca-mini.py make-ca   [--ca-dir DIR] [--days N] [--ca-publish-base-url URL]
-                            [--issuing-ca NAME] CA_NAME
-simple-ca-mini.py make-cert [--ca-dir DIR] [--cert-dir DIR] [--days N]
-                            [--type server|user|none] CN|EMAIL [EMAIL|CN] [SAN ...]
-simple-ca-mini.py make-pfx  [--ca-dir DIR] [--password PASS] CERT_PATH
-simple-ca-mini.py serve     [--ca-dir DIR] [--address ADDRESS] [--port PORT]
+simple-ca-mini.py ca create   [--ca-dir DIR] [--days N] [--ca-publish-base-url URL]
+                              [--issuing-ca NAME] CA_NAME
+simple-ca-mini.py cert create [--ca-dir DIR] [--cert-dir DIR] [--days N]
+                              [--type server|user|none] CN|EMAIL [EMAIL|CN] [SAN ...]
+simple-ca-mini.py cert pfx    [--ca-dir DIR] [--password PASS] CERT_PATH
+simple-ca-mini.py serve       [--ca-dir DIR] [--address ADDRESS] [--port PORT]
 simple-ca-mini.py --version
 ```
 
-`simple-ca-mini.py COMMAND -h` lists the options of a command.
+The commands are in the groups of `simple-ca`, `ca` and `cert`, and `serve` stands alone.
+`simple-ca-mini.py -h` lists the groups, `simple-ca-mini.py GROUP -h` the commands of a group,
+and `simple-ca-mini.py GROUP COMMAND -h` the options of a command.
 
 The CA directory is `--ca-dir`, else `SIMPLE_CA_DIR`, else the working directory. A CA whose
 certificate is self-signed is a root CA; any other is an issuing CA, and its root CA is in the
 directory above it.
 
-### make-ca
+### ca create
 
 Without `--issuing-ca`, creates the root CA in the CA directory, with a path length of 1. With
 `--issuing-ca NAME`, creates an issuing CA in `CA_DIR/NAME/`, signed by the root CA in the CA
@@ -71,7 +73,7 @@ Information Access) extension in the issuing CAs and certificates issued from th
 `URL/ca_cert.crt` for those signed by the root CA, `URL/NAME/ca_cert.crt` for those signed by the
 issuing CA `NAME`. These are the URLs of [serve](#serve).
 
-### make-cert
+### cert create
 
 The type sets the key usages and extended key usages of the certificate:
 
@@ -84,7 +86,7 @@ The type sets the key usages and extended key usages of the certificate:
 `--type server` and `--type none` take a CN and SANs:
 
 ```sh
-simple-ca-mini.py make-cert [--type none] CN [SAN ...]
+simple-ca-mini.py cert create [--type none] CN [SAN ...]
 ```
 
 - `CN` is a hostname or an FQDN, and is also the first DNS name SAN.
@@ -93,7 +95,7 @@ simple-ca-mini.py make-cert [--type none] CN [SAN ...]
 `--type user` creates a certificate for a person:
 
 ```sh
-simple-ca-mini.py make-cert --type user CN|EMAIL [EMAIL|CN] [SAN ...]
+simple-ca-mini.py cert create --type user CN|EMAIL [EMAIL|CN] [SAN ...]
 ```
 
 - The first argument is the CN or the emailAddress of the subject; an argument with an `@` and a
@@ -110,11 +112,11 @@ The certificate is signed by the CA in the CA directory and written to that dire
 `simple-ca.json`, else 365.
 
 ```sh
-simple-ca-mini.py make-cert web.example.com web 192.0.2.1 2001:db8::1 1.3.6.1.4.1.99999.1
-simple-ca-mini.py make-cert --type user alice@example.com "Alice Example" a.example@example.org
+simple-ca-mini.py cert create web.example.com web 192.0.2.1 2001:db8::1 1.3.6.1.4.1.99999.1
+simple-ca-mini.py cert create --type user alice@example.com "Alice Example" a.example@example.org
 ```
 
-### make-pfx
+### cert pfx
 
 Creates `{name}.pfx` next to `CERT_PATH` from the certificate, its key and the chain of the CA in
 the CA directory, which signed it: the root CA, and the issuing CA when the CA directory holds
@@ -142,7 +144,7 @@ period, days left and SHA-256 fingerprint. The files are read on each request; a
 `404 Not Found`. Each request is logged to the standard error.
 
 ```sh
-simple-ca-mini.py make-ca --ca-dir /tmp/ca --ca-publish-base-url http://pki.example.com:8080 "My Root CA"
+simple-ca-mini.py ca create --ca-dir /tmp/ca --ca-publish-base-url http://pki.example.com:8080 "My Root CA"
 simple-ca-mini.py serve --ca-dir /tmp/ca --address 0.0.0.0 --port 8080
 ```
 
@@ -150,7 +152,7 @@ simple-ca-mini.py serve --ca-dir /tmp/ca --address 0.0.0.0 --port 8080
 
 The settings in the root CA directory, shared with `simple-ca`. Simple CA Mini reads:
 
-- `ca_publish_base_url` - base URL for the AIA extension, written by `make-ca
+- `ca_publish_base_url` - base URL for the AIA extension, written by `ca create
   --ca-publish-base-url`;
 - `days` - defaults for `--days`: `ca` and `cert`.
 
@@ -165,13 +167,13 @@ The settings in the root CA directory, shared with `simple-ca`. Simple CA Mini r
 
 ```sh
 mkdir -p /tmp/ca
-simple-ca-mini.py make-ca --ca-dir /tmp/ca "My Root CA"
-simple-ca-mini.py make-ca --ca-dir /tmp/ca --issuing-ca servers "My Servers CA"
+simple-ca-mini.py ca create --ca-dir /tmp/ca "My Root CA"
+simple-ca-mini.py ca create --ca-dir /tmp/ca --issuing-ca servers "My Servers CA"
 
 export SIMPLE_CA_DIR=/tmp/ca/servers
 
-simple-ca-mini.py make-cert web.example.com web.example.com 192.168.1.1
-simple-ca-mini.py make-pfx --password s3cr3t /tmp/ca/servers/web_cert.pem
+simple-ca-mini.py cert create web.example.com web.example.com 192.168.1.1
+simple-ca-mini.py cert pfx --password s3cr3t /tmp/ca/servers/web_cert.pem
 
 openssl verify -CAfile /tmp/ca/ca_bundle.pem /tmp/ca/servers/web_cert.pem
 ```
@@ -187,9 +189,9 @@ sudo install -m 755 simple-ca-mini.py /usr/local/bin/simple-ca-mini
 sudo useradd --system --home-dir /etc/simple-ca --no-create-home \
   --shell /usr/sbin/nologin simple-ca
 sudo install -d -o simple-ca -g simple-ca -m 750 /etc/simple-ca
-sudo -u simple-ca simple-ca-mini make-ca --ca-dir /etc/simple-ca \
+sudo -u simple-ca simple-ca-mini ca create --ca-dir /etc/simple-ca \
   --ca-publish-base-url http://ca.example.com:8080 "My Root CA"
-sudo -u simple-ca simple-ca-mini make-ca --ca-dir /etc/simple-ca --issuing-ca servers "My Servers CA"
+sudo -u simple-ca simple-ca-mini ca create --ca-dir /etc/simple-ca --issuing-ca servers "My Servers CA"
 sudo cp systemd/simple-ca-mini.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now simple-ca-mini.service

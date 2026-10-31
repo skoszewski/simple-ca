@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.3.0
+
+update: simple-ca and simple-ca-mini group their commands under ca, cert, crl and token, a Dockerfile builds an image of simple-ca, and the documentation is in docs/.
+
+- The commands of `simple-ca` are `simple-ca GROUP COMMAND`, and the old names are refused:
+  `make-ca` is `ca create`, `info` is `ca show` for a CA and `cert show FILE` for a file,
+  `make-cert` is `cert create`, `sign` is `cert sign`, `make-pfx` is `cert pfx`, `revoke-cert`
+  is `cert revoke`, `list` is `cert list`, `make-crl` is `crl create`, and `make-token`,
+  `list-tokens`, `revoke-token` and `purge-tokens` are `token create`, `token list`,
+  `token revoke` and `token purge`; `serve` stays.
+- `simple-ca GROUP` and `simple-ca GROUP -h` list the commands of a group.
+- `simple-ca-mini.py` has `ca create`, `cert create`, `cert pfx` and `serve`, in place of
+  `make-ca`, `make-cert` and `make-pfx`.
+- `systemd/simple-ca-crl.service` runs `simple-ca crl create --all`; an installed copy of the
+  unit is replaced with this one.
+- `Dockerfile` builds an image of `simple-ca` on distroless, run as a non-root user, with the CA
+  directory `/data` on a volume; it runs `serve` on port 8080 by default.
+- The README holds the overview, installation and a quick start; the guides are in `docs/`:
+  `usage.md`, `directory-layout.md`, `configuration.md`, `serve.md`, `acme.md`,
+  `signing-api.md`, `examples.md` (the former `examples/README.md`), `systemd.md`, `docker.md`,
+  `simple-ca-mini.md` and `development.md`.
+
 ## 1.2.0
 
 feature: serve signs certificate signing requests at /api/sign and on the /sign page for JWT tokens made with make-token.

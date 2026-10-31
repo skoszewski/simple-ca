@@ -90,7 +90,7 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 			return err
 		}
 		if name != "" {
-			return fmt.Errorf("%s holds the issuing CA '%s'; run make-ca with --ca-dir of its root CA, %s",
+			return fmt.Errorf("%s holds the issuing CA '%s'; run ca create with --ca-dir of its root CA, %s",
 				caDir, name, rootDir)
 		}
 	}

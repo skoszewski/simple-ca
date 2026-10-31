@@ -1,14 +1,14 @@
 # Signing API clients
 
-Each program here requests a server certificate from the [signing API](../README.md#signing-api)
+Each program in `examples/` requests a server certificate from the [signing API](signing-api.md)
 of `simple-ca serve`, the same way in Python, Node.js, Go and the shell:
 
 | File | Language | Requirements |
 |---|---|---|
-| `request_cert.py` | Python 3 | the `openssl` command |
-| `request-cert.mjs` | Node.js 18 or later | the `openssl` command |
-| `request-cert/main.go` | Go | none, the standard library |
-| `request-cert.sh` | Bash | `openssl`, `curl` and `jq` |
+| `examples/request_cert.py` | Python 3 | the `openssl` command |
+| `examples/request-cert.mjs` | Node.js 18 or later | the `openssl` command |
+| `examples/request-cert/main.go` | Go | none, the standard library |
+| `examples/request-cert.sh` | Bash | `openssl`, `curl` and `jq` |
 
 ```text
 SIMPLE_CA_TOKEN=TOKEN request-cert API_URL CN [DNS_NAME ...]
@@ -17,7 +17,7 @@ SIMPLE_CA_TOKEN_FILE=FILE request-cert API_URL CN [DNS_NAME ...]
 
 - `API_URL` is the API of a CA, `https://pki.example.com/api/sign` for the root CA or
   `https://pki.example.com/NAME/api/sign` for the issuing CA `NAME`.
-- `SIMPLE_CA_TOKEN` is a token of `simple-ca make-token` for that CA, or `SIMPLE_CA_TOKEN_FILE`
+- `SIMPLE_CA_TOKEN` is a token of `simple-ca token create` for that CA, or `SIMPLE_CA_TOKEN_FILE`
   names a file holding it, such as a systemd credential or a container secret; the whitespace
   around the token in the file is left out. One of them is set, not both, and an empty file is an
   error. The token is read from the environment or the file, so it does not show in the process
@@ -44,17 +44,17 @@ libraries cannot make a certificate signing request; Go makes them with `crypto/
 ## Examples
 
 ```sh
-(umask 077; simple-ca make-token --ca-dir /etc/simple-ca/servers --domain example.com deploy \
+(umask 077; simple-ca token create --ca-dir /etc/simple-ca/servers --domain example.com deploy \
   > deploy.token)
 export SIMPLE_CA_TOKEN_FILE=deploy.token
 
-./request_cert.py https://pki.example.com:8443/servers/api/sign web.example.com www.example.com
-./request-cert.mjs https://pki.example.com:8443/servers/api/sign api.example.com
-./request-cert.sh https://pki.example.com:8443/servers/api/sign '*.apps.example.com'
+examples/request_cert.py https://pki.example.com:8443/servers/api/sign web.example.com www.example.com
+examples/request-cert.mjs https://pki.example.com:8443/servers/api/sign api.example.com
+examples/request-cert.sh https://pki.example.com:8443/servers/api/sign '*.apps.example.com'
 go run ./examples/request-cert https://pki.example.com:8443/servers/api/sign db.example.com
 ```
 
-The last line runs from the repository root; `go build -o request-cert ./examples/request-cert`
+The commands run from the repository root; `go build -o request-cert ./examples/request-cert`
 builds the Go program on its own.
 
 ## HTTPS with the CA's own certificate

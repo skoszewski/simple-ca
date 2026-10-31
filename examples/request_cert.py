@@ -6,11 +6,11 @@ Usage: SIMPLE_CA_TOKEN=TOKEN request_cert.py API_URL CN [DNS_NAME ...]
 
 The openssl command makes an EC P-256 key and a certificate signing request for the CN, with the
 CN and the DNS names as its DNS names. The request is sent to API_URL, such as
-https://pki.example.com/servers/api/sign, with the token of make-token in SIMPLE_CA_TOKEN, or in
-the file SIMPLE_CA_TOKEN_FILE names, and the certificate type in SIMPLE_CA_TYPE, the first type
-of the token when it is unset. The key, the certificate and the chain are written to CN_key.pem,
-CN_cert.pem and CN_chain.pem, a wildcard CN *.NAME as wildcard.NAME; the key only once the
-certificate is signed.
+https://pki.example.com/servers/api/sign, with a token made by simple-ca token create, in
+SIMPLE_CA_TOKEN or in the file SIMPLE_CA_TOKEN_FILE names, and the certificate type in
+SIMPLE_CA_TYPE, the first type of the token when it is unset. The key, the certificate and the
+chain are written to CN_key.pem, CN_cert.pem and CN_chain.pem, a wildcard CN *.NAME as
+wildcard.NAME; the key only once the certificate is signed.
 """
 
 import json

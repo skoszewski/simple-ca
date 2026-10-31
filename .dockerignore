@@ -1,0 +1,6 @@
+# The build of the Dockerfile needs only the Go module, its sources and the embedded asset.
+*
+!go.mod
+!go.sum
+!*.go
+!assets

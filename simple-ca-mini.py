@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-VERSION = "1.1.0"
+VERSION = "1.3.0"
 CONFIG_FILE = "simple-ca.json"
 PFX_PASSWORD_ENV = "SIMPLE_CA_MINI_PFX_PASSWORD"
 
@@ -188,7 +188,7 @@ def config_days(cfg, name, default):
     return default
 
 
-# ---- make-ca ----------------------------------------------------------------
+# ---- ca create --------------------------------------------------------------
 
 def make_ca(ca_dir, ca_name, days, issuing_ca, base_url):
     """Create the root CA in ca_dir, or the issuing CA ca_dir/issuing_ca signed by it; a CA that
@@ -206,7 +206,7 @@ def make_ca(ca_dir, ca_name, days, issuing_ca, base_url):
     if os.path.isfile(root_cert):
         root_dir, name = locate_ca(ca_dir)
         if name:
-            raise CAError(f"{ca_dir} holds the issuing CA '{name}'; run make-ca with --ca-dir of "
+            raise CAError(f"{ca_dir} holds the issuing CA '{name}'; run ca create with --ca-dir of "
                           f"its root CA, {root_dir}")
 
     cfg = load_config(ca_dir)
@@ -255,7 +255,7 @@ def make_ca(ca_dir, ca_name, days, issuing_ca, base_url):
     rebuild_ca_bundle(ca_dir)
 
 
-# ---- make-cert --------------------------------------------------------------
+# ---- cert create ------------------------------------------------------------
 
 def parse_ip(value):
     """Return value as an IPv4 or IPv6 address without a zone, or None."""
@@ -406,7 +406,7 @@ def make_cert(subject_name, sans, ca_dir, cert_dir, cert_type, days):
     make_cert_file(cert_out, key_out, subject_arg(cn, email), days, extensions, ca_cert, ca_key)
 
 
-# ---- make-pfx ---------------------------------------------------------------
+# ---- cert pfx ---------------------------------------------------------------
 
 def make_pfx(cert_path, ca_dir, password):
     """Write a PKCS#12 bundle of the certificate at cert_path, its key and the chain of the CA in
@@ -566,17 +566,24 @@ def main():
         prog="simple-ca-mini",
         description="Create a simple Certificate Authority with the openssl command.")
     parser.add_argument("--version", action="version", version=f"simple-ca-mini version {VERSION}")
-    commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    groups = parser.add_subparsers(dest="group", required=True, metavar="GROUP")
 
-    p = commands.add_parser("make-ca", help="create a root or issuing CA")
+    # Each command sets run, called with the parsed arguments and the CA directory.
+    ca = groups.add_parser("ca", help="create root and issuing CAs").add_subparsers(
+        dest="command", required=True, metavar="COMMAND")
+    p = ca.add_parser("create", help="create a root or issuing CA")
     p.add_argument("--ca-dir", help="directory of the root CA")
     p.add_argument("--days", type=int, help="validity period in days (default: 3650)")
     p.add_argument("--ca-publish-base-url", metavar="URL",
                    help="base URL for the AIA extension, stored in simple-ca.json")
     p.add_argument("--issuing-ca", metavar="NAME", help="create an issuing CA in this directory")
     p.add_argument("ca_name", metavar="CA_NAME")
+    p.set_defaults(run=lambda a, ca_dir: make_ca(ca_dir, a.ca_name, a.days, a.issuing_ca,
+                                                 a.ca_publish_base_url))
 
-    p = commands.add_parser("make-cert", help="create a server, user or none certificate")
+    cert = groups.add_parser("cert", help="create certificates and PFX bundles").add_subparsers(
+        dest="command", required=True, metavar="COMMAND")
+    p = cert.add_parser("create", help="create a server, user or none certificate")
     p.add_argument("--ca-dir", help="directory of the signing CA, the root CA or an issuing CA")
     p.add_argument("--cert-dir", help="output directory (default: the CA directory)")
     p.add_argument("--days", type=int, help="validity period in days (default: 365)")
@@ -585,17 +592,21 @@ def main():
     p.add_argument("subject", metavar="CN|EMAIL")
     p.add_argument("sans", metavar="SAN", nargs="*",
                    help="EMAIL|CN for user certificates, then subject alternative names")
+    p.set_defaults(run=lambda a, ca_dir: make_cert(a.subject, a.sans, ca_dir, a.cert_dir, a.type,
+                                                   a.days))
 
-    p = commands.add_parser("make-pfx", help="create a PKCS#12 (PFX) bundle of a certificate")
+    p = cert.add_parser("pfx", help="create a PKCS#12 (PFX) bundle of a certificate")
     p.add_argument("--ca-dir", help="directory of the CA that signed the certificate")
     p.add_argument("--password", default="changeit", help="PFX password (default: changeit)")
     p.add_argument("cert_path", metavar="CERT_PATH")
+    p.set_defaults(run=lambda a, ca_dir: make_pfx(a.cert_path, ca_dir, a.password))
 
-    p = commands.add_parser("serve", help="serve the CA certificates over HTTP")
+    p = groups.add_parser("serve", help="serve the CA certificates over HTTP")
     p.add_argument("--ca-dir", help="directory of the root CA or of one of its issuing CAs")
     p.add_argument("--address", default="127.0.0.1",
                    help="address to listen on; 0.0.0.0 for all interfaces (default: 127.0.0.1)")
     p.add_argument("--port", type=int, default=8080, help="TCP port (default: 8080)")
+    p.set_defaults(run=lambda a, ca_dir: serve(ca_dir, a.address, a.port))
 
     args = parser.parse_args()
     global openssl_path
@@ -603,15 +614,7 @@ def main():
         openssl_path = shutil.which("openssl")
         if not openssl_path:
             raise CAError("the openssl command is required on PATH")
-        ca_dir = resolve_ca_dir(args.ca_dir)
-        if args.command == "make-ca":
-            make_ca(ca_dir, args.ca_name, args.days, args.issuing_ca, args.ca_publish_base_url)
-        elif args.command == "make-cert":
-            make_cert(args.subject, args.sans, ca_dir, args.cert_dir, args.type, args.days)
-        elif args.command == "make-pfx":
-            make_pfx(args.cert_path, ca_dir, args.password)
-        else:
-            serve(ca_dir, args.address, args.port)
+        args.run(args, resolve_ca_dir(args.ca_dir))
     except (CAError, OSError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)

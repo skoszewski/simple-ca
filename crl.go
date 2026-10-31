@@ -38,7 +38,7 @@ import (
 // ---- revocation reasons -----------------------------------------------------
 
 // crlReasons are the revocation reasons of index.txt in the names of "openssl ca", with their
-// reason codes of RFC 5280; revoke-cert takes the first six, and the last three are the pseudo
+// reason codes of RFC 5280; cert revoke takes the first six, and the last three are the pseudo
 // reasons OpenSSL writes with an extra field.
 var crlReasons = []struct {
 	name string

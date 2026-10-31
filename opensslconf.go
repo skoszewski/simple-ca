@@ -93,7 +93,7 @@ func writeOpenSSLConf(caDir string) (string, error) {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Configuration of openssl ca for %s, written by simple-ca make-ca --write-conf.\n", kind)
+	fmt.Fprintf(&b, "# Configuration of openssl ca for %s, written by simple-ca ca create --write-conf.\n", kind)
 	fmt.Fprintf(&b, "# Sign a request with: openssl ca -config %s -extensions ext_TYPE -in REQ -out CERT\n\n",
 		filepath.ToSlash(filepath.Join(dir, opensslConfFile)))
 	fmt.Fprintf(&b, "[ ca ]\ndefault_ca = simple_ca\n\n")

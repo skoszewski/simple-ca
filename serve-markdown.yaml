@@ -1,0 +1,15 @@
+menu:
+  - Simple CA: README.md
+  - Documentation:
+      - Usage: docs/usage.md
+      - Directory layout: docs/directory-layout.md
+      - Configuration: docs/configuration.md
+      - serve: docs/serve.md
+      - ACME: docs/acme.md
+      - Signing API: docs/signing-api.md
+      - Signing API clients: docs/examples.md
+      - systemd: docs/systemd.md
+      - Docker: docs/docker.md
+      - Simple CA Mini: docs/simple-ca-mini.md
+      - Development: docs/development.md
+  - Changelog: CHANGELOG.md
