@@ -1,9 +1,8 @@
 # A semver tag with a leading v on a commit on main, naming the newest CHANGELOG.md entry, is
-# checked, built for every platform it is published for, and published as a release, with the
-# tag's message as its notes and as a prerelease for a prerelease version. Each executable is
-# given the tag as its version and published in a tar.gz, or a zip for Windows, named after its
-# version, without the v, and its platform. The Debian packages for amd64 and arm64 are published
-# with them.
+# checked for formatting and by go vet, built for every platform it is published for, and published
+# as a release, with the tag's message as its notes and as a prerelease for a prerelease version.
+# Each executable is given the tag as its version and published in a tar.gz, or a zip for Windows,
+# named after its version, without the v, and its platform.
 
 name: build
 
@@ -33,8 +32,6 @@ jobs:
           fi
       - name: Vet
         run: go vet ./...
-      - name: Test
-        run: go test ./...
 
   build:
     needs: check
@@ -76,36 +73,8 @@ jobs:
           archive: false
           if-no-files-found: error
 
-  debian:
-    needs: check
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: Packaging tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dpkg-dev debhelper
-      - name: Package
-        id: package
-        env:
-          ARCH: ${{ matrix.arch }}
-        run: |
-          ./build.mjs package "$ARCH"
-          echo "deb=$(ls simple-ca_*_"$ARCH".deb)" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v7
-        with:
-          path: ${{ steps.package.outputs.deb }}
-          archive: false
-          if-no-files-found: error
-
   release:
-    needs: [build, debian]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write

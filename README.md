@@ -479,23 +479,6 @@ sudo systemctl enable --now simple-ca.service simple-ca-crl.timer
 The CRL is renewed daily, well within `days.crl`, 30 days by default. Other settings, such as
 the port, are changed with `systemctl edit simple-ca.service`.
 
-## Debian package
-
-The releases include Debian packages for amd64 and arm64, `simple-ca_<version>_<arch>.deb`. The
-package installs `/usr/bin/simple-ca` and the units of [systemd](#systemd), which run it from
-there, adds the system user `simple-ca` and creates `/etc/simple-ca`, owned by it. The service
-and the timer are not enabled on installation, since the CA does not exist yet:
-
-```sh
-sudo apt install ./simple-ca_1.0.0-1_amd64.deb
-sudo -u simple-ca simple-ca make-ca --ca-dir /etc/simple-ca \
-  --ca-publish-base-url http://ca.example.com:8080 "My Root CA"
-sudo systemctl enable --now simple-ca.service simple-ca-crl.timer
-```
-
-The package version is that of the newest `CHANGELOG.md` entry with the Debian revision 1, and
-`x.y.z-n` is `x.y.z-n`; its `debian/changelog` is written from `CHANGELOG.md`.
-
 ## Building
 
 `./build.mjs` needs Node.js and Go; the tests need `openssl` on the `PATH`.
@@ -505,14 +488,11 @@ The package version is that of the newest `CHANGELOG.md` entry with the Debian r
 ./build.mjs build linux/arm64  # build simple-ca-linux-arm64
 ./build.mjs test               # run the tests
 ./build.mjs check              # check formatting, vet and run the tests
-./build.mjs package            # build the Debian package for the host's architecture
-./build.mjs package arm64      # build the Debian package for arm64
-./build.mjs clean              # remove the built executables and package files
+./build.mjs clean              # remove the built executables
 ```
 
-`package` runs on a Debian or Ubuntu host with `dpkg-dev` and `debhelper`
-(`sudo apt install dpkg-dev debhelper`) and writes `simple-ca_<version>_<arch>.deb` to the
-repository root; the architecture is `amd64`, `arm64`, `armhf` or `i386`.
+The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
+are run with `./build.mjs test` or `./build.mjs check`.
 
 ## Releasing
 

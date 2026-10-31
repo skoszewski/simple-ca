@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2
+
+fix: the releases have no Debian packages, and the release workflow runs no tests.
+
+- The Debian packages are dropped: the releases hold the executables alone, and
+  `./build.mjs package` is gone.
+- The release workflow checks the formatting and runs `go vet`, without running the tests.
+
 ## 1.0.1
 
 fix: release.mjs no longer runs the build and the tests.
