@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0
+
+feature: simple-ca-mini.py, a Python 3 version of simple-ca driving the openssl command.
+
+- `simple-ca-mini.py` creates root and issuing CAs (`make-ca`), server, user and none
+  certificates (`make-cert`) and PKCS#12 bundles (`make-pfx`) in the directory layout of
+  `simple-ca`, using the Python standard library and `openssl`.
+- `simple-ca-mini.py serve` serves the CA certificates, as PEM and DER, and the CA bundle over
+  HTTP, with an index page of the CAs.
+- `systemd/simple-ca-mini.service` runs `simple-ca-mini serve` for a CA in `/etc/simple-ca`.
+- `docs/simple-ca-mini.md` describes Simple CA Mini, and the README points to it.
+
 ## 1.0.3
 
 fix: make-cert and sign write safe certificate file names, and release.mjs publishes with --push only.

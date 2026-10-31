@@ -469,6 +469,9 @@ simple-ca list --ca-dir /tmp/ca
   issuing CAs;
 - `simple-ca-crl.timer` starts `simple-ca-crl.service` daily, and on boot when a run was missed.
 
+`systemd/simple-ca-mini.service` runs the `serve` command of [Simple CA Mini](#simple-ca-mini)
+instead; its installation is in [docs/simple-ca-mini.md](docs/simple-ca-mini.md#systemd).
+
 ```sh
 sudo install -m 755 simple-ca /usr/local/bin/simple-ca
 sudo useradd --system --home-dir /etc/simple-ca --no-create-home \
@@ -485,6 +488,12 @@ sudo systemctl enable --now simple-ca.service simple-ca-crl.timer
 
 The CRL is renewed daily, well within `days.crl`, 30 days by default. Other settings, such as
 the port, are changed with `systemctl edit simple-ca.service`.
+
+## Simple CA Mini
+
+`simple-ca-mini.py` is a single Python 3 script, using the standard library and the `openssl`
+command, that creates root and issuing CAs, certificates and PFX bundles in the same directory
+layout, and serves the CA certificates over HTTP. See [docs/simple-ca-mini.md](docs/simple-ca-mini.md).
 
 ## Building
 
