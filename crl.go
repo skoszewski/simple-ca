@@ -160,6 +160,29 @@ func makeCRL(caDir string, days int) error {
 
 // ---- revokeCert -------------------------------------------------------------
 
+// markRevoked marks the certificate with the serial number serial as revoked in index.txt of the
+// CA in caDir, for reason, a name of crlReasons, or for no reason when empty; it returns false
+// when the certificate was revoked already.
+func markRevoked(caDir, serial, reason string) (bool, error) {
+	entries, err := readIndex(caDir)
+	if err != nil {
+		return false, err
+	}
+	i := slices.IndexFunc(entries, func(e indexEntry) bool { return strings.EqualFold(e.serial, serial) })
+	if i < 0 {
+		return false, fmt.Errorf("certificate with serial %s not found in %s", serial, filepath.Join(caDir, indexFile))
+	}
+	if entries[i].status == "R" {
+		return false, nil
+	}
+	entries[i].status = "R"
+	entries[i].revoked = time.Now().UTC().Format(utcTimeFormat)
+	if reason != "" {
+		entries[i].revoked += "," + reason
+	}
+	return true, writeIndex(caDir, entries)
+}
+
 // revokeCert marks the certificate at certPath as revoked in index.txt of the CA in caDir, for
 // reason, one of the first six of crlReasons in any letter case, or for no reason when empty.
 func revokeCert(certPath, caDir, reason string) error {
@@ -187,26 +210,13 @@ func revokeCert(certPath, caDir, reason string) error {
 		return err
 	}
 	serial := serialHex(cert.SerialNumber)
-	entries, err := readIndex(signingDir)
+	revoked, err := markRevoked(signingDir, serial, reason)
 	if err != nil {
 		return err
 	}
-
-	i := slices.IndexFunc(entries, func(e indexEntry) bool { return strings.EqualFold(e.serial, serial) })
-	if i < 0 {
-		return fmt.Errorf("certificate with serial %s not found in %s", serial, filepath.Join(signingDir, indexFile))
-	}
-	if entries[i].status == "R" {
+	if !revoked {
 		fmt.Printf("Certificate %s (serial %s) is already revoked.\n", certPath, serial)
 		return nil
-	}
-	entries[i].status = "R"
-	entries[i].revoked = time.Now().UTC().Format(utcTimeFormat)
-	if reason != "" {
-		entries[i].revoked += "," + reason
-	}
-	if err := writeIndex(signingDir, entries); err != nil {
-		return err
 	}
 	if reason != "" {
 		fmt.Printf("Certificate %s (serial %s) marked as revoked, reason %s.\n", certPath, serial, reason)

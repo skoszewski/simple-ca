@@ -73,7 +73,7 @@ func rebuildCABundle(caDir string) error {
 
 // makeCA creates the root CA in caDir, or with issuingCA set an issuing CA in caDir/issuingCA
 // signed by the root CA in caDir, with its database and an empty first CRL valid for days.crl of
-// simple-ca.yaml, 30 days without it, and skips a CA that exists.
+// simple-ca.json, 30 days without it, and skips a CA that exists.
 func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 	if days < 1 {
 		return errors.New("--days must be a positive integer")

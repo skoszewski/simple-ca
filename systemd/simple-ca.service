@@ -14,6 +14,7 @@ RestartSec=5
 
 NoNewPrivileges=yes
 ProtectSystem=strict
+ReadWritePaths=/etc/simple-ca
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

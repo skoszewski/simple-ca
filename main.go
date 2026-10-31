@@ -69,7 +69,7 @@ func resolveCADir(flagVal string) string {
 	return cwd
 }
 
-// loadRootConfig loads simple-ca.yaml of the root CA of the CA in caDir.
+// loadRootConfig loads simple-ca.json of the root CA of the CA in caDir.
 func loadRootConfig(caDir string) (*config, error) {
 	rootDir, _, err := locateCA(caDir)
 	if err != nil {
@@ -188,7 +188,7 @@ func runMakeCert(args []string) error {
 			"then email addresses or numeric OIDs, after both the CN and the emailAddress.")
 	certDir := fs.String("cert-dir", "", "output `directory` (default: the CA directory)")
 	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, the root CA or an issuing CA")
-	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.yaml")
+	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.json")
 	days := fs.Int("days", 365, "validity period in `days`")
 	ekus, kus := usageFlags(fs)
 	rest, given, err := parseArgs(fs, args, 1, -1)
@@ -238,7 +238,7 @@ func runSign(args []string) error {
 			"The certificate is shown and signed once the answer to the question is y.")
 	certDir := fs.String("cert-dir", "", "output `directory` (default: the CA directory)")
 	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, the root CA or an issuing CA")
-	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.yaml")
+	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.json")
 	days := fs.Int("days", 365, "validity period in `days`")
 	force := fs.Bool("force", false, "sign without asking")
 	ekus, kus := usageFlags(fs)
@@ -379,13 +379,23 @@ func runServe(args []string) error {
 	fs := newFlagSet("serve", "", "Serve the certificates and CRLs of the root CA of the CA in --ca-dir, and of its\n"+
 		"issuing CAs, over HTTP.")
 	caDir := fs.String("ca-dir", "", "`directory` of the root CA or of one of its issuing CAs")
-	address := fs.String("address", "127.0.0.1", "`address` of the interface to listen on; empty for all interfaces")
+	address := fs.String("address", "127.0.0.1", "`address` of the interface to listen on; 0.0.0.0 for all interfaces")
 	port := fs.Int("port", 8080, "TCP `port` to listen on")
+	tlsCert := fs.String("tls-cert", "", "serve HTTPS with the certificate chain in this PEM `file`")
+	tlsKey := fs.String("tls-key", "", "private key of --tls-cert, a PEM `file`")
 	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
 		return err
 	}
+	if *address == "" {
+		fmt.Fprintf(fs.Output(), "%s: --address must not be empty; 0.0.0.0 is all interfaces\n", fs.Name())
+		fs.Usage()
+		return errUsage
+	}
 	if *port < 1 || *port > 65535 {
 		return fmt.Errorf("--port must be from 1 to 65535, got %d", *port)
+	}
+	if (*tlsCert == "") != (*tlsKey == "") {
+		return errors.New("--tls-cert and --tls-key must be given together")
 	}
 	rootDir, _, err := locateCA(resolveCADir(*caDir))
 	if err != nil {
@@ -395,8 +405,12 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Serving the CAs of %s on http://%s/\n", rootDir, listener.Addr())
 	server := &http.Server{Handler: newServeMux(rootDir), ReadHeaderTimeout: 10 * time.Second}
+	if *tlsCert != "" {
+		fmt.Printf("Serving the CAs of %s on https://%s/\n", rootDir, listener.Addr())
+		return server.ServeTLS(listener, *tlsCert, *tlsKey)
+	}
+	fmt.Printf("Serving the CAs of %s on http://%s/\n", rootDir, listener.Addr())
 	return server.Serve(listener)
 }
 

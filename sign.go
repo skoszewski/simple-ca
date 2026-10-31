@@ -88,28 +88,6 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 		return fmt.Errorf("%s has neither a subject nor subject alternative names", csrPath)
 	}
 
-	rootDir, issuingCA, err := locateCA(caDir)
-	if err != nil {
-		return err
-	}
-	cfg, err := loadConfig(rootDir)
-	if err != nil {
-		return err
-	}
-	types, err := cfg.certTypes()
-	if err != nil {
-		return err
-	}
-	def, ok := types[certType]
-	if !ok {
-		return fmt.Errorf("unknown type '%s': must be one of %s", certType, typeNames(types))
-	}
-	keyUsage, extKeyUsages, extKeyUsageOIDs, err := parseUsages(
-		append(slices.Clone(def.keyUsage), kus...), append(slices.Clone(def.extKeyUsage), ekus...))
-	if err != nil {
-		return err
-	}
-
 	if certDir == "" {
 		certDir = caDir
 	}
@@ -122,53 +100,11 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 		return fmt.Errorf("certificate %s exists", certOut)
 	}
 
-	caCertPath := filepath.Join(caDir, "ca_cert.pem")
-	caKeyPath := filepath.Join(caDir, "ca_key.pem")
-	if !fileExists(caCertPath) || !fileExists(caKeyPath) {
-		return fmt.Errorf(
-			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory",
-			caDir)
-	}
-	caCert, err := loadCert(caCertPath)
-	if err != nil {
-		return err
-	}
-	caKey, err := loadKey(caKeyPath)
-	if err != nil {
-		return err
-	}
-
-	serial, err := randomSerial()
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC()
-	tmpl := &x509.Certificate{
-		SerialNumber:          serial,
-		RawSubject:            csr.RawSubject,
-		NotBefore:             now,
-		NotAfter:              now.AddDate(0, 0, days),
-		BasicConstraintsValid: true,
-		KeyUsage:              keyUsage,
-		ExtKeyUsage:           extKeyUsages,
-		UnknownExtKeyUsage:    extKeyUsageOIDs,
-	}
+	tmpl := &x509.Certificate{RawSubject: csr.RawSubject}
 	if san != nil {
 		tmpl.ExtraExtensions = []pkix.Extension{*san}
 	}
-	if cfg.CAPublishBaseURL != "" {
-		publishURL := cfg.CAPublishBaseURL
-		if issuingCA != "" {
-			publishURL += "/" + issuingCA
-		}
-		tmpl.IssuingCertificateURL = []string{publishURL + "/ca_cert.crt"}
-		tmpl.CRLDistributionPoints = []string{publishURL + "/crl.pem"}
-	}
-	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, csr.PublicKey, caKey)
-	if err != nil {
-		return err
-	}
-	cert, err := x509.ParseCertificate(certDER)
+	cert, err := issueLeaf(caDir, certType, days, ekus, kus, tmpl, csr.PublicKey)
 	if err != nil {
 		return err
 	}
@@ -176,7 +112,7 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 	// The certificate is shown, and written only once it is approved or with force.
 	fmt.Printf("The %s certificate for %s:\n\n", certType, csrPath)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	writeCertFields(tw, cert, now)
+	writeCertFields(tw, cert, time.Now())
 	if err := tw.Flush(); err != nil {
 		return err
 	}
@@ -194,9 +130,81 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 			return errors.New("the certificate was not signed")
 		}
 	}
-	if err := writeCert(certDER, certOut); err != nil {
+	if err := writeCert(cert.Raw, certOut); err != nil {
 		return err
 	}
 	fmt.Printf("Certificate written to %s\n", certOut)
 	return recordIssued(caDir, cert)
+}
+
+// ---- issueLeaf --------------------------------------------------------------
+
+// issueLeaf signs a certificate of the type certType for the public key pub with the CA in caDir,
+// valid for days from now, and returns it without recording it in index.txt. The subject and the
+// extensions of tmpl are kept; the key usages and extended key usages are those of the type with
+// kus and ekus added, and the AIA and CRL Distribution Point URLs those of the CA.
+func issueLeaf(caDir, certType string, days int, ekus, kus []string, tmpl *x509.Certificate, pub any) (*x509.Certificate, error) {
+	rootDir, issuingCA, err := locateCA(caDir)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := loadConfig(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	types, err := cfg.certTypes()
+	if err != nil {
+		return nil, err
+	}
+	def, ok := types[certType]
+	if !ok {
+		return nil, fmt.Errorf("unknown type '%s': must be one of %s", certType, typeNames(types))
+	}
+	keyUsage, extKeyUsages, extKeyUsageOIDs, err := parseUsages(
+		append(slices.Clone(def.keyUsage), kus...), append(slices.Clone(def.extKeyUsage), ekus...))
+	if err != nil {
+		return nil, err
+	}
+
+	caCertPath := filepath.Join(caDir, "ca_cert.pem")
+	caKeyPath := filepath.Join(caDir, "ca_key.pem")
+	if !fileExists(caCertPath) || !fileExists(caKeyPath) {
+		return nil, fmt.Errorf(
+			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory",
+			caDir)
+	}
+	caCert, err := loadCert(caCertPath)
+	if err != nil {
+		return nil, err
+	}
+	caKey, err := loadKey(caKeyPath)
+	if err != nil {
+		return nil, err
+	}
+
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	tmpl.SerialNumber = serial
+	tmpl.NotBefore = now
+	tmpl.NotAfter = now.AddDate(0, 0, days)
+	tmpl.BasicConstraintsValid = true
+	tmpl.KeyUsage = keyUsage
+	tmpl.ExtKeyUsage = extKeyUsages
+	tmpl.UnknownExtKeyUsage = extKeyUsageOIDs
+	if cfg.CAPublishBaseURL != "" {
+		publishURL := cfg.CAPublishBaseURL
+		if issuingCA != "" {
+			publishURL += "/" + issuingCA
+		}
+		tmpl.IssuingCertificateURL = []string{publishURL + "/ca_cert.crt"}
+		tmpl.CRLDistributionPoints = []string{publishURL + "/crl.pem"}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(der)
 }

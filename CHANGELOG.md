@@ -13,9 +13,11 @@ feature: initial release
 - `revoke-cert` and `make-crl` revoke certificates, with an optional `--reason`, and write CRLs
   with the reason codes; `make-crl --all` writes the CRLs of a root CA and all its issuing CAs.
 - `info` shows a CA or the certificates of a file, and `list` the certificates a CA issued.
-- `serve` serves the CA certificates, CRLs and the CA bundle, as PEM and P7B, over HTTP, with an
-  index page of the CAs.
-- `simple-ca.yaml` holds the publish base URL for AIA and CRL Distribution Point extensions,
+- `serve` serves the CA certificates, CRLs and the CA bundle, as PEM and P7B, over HTTP or HTTPS,
+  with an index page of the CAs.
+- `serve` is an ACME server for each CA, with the http-01 and dns-01 challenges, for the names
+  under `acme.domains` of `simple-ca.json`.
+- `simple-ca.json` holds the publish base URL for AIA and CRL Distribution Point extensions,
   default validity periods, and certificate types.
 - The certificates are recorded in an OpenSSL-compatible `index.txt`, shared with `openssl ca`.
 - systemd units for `serve` and for a daily `make-crl` of every CA in `/etc/simple-ca`.

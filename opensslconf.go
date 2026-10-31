@@ -56,7 +56,7 @@ var opensslExtKeyUsage = map[x509.ExtKeyUsage]string{
 }
 
 // writeOpenSSLConf writes openssl.cnf to the CA directory caDir, a configuration of "openssl ca"
-// for its CA: its database and files, the defaults of simple-ca.yaml of its root CA, and an
+// for its CA: its database and files, the defaults of simple-ca.json of its root CA, and an
 // extensions section ext_TYPE for each certificate type, and ext_issuing_ca for a root CA. It
 // returns the path of the file.
 func writeOpenSSLConf(caDir string) (string, error) {

@@ -117,7 +117,7 @@ func locateCA(caDir string) (rootDir, issuingCA string, err error) {
 }
 
 // makeCert issues a certificate of the type certType, one of builtinTypes or of the types of
-// simple-ca.yaml of the root CA, signed by the CA in caDir, writes it with its key to certDir, and
+// simple-ca.json of the root CA, signed by the CA in caDir, writes it with its key to certDir, and
 // records it in index.txt of that CA.
 //
 // By the server name rules, subjectName is the CN, a hostname or FQDN, which is also the first

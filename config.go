@@ -24,45 +24,54 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // ---- configuration ----------------------------------------------------------
 
 const (
-	configFile = "simple-ca.yaml"
+	configFile = "simple-ca.json"
 )
 
 // daysConfig holds the default validity periods in days.
 type daysConfig struct {
-	CA   int `yaml:"ca,omitempty"`
-	Cert int `yaml:"cert,omitempty"`
-	CRL  int `yaml:"crl,omitempty"`
+	CA   int `json:"ca,omitempty"`
+	Cert int `json:"cert,omitempty"`
+	CRL  int `json:"crl,omitempty"`
 }
 
-// typeConfig is a certificate type of simple-ca.yaml; a field left out keeps the value of the
+// typeConfig is a certificate type of simple-ca.json; a field left out keeps the value of the
 // built-in type of the same name.
 type typeConfig struct {
-	Names       string    `yaml:"names,omitempty"`
-	KeyUsage    *[]string `yaml:"key_usage,omitempty"`
-	ExtKeyUsage *[]string `yaml:"ext_key_usage,omitempty"`
+	Names       string    `json:"names,omitempty"`
+	KeyUsage    *[]string `json:"key_usage,omitempty"`
+	ExtKeyUsage *[]string `json:"ext_key_usage,omitempty"`
 }
 
-// config is the simple-ca.yaml file of a root CA directory, the settings of the root CA and its
+// acmeConfig holds the ACME settings of serve: the domains whose names, and the names below them,
+// the ACME server issues certificates for, ACME being off without them, and the validity of its
+// certificates in days.
+type acmeConfig struct {
+	Domains []string `json:"domains,omitempty"`
+	Days    int      `json:"days,omitempty"`
+}
+
+// config is the simple-ca.json file of a root CA directory, the settings of the root CA and its
 // issuing CAs.
 type config struct {
 	path             string
-	CAPublishBaseURL string                `yaml:"ca_publish_base_url,omitempty"`
-	Days             daysConfig            `yaml:"days,omitempty"`
-	Types            map[string]typeConfig `yaml:"types,omitempty"`
+	CAPublishBaseURL string                `json:"ca_publish_base_url,omitempty"`
+	Days             daysConfig            `json:"days,omitzero"`
+	Types            map[string]typeConfig `json:"types,omitempty"`
+	ACME             acmeConfig            `json:"acme,omitzero"`
 }
 
-// loadConfig reads simple-ca.yaml of caDir, or returns an empty config when the file does not exist.
+// loadConfig reads simple-ca.json of caDir, refusing unknown settings, or returns an empty config
+// when the file does not exist.
 func loadConfig(caDir string) (*config, error) {
 	cfg := &config{path: filepath.Join(caDir, configFile)}
 	b, err := os.ReadFile(cfg.path)
@@ -72,7 +81,9 @@ func loadConfig(caDir string) (*config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := yaml.Unmarshal(b, cfg); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(cfg); err != nil {
 		return nil, fmt.Errorf("could not read %s: %w", cfg.path, err)
 	}
 	return cfg, nil
@@ -80,14 +91,9 @@ func loadConfig(caDir string) (*config, error) {
 
 // save writes the config back to the file it was loaded from, indented by two spaces.
 func (c *config) save() error {
-	var b bytes.Buffer
-	enc := yaml.NewEncoder(&b)
-	enc.SetIndent(2)
-	if err := enc.Encode(c); err != nil {
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
 		return err
 	}
-	if err := enc.Close(); err != nil {
-		return err
-	}
-	return os.WriteFile(c.path, b.Bytes(), 0o644)
+	return os.WriteFile(c.path, append(b, '\n'), 0o644)
 }

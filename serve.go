@@ -120,6 +120,10 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
               </dd>
               <dt class="text-slate-500">CRL</dt>
               <dd>{{if .CRL}}{{.CRL}}{{else}}none yet{{end}}</dd>
+              {{- if .ACME}}
+              <dt class="text-slate-500">ACME directory</dt>
+              <dd class="font-mono text-xs break-all sm:text-sm">{{.ACME}}</dd>
+              {{- end}}
             </dl>
             <div class="flex flex-wrap gap-2 pt-1">
               <a class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700" href="{{.Path}}ca_cert.crt">Certificate (DER)</a>
@@ -142,20 +146,31 @@ var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
 // days left, whether fewer than 30 days are left, its SHA-256 fingerprint in four groups of eight
 // bytes, its CRL, and the URL path of its files.
 type indexCA struct {
-	Subject, Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path string
-	ExpiresSoon                                                                bool
-	Fingerprint                                                                []string
+	Subject, Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME string
+	ExpiresSoon                                                                      bool
+	Fingerprint                                                                      []string
 }
 
 // newServeMux returns the handler serving an index page at /, the files of servedFiles of the
 // root CA in rootDir at /NAME, those of each of its issuing CAs at /CA/NAME, and ca_bundle.pem of
-// the root CA, also as the PKCS#7 file ca_bundle.p7b. The files are read on each request.
+// the root CA, also as the PKCS#7 file ca_bundle.p7b. The files are read on each request. With
+// acme.domains in simple-ca.json, it also serves the ACME server of each CA whose key is there.
 func newServeMux(rootDir string) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 		var cas []indexCA
 		var title string
+		cfg, err := loadConfig(rootDir)
+		if err != nil {
+			log.Printf("%s: %v", r.URL.Path, err)
+			http.Error(w, "could not read the configuration", http.StatusInternalServerError)
+			return
+		}
+		origin := "http://" + r.Host
+		if r.TLS != nil {
+			origin = "https://" + r.Host
+		}
 		dirs := []string{""}
 		entries, _ := os.ReadDir(rootDir)
 		for _, e := range entries {
@@ -197,6 +212,9 @@ func newServeMux(rootDir string) *http.ServeMux {
 				title = cert.Subject.CommonName
 			} else {
 				ca.Role, ca.Path = "issuing CA "+name, "/"+name+"/"
+			}
+			if len(cfg.ACME.Domains) > 0 && fileExists(filepath.Join(dir, "ca_key.pem")) {
+				ca.ACME = origin + ca.Path + "acme/directory"
 			}
 			if b, err := os.ReadFile(filepath.Join(dir, "crl.pem")); err == nil {
 				ca.CRL = "unreadable"
@@ -324,6 +342,25 @@ func newServeMux(rootDir string) *http.ServeMux {
 				return
 			}
 			serve(w, r, filepath.Join(rootDir, ca), name)
+		})
+	}
+
+	// The ACME server of the root CA at /acme/ and of each issuing CA at /CA/acme/.
+	acme := newACMEServer()
+	for _, p := range []string{"directory", "new-nonce", "new-account", "new-order", "revoke-cert", "acct/{id}",
+		"acct/{id}/orders", "order/{id}", "order/{id}/finalize", "authz/{id}", "chall/{id}/{type}", "cert/{id}"} {
+		mux.HandleFunc("/acme/"+p, func(w http.ResponseWriter, r *http.Request) {
+			acme.handle(w, r, rootDir, rootDir, "/acme", strings.TrimPrefix(r.URL.Path, "/acme/"))
+		})
+		mux.HandleFunc("/{ca}/acme/"+p, func(w http.ResponseWriter, r *http.Request) {
+			ca := r.PathValue("ca")
+			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+				log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+				http.NotFound(w, r)
+				return
+			}
+			prefix := "/" + ca + "/acme"
+			acme.handle(w, r, rootDir, filepath.Join(rootDir, ca), prefix, strings.TrimPrefix(r.URL.Path, prefix+"/"))
 		})
 	}
 	return mux

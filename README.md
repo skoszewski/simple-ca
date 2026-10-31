@@ -20,7 +20,7 @@ go install github.com/skoszewski/simple-ca@latest
 
 ```text
 CA_DIR/
-  simple-ca.yaml           settings (optional)
+  simple-ca.json           settings (optional)
   ca_cert.pem              root CA certificate
   ca_key.pem               root CA private key
   ca_bundle.pem            root and all issuing CA certificates concatenated
@@ -29,6 +29,7 @@ CA_DIR/
   crlnumber                next CRL number of the root CA
   crl.pem                  root CA CRL (make-crl)
   openssl.cnf              configuration of openssl ca (make-ca --write-conf)
+  acme.json                ACME accounts and orders of the root CA (serve)
   {name}_cert.pem          certificate issued by the root CA
   {name}_key.pem           key of a certificate issued by the root CA
   {name}.pfx               PKCS#12 bundle (make-pfx)
@@ -40,6 +41,7 @@ CA_DIR/
     crlnumber              next CRL number of the issuing CA
     crl.pem                issuing CA CRL (make-crl)
     openssl.cnf            configuration of openssl ca (make-ca --write-conf)
+    acme.json              ACME accounts and orders of the issuing CA (serve)
     {name}_cert.pem        certificate issued by the issuing CA
     {name}_key.pem         key of a certificate issued by the issuing CA
 ```
@@ -65,6 +67,7 @@ simple-ca info        [--ca-dir DIR]
 simple-ca info        CERT_FILE
 simple-ca list        [--ca-dir DIR] [--valid] [--revoked] [--expired]
 simple-ca serve       [--ca-dir DIR] [--address ADDRESS] [--port PORT]
+                      [--tls-cert FILE --tls-key FILE]
 simple-ca --version
 ```
 
@@ -82,11 +85,11 @@ creates an issuing CA in `CA_DIR/NAME/`, signed by the root CA in the CA directo
 to `ca_bundle.pem` and to `index.txt` of the root CA. The CA directory must not hold an issuing
 CA. A CA that exists is left as it is. `--days` defaults to 3650.
 
-A new CA starts with an empty CRL, number 1, valid for `days.crl` of `simple-ca.yaml`, 30 days
+A new CA starts with an empty CRL, number 1, valid for `days.crl` of `simple-ca.json`, 30 days
 without it, so the CRL Distribution Point URL of its certificates has a CRL to serve from the
 start. `make-crl` renews it before its next update.
 
-`--ca-publish-base-url URL` is stored in `simple-ca.yaml` and embeds AIA (Authority Information
+`--ca-publish-base-url URL` is stored in `simple-ca.json` and embeds AIA (Authority Information
 Access) and CRL Distribution Point extensions in the issuing CAs and certificates issued from
 then on: `URL/ca_cert.crt` and `URL/crl.pem` for the root CA, `URL/NAME/ca_cert.crt` and
 `URL/NAME/crl.pem` for the issuing CA `NAME`.
@@ -97,7 +100,7 @@ With it, `openssl ca` signs requests into the same `index.txt`, and simple-ca an
 can be used side by side:
 
 - the `simple_ca` section names the files of the CA, uses random serials as simple-ca does, takes
-  `default_days` and `default_crl_days` from `days` of `simple-ca.yaml` (365 and 30 without
+  `default_days` and `default_crl_days` from `days` of `simple-ca.json` (365 and 30 without
   them), copies the extensions of a request, its subject alternative names among them, and keeps
   only the commonName and emailAddress of its subject;
 - an `ext_TYPE` section for each certificate type holds its key usages and extended key usages,
@@ -123,8 +126,8 @@ The type sets the key usages and extended key usages of the certificate:
 | `user` | digitalSignature, contentCommitment | clientAuth, emailProtection, codeSigning |
 | `none` | none | none |
 
-`types` of `simple-ca.yaml` changes these types and defines others; see
-[simple-ca.yaml](#simple-cayaml).
+`types` of `simple-ca.json` changes these types and defines others; see
+[simple-ca.json](#simple-cajson).
 
 `--type server` creates a TLS certificate, and `--type none` a certificate with no key usages of
 its own, both named the same way:
@@ -285,9 +288,11 @@ revoked  2027-10-30 21:51:52 UTC  2026-10-30 21:51:52 UTC  keyCompromise  12193E
 ### serve
 
 Serves the certificates and CRLs of the root CA of the CA directory, and of all its issuing CAs,
-over HTTP, until it is stopped with Ctrl-C. `--address` is the address of the interface it listens
-on, `127.0.0.1` by default and all interfaces when empty, and `--port` the TCP port, 8080 by
-default.
+over HTTP, until it is stopped with Ctrl-C. `--address` is the address of the interface it
+listens on, `127.0.0.1` by default and `0.0.0.0` for all interfaces (`::` also works), and
+`--port` the TCP port, 8080 by default. With `--tls-cert` and `--tls-key`, PEM files of a
+certificate chain and its key, it serves HTTPS instead, as [ACME](#acme) clients require; the
+certificate can be one of the CA itself.
 
 | URL | File | Content type |
 |---|---|---|
@@ -299,6 +304,8 @@ default.
 | `/ca_bundle.pem` | `ca_bundle.pem` | `application/x-pem-file` |
 | `/ca_bundle.p7b` | the certificates of `ca_bundle.pem`, as PKCS#7 | `application/x-pkcs7-certificates` |
 | `/NAME/...` | the same four files of the issuing CA `NAME` | |
+| `/acme/directory` | the ACME directory of the root CA, see [ACME](#acme) | `application/json` |
+| `/NAME/acme/directory` | the ACME directory of the issuing CA `NAME` | `application/json` |
 
 The index page lists the root CA and all its issuing CAs, also when `--ca-dir` is an issuing CA,
 each with its subject, issuer, serial number, validity period, days left before it expires,
@@ -319,33 +326,76 @@ served:
 
 ```sh
 simple-ca make-ca --ca-dir /tmp/ca --ca-publish-base-url http://pki.example.com:8080 "My Root CA"
-simple-ca serve --ca-dir /tmp/ca --address "" --port 8080
+simple-ca serve --ca-dir /tmp/ca --address 0.0.0.0 --port 8080
 ```
 
-## simple-ca.yaml
+### ACME
+
+With `acme.domains` in `simple-ca.json`, `serve` is also an ACME server (RFC 8555) for each CA
+whose key is in its directory: the root CA at `/acme/directory` and the issuing CA `NAME` at
+`/NAME/acme/directory`. The index page shows the directory URL of each CA. Any client that
+reaches the server may register an account; certificates are issued only for DNS names that are
+one of `acme.domains` or below one of them, and whose challenge is met:
+
+- `http-01` - the server fetches `http://NAME/.well-known/acme-challenge/TOKEN` on port 80;
+- `dns-01` - the server looks up the TXT record `_acme-challenge.NAME` with the system resolver;
+  a wildcard name, `*.NAME`, is offered this challenge alone.
+
+A certificate is of the type `server`, valid for `acme.days` of `simple-ca.json`, 90 days
+without it, with the first name of the order as the CN and all its names as DNS names; the key usages,
+extended key usages, AIA and CRL Distribution Point URLs are those of `make-cert`. It is recorded
+in `index.txt` like any other. The chain returned holds the certificate and, from an issuing CA,
+the issuing CA certificate. A certificate is revoked by the account it was issued to, or with its
+key, for a reason from 0 to 5, as for `revoke-cert`; `make-crl` writes the CRL listing it.
+
+The accounts, the orders and the authorizations of a CA are kept in `acme.json` of its directory,
+so `serve` needs to write to the CA directories and read the CA keys. An order and its
+authorizations expire 7 days after they are made. Nonces are kept in memory; after a restart, a
+client retries a request with a new nonce.
+
+The ACME clients require HTTPS, so `serve` is run with a certificate of the CA, which the clients
+must trust. With [lego](https://go-acme.github.io/lego/), `LEGO_CA_CERTIFICATES` names the root CA
+certificate:
+
+```sh
+simple-ca make-cert --ca-dir /tmp/ca --cert-dir /tmp pki.example.com
+simple-ca serve --ca-dir /tmp/ca --address 0.0.0.0 --port 8443 \
+  --tls-cert /tmp/pki_cert.pem --tls-key /tmp/pki_key.pem
+LEGO_CA_CERTIFICATES=/tmp/ca/ca_cert.pem lego run --accept-tos --email admin@example.com \
+  --server https://pki.example.com:8443/servers/acme/directory --domains web.example.com --http
+```
+
+## simple-ca.json
 
 The settings of the root CA and its issuing CAs, in the root CA directory; a command working with
 an issuing CA reads the file of its root CA. The file is optional: `make-ca --ca-publish-base-url`
-writes it, and it can be written or edited by hand.
+writes it, and it can be written or edited by hand. A setting not described here is an error.
 
-```yaml
-ca_publish_base_url: http://pki.example.com
-days:
-  cert: 90
-  crl: 7
-types:
-  device:
-    key_usage: [digitalSignature]
-    ext_key_usage: [clientAuth, 1.3.6.1.4.1.99999.10]
-  person:
-    names: user
-    key_usage: [digitalSignature, keyEncipherment]
-    ext_key_usage: []
-  user:
-    key_usage: [digitalSignature, contentCommitment, keyEncipherment]
+```json
+{
+  "ca_publish_base_url": "http://pki.example.com",
+  "days": {"cert": 90, "crl": 7},
+  "types": {
+    "device": {
+      "key_usage": ["digitalSignature"],
+      "ext_key_usage": ["clientAuth", "1.3.6.1.4.1.99999.10"]
+    },
+    "person": {
+      "names": "user",
+      "key_usage": ["digitalSignature", "keyEncipherment"],
+      "ext_key_usage": []
+    },
+    "user": {"key_usage": ["digitalSignature", "contentCommitment", "keyEncipherment"]}
+  },
+  "acme": {"domains": ["example.com", "lab.example.org"], "days": 30}
+}
 ```
 
 - `ca_publish_base_url` - base URL for the AIA and CRL Distribution Point extensions.
+- `acme` - the [ACME](#acme) server of `serve`:
+  - `domains` - the domains whose names and the names below them it issues certificates for;
+    without them, `serve` has no ACME server;
+  - `days` - the validity of its certificates, 90 days by default.
 - `days` - defaults for `--days`: `ca`, `cert`, `crl`.
 - `types` - certificate types for `make-cert --type` and `sign --type`, by name, of letters, digits and
   underscores. A type named `server`, `user` or `none` redefines the built-in type, and any
@@ -405,7 +455,9 @@ simple-ca list --ca-dir /tmp/ca
 `systemd/` holds units for a CA in `/etc/simple-ca` and the executable in
 `/usr/local/bin/simple-ca`, both run as the user `simple-ca`:
 
-- `simple-ca.service` runs `serve` on all interfaces, port 8080;
+- `simple-ca.service` runs `serve` on all interfaces, port 8080, with write access to
+  `/etc/simple-ca` for [ACME](#acme); `--tls-cert` and `--tls-key` are added to its command with
+  `systemctl edit simple-ca.service`;
 - `simple-ca-crl.service` runs `make-crl --all`, for the root CA in `/etc/simple-ca` and its
   issuing CAs;
 - `simple-ca-crl.timer` starts `simple-ca-crl.service` daily, and on boot when a run was missed.

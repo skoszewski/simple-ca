@@ -43,7 +43,7 @@ type certTypeDef struct {
 	extKeyUsage []string
 }
 
-// builtinTypes are the certificate types simple-ca.yaml can redefine.
+// builtinTypes are the certificate types simple-ca.json can redefine.
 var builtinTypes = map[string]certTypeDef{
 	"server": {"server", []string{"digitalSignature", "keyEncipherment"}, []string{"serverAuth", "clientAuth"}},
 	"user":   {"user", []string{"digitalSignature", "contentCommitment"}, []string{"clientAuth", "emailProtection", "codeSigning"}},
@@ -52,7 +52,7 @@ var builtinTypes = map[string]certTypeDef{
 
 var typeNameRE = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
-// certTypes returns the built-in types with the types of simple-ca.yaml defined or redefined over
+// certTypes returns the built-in types with the types of simple-ca.json defined or redefined over
 // them. A type of the file redefines only the fields it gives; a new type has the server name
 // rules unless it names others.
 func (c *config) certTypes() (map[string]certTypeDef, error) {
