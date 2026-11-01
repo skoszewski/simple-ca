@@ -43,9 +43,9 @@ import (
 	"maps"
 	"mime"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -66,15 +66,16 @@ var tokensLockWait = 10 * time.Second
 // jwtHeader is the base64url header of the tokens, RS256 signed.
 var jwtHeader = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
 
-var tokenNameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
-
-// apiToken is a token of the signing API of a CA: its JWT ID, the certificate types and the
-// domains it allows, its validity, and the serial numbers of the certificates issued with it. A
-// revoked token has no entry.
+// apiToken is a token of the signing API of a CA: its JWT ID, the certificate types, the domains
+// and the IP address prefixes it allows, "*" for any, the prefixes of the client addresses it is
+// used from, any without them, its validity, and the serial numbers of the certificates issued
+// with it. A revoked token has no entry.
 type apiToken struct {
 	ID      string    `json:"id"`
 	Types   []string  `json:"types"`
-	Domains []string  `json:"domains"`
+	Domains []string  `json:"domains,omitempty"`
+	IPs     []string  `json:"ips,omitempty"`
+	Clients []string  `json:"clients,omitempty"`
 	Issued  time.Time `json:"issued"`
 	Expires time.Time `json:"expires"`
 	Certs   []string  `json:"certs,omitempty"`
@@ -178,25 +179,52 @@ func purgeTokens(caDir string) (int, error) {
 	return n - len(db.Tokens), db.save(caDir)
 }
 
-// makeToken adds the token name, valid for valid, for the certificate types certTypes and the
-// domains to tokens-db.json of the CA in caDir, and returns its JWT, signed with the CA key.
-func makeToken(caDir, name string, valid time.Duration, certTypes, domains []string) (string, error) {
+// makeToken adds the token name, valid for valid, for the certificate types certTypes, the domains
+// and the IP addresses ips, used from the client addresses clients, to tokens-db.json of the CA in
+// caDir, and returns its JWT, signed with the CA key. A domain or an IP address "*" allows any; an
+// IP address or a client address is an address or a prefix, kept as a prefix, and no clients allow
+// any client.
+func makeToken(caDir, name string, valid time.Duration, certTypes, domains, ips, clients []string) (string, error) {
 	if valid < time.Second {
 		return "", errors.New("--valid must be at least 1s")
 	}
-	if !tokenNameRE.MatchString(name) {
-		return "", fmt.Errorf("token name '%s': a token name is made of letters, digits, '.', '-' and '_'", name)
+	if !kebabCaseRE.MatchString(name) {
+		return "", fmt.Errorf("token name '%s' is not a kebab-case name, such as web-deploy", name)
 	}
-	if len(domains) == 0 {
-		return "", errors.New("at least one --domain is required")
+	if len(domains) == 0 && len(ips) == 0 {
+		return "", errors.New("at least one --domain or --ip is required")
 	}
 	var names []string
 	for _, d := range domains {
 		d = strings.ToLower(strings.TrimSuffix(d, "."))
-		if !isHostname(d) {
-			return "", fmt.Errorf("--domain '%s' is not a domain name", d)
+		if d != "*" && !isHostname(d) {
+			return "", fmt.Errorf("--domain '%s' is not a domain name or *", d)
 		}
 		names = append(names, d)
+	}
+	// Addresses become prefixes of one address, and prefixes are kept masked.
+	toPrefixes := func(option string, values []string) ([]string, error) {
+		var prefixes []string
+		for _, s := range values {
+			if s == "*" && option == "--ip" {
+				prefixes = append(prefixes, s)
+				continue
+			}
+			prefix, ok := parsePrefix(s)
+			if !ok {
+				return nil, fmt.Errorf("%s '%s' is not an IP address or a prefix such as 10.0.0.0/8", option, s)
+			}
+			prefixes = append(prefixes, prefix.String())
+		}
+		return prefixes, nil
+	}
+	prefixes, err := toPrefixes("--ip", ips)
+	if err != nil {
+		return "", err
+	}
+	clientPrefixes, err := toPrefixes("--host or --network", clients)
+	if err != nil {
+		return "", err
 	}
 	cfg, err := loadRootConfig(caDir)
 	if err != nil {
@@ -234,7 +262,8 @@ func makeToken(caDir, name string, valid time.Duration, certTypes, domains []str
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	tok := &apiToken{ID: randomID(), Types: certTypes, Domains: names, Issued: now, Expires: now.Add(valid)}
+	tok := &apiToken{ID: randomID(), Types: certTypes, Domains: names, IPs: prefixes, Clients: clientPrefixes,
+		Issued: now, Expires: now.Add(valid)}
 	claims, err := json.Marshal(jwtClaims{tok.ID, name, tok.Issued.Unix(), tok.Expires.Unix()})
 	if err != nil {
 		return "", err
@@ -263,15 +292,16 @@ func listTokens(w io.Writer, caDir string) error {
 	}
 	now := time.Now()
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSTATUS\tEXPIRES\tTYPES\tDOMAINS\tCERTS")
+	fmt.Fprintln(tw, "NAME\tEXPIRES\tTYPES\tDOMAINS\tIPS\tCLIENTS\tCERTS")
 	for _, name := range slices.Sorted(maps.Keys(db.Tokens)) {
 		t := db.Tokens[name]
-		status := "valid"
+		expires := t.Expires.UTC().Format(displayTimeFormat)
 		if !now.Before(t.Expires) {
-			status = "expired"
+			expires += " (expired)"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\n", name, status, t.Expires.UTC().Format(displayTimeFormat),
-			strings.Join(t.Types, ","), strings.Join(t.Domains, ","), len(t.Certs))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%d\n", name, expires,
+			strings.Join(t.Types, ","), cmp.Or(strings.Join(t.Domains, ","), "-"),
+			cmp.Or(strings.Join(t.IPs, ","), "-"), cmp.Or(strings.Join(t.Clients, ","), "any"), len(t.Certs))
 	}
 	return tw.Flush()
 }
@@ -351,11 +381,21 @@ func checkToken(db *tokensDB, caCert *x509.Certificate, token string) (string, *
 }
 
 // checkCSRNames checks the names of csr against the name rules names, "server" or "user", and the
-// domains of a token: the subject holds only a CN and email addresses, and the SANs only DNS names
-// and email addresses; with the server rules, the CN and the DNS names are in the domains and
-// there are no email addresses; with the user rules, the domains of the email addresses are in
-// the domains and there are no DNS names.
-func checkCSRNames(csr *x509.CertificateRequest, names string, domains []string) error {
+// domains and IP prefixes of the token tok: the subject holds only a CN and email addresses, and
+// the SANs only DNS names, email addresses and IP addresses; with the server rules, the CN, a
+// hostname or an IP address, the DNS names and the IP addresses are allowed by the token and there
+// are no email addresses; with the user rules, the domains of the email addresses are allowed and
+// there are neither DNS names nor IP addresses.
+func checkCSRNames(csr *x509.CertificateRequest, names string, tok *apiToken) error {
+	domainAllowed := func(name string) bool {
+		return slices.Contains(tok.Domains, "*") || inDomains(strings.ToLower(name), tok.Domains)
+	}
+	ipAllowed := func(addr netip.Addr) bool {
+		return slices.ContainsFunc(tok.IPs, func(s string) bool {
+			prefix, err := netip.ParsePrefix(s)
+			return s == "*" || (err == nil && prefix.Contains(addr.Unmap()))
+		})
+	}
 	var emails []string
 	for _, attr := range csr.Subject.Names {
 		switch {
@@ -372,23 +412,24 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, domains []string)
 			return apiErr(http.StatusBadRequest, "the subject alternative names do not parse")
 		}
 		for _, n := range gns {
-			if n.Class != asn1.ClassContextSpecific || (n.Tag != 1 && n.Tag != 2) {
-				return apiErr(http.StatusForbidden, "the subject alternative names may be only DNS names and email addresses")
+			if n.Class != asn1.ClassContextSpecific || (n.Tag != 1 && n.Tag != 2 && n.Tag != 7) {
+				return apiErr(http.StatusForbidden,
+					"the subject alternative names may be only DNS names, email addresses and IP addresses")
 			}
 		}
 	}
 	emails = append(emails, csr.EmailAddresses...)
 
 	if names == "user" {
-		if len(csr.DNSNames) > 0 {
-			return apiErr(http.StatusForbidden, "a %s certificate has no DNS names", names)
+		if len(csr.DNSNames) > 0 || len(csr.IPAddresses) > 0 {
+			return apiErr(http.StatusForbidden, "a %s certificate has neither DNS names nor IP addresses", names)
 		}
 		if len(emails) == 0 {
 			return apiErr(http.StatusForbidden, "the request has no email address")
 		}
 		for _, e := range emails {
 			_, domain, _ := strings.Cut(e, "@")
-			if !emailRE.MatchString(e) || !inDomains(strings.ToLower(domain), domains) {
+			if !emailRE.MatchString(e) || !domainAllowed(domain) {
 				return apiErr(http.StatusForbidden, "the token does not allow '%s'", e)
 			}
 		}
@@ -397,28 +438,76 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, domains []string)
 	if len(emails) > 0 {
 		return apiErr(http.StatusForbidden, "a %s certificate has no email addresses", names)
 	}
+
+	// The CN is a hostname, checked with the DNS names, or an IP address, checked with the IP SANs.
 	hosts := csr.DNSNames
-	if csr.Subject.CommonName != "" {
-		hosts = append([]string{csr.Subject.CommonName}, hosts...)
+	var addrs []netip.Addr
+	if cn := csr.Subject.CommonName; cn != "" {
+		if addr, ok := parseIP(cn); ok {
+			addrs = append(addrs, addr)
+		} else {
+			hosts = append([]string{cn}, hosts...)
+		}
 	}
-	if len(hosts) == 0 {
-		return apiErr(http.StatusForbidden, "the request has no DNS name")
+	for _, ip := range csr.IPAddresses {
+		addr, _ := netip.AddrFromSlice(ip)
+		addrs = append(addrs, addr)
+	}
+	if len(hosts) == 0 && len(addrs) == 0 {
+		return apiErr(http.StatusForbidden, "the request has neither a DNS name nor an IP address")
 	}
 	for _, h := range hosts {
-		if !isHostname(strings.TrimPrefix(h, "*.")) || !inDomains(strings.ToLower(h), domains) {
+		if !isHostname(strings.TrimPrefix(h, "*.")) || !domainAllowed(h) {
 			return apiErr(http.StatusForbidden, "the token does not allow '%s'", h)
+		}
+	}
+	for _, addr := range addrs {
+		if !ipAllowed(addr) {
+			return apiErr(http.StatusForbidden, "the token does not allow the IP address %s", addr.Unmap())
 		}
 	}
 	return nil
 }
 
+// clientAddr returns the address of the client of r: the address the request comes from, or, when
+// that is one of the trusted proxies, the last address of its X-Forwarded-For headers that is not
+// a trusted proxy, the first one when all of them are.
+func clientAddr(r *http.Request, trusted []netip.Prefix) netip.Addr {
+	isTrusted := func(addr netip.Addr) bool {
+		return slices.ContainsFunc(trusted, func(p netip.Prefix) bool { return p.Contains(addr) })
+	}
+	peer, _ := netip.ParseAddrPort(r.RemoteAddr)
+	client := peer.Addr().Unmap()
+	if !isTrusted(client) {
+		return client
+	}
+	var hops []string
+	for _, h := range r.Header.Values("X-Forwarded-For") {
+		hops = append(hops, strings.Split(h, ",")...)
+	}
+	// The addresses are read from the last, which the trusted proxy added; an address that does
+	// not read stops the walk at the last one that does.
+	for i := len(hops) - 1; i >= 0; i-- {
+		addr, ok := parseIP(strings.TrimSpace(hops[i]))
+		if !ok {
+			break
+		}
+		client = addr.Unmap()
+		if !isTrusted(client) {
+			break
+		}
+	}
+	return client
+}
+
 // signWithToken signs the CSR csrData, PEM or DER, with the CA in caDir as a certificate of the
 // type certType, the first type of the token by default, for the JWT token of the CA's
-// tokens-db.json, records it in index.txt and in the token's entry, and returns it with the CA
-// certificate and the name of its file, NAME_cert.pem by the rules of cert create, the serial
-// number for a request without a name. mu and the lock of tokens-db.json are held from the token
-// check to the writes of index.txt and tokens-db.json.
-func signWithToken(caDir, token string, csrData []byte, certType string, mu *sync.Mutex) (cert, caCert *x509.Certificate, fileName string, err error) {
+// tokens-db.json used from the address client, which must be in the client prefixes of a token
+// that has them; it records the certificate in index.txt and in the token's entry, and returns
+// it with the CA certificate and the name of its file, NAME_cert.pem by the rules of cert create,
+// the serial number for a request without a name. mu and the lock of tokens-db.json are held from
+// the token check to the writes of index.txt and tokens-db.json.
+func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certType string, mu *sync.Mutex) (cert, caCert *x509.Certificate, fileName string, err error) {
 	mu.Lock()
 	defer mu.Unlock()
 	unlock, err := lockTokens(caDir)
@@ -437,6 +526,12 @@ func signWithToken(caDir, token string, csrData []byte, certType string, mu *syn
 	name, tok, err := checkToken(db, caCert, strings.TrimSpace(token))
 	if err != nil {
 		return nil, nil, "", err
+	}
+	if len(tok.Clients) > 0 && !slices.ContainsFunc(tok.Clients, func(s string) bool {
+		prefix, err := netip.ParsePrefix(s)
+		return err == nil && prefix.Contains(client)
+	}) {
+		return nil, nil, "", apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
 	}
 	if certType == "" && len(tok.Types) > 0 {
 		certType = tok.Types[0]
@@ -460,7 +555,7 @@ func signWithToken(caDir, token string, csrData []byte, certType string, mu *syn
 	if err != nil {
 		return nil, nil, "", apiErr(http.StatusBadRequest, "csr: %v", err)
 	}
-	if err := checkCSRNames(csr, def.names, tok.Domains); err != nil {
+	if err := checkCSRNames(csr, def.names, tok); err != nil {
 		return nil, nil, "", err
 	}
 
@@ -504,9 +599,9 @@ func signWithToken(caDir, token string, csrData []byte, certType string, mu *syn
 }
 
 // apiSign serves a POST of /api/sign for the CA in caDir: it signs the CSR of the JSON request
-// with the type it names for the bearer token of the request, as signWithToken, and returns the
-// certificate with its chain.
-func apiSign(w http.ResponseWriter, r *http.Request, caDir string, mu *sync.Mutex) {
+// with the type it names for the bearer token of the request, as signWithToken, for the client
+// clientAddr finds with the trusted proxies, and returns the certificate with its chain.
+func apiSign(w http.ResponseWriter, r *http.Request, caDir string, trusted []netip.Prefix, mu *sync.Mutex) {
 	log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 	if !fileExists(filepath.Join(caDir, "ca_key.pem")) || !fileExists(filepath.Join(caDir, tokensFile)) {
 		http.NotFound(w, r)
@@ -530,7 +625,7 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string, mu *sync.Mute
 	case dec.Decode(&req) != nil:
 		err = apiErr(http.StatusBadRequest, "invalid request: the body is not a JSON object of csr and type")
 	default:
-		cert, caCert, _, err = signWithToken(caDir, token, []byte(req.CSR), req.Type, mu)
+		cert, caCert, _, err = signWithToken(caDir, token, clientAddr(r, trusted), []byte(req.CSR), req.Type, mu)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -619,8 +714,9 @@ var signTemplate = template.Must(template.New("sign").Parse(`<!doctype html>
 // signPage serves /sign for the CA in caDir, whose page is at path: GET shows the form, and POST
 // signs its CSR with its type and token, as signWithToken, and sends the certificate as a
 // download, or shows the form again with the error. For a CA without its key or its
-// tokens-db.json, the page says why it signs no requests, and a POST is 403 Forbidden.
-func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, mu *sync.Mutex) {
+// tokens-db.json, the page says why it signs no requests, and a POST is 403 Forbidden. The client
+// is the one clientAddr finds with the trusted proxies.
+func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, trusted []netip.Prefix, mu *sync.Mutex) {
 	log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 	caCert, err1 := loadCert(filepath.Join(caDir, "ca_cert.pem"))
 	cfg, err2 := loadRootConfig(caDir)
@@ -658,7 +754,7 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, mu *sy
 			return
 		}
 		page.CSR, page.Type = r.PostForm.Get("csr"), r.PostForm.Get("type")
-		cert, _, fileName, err := signWithToken(caDir, r.PostForm.Get("token"), []byte(page.CSR), page.Type, mu)
+		cert, _, fileName, err := signWithToken(caDir, r.PostForm.Get("token"), clientAddr(r, trusted), []byte(page.CSR), page.Type, mu)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/x-pem-file")
 			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fileName}))

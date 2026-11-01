@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.4.0
+
+feature: signing API tokens allow any name, IP addresses and localhost, are limited to client addresses behind trusted proxies, and take defaults from simple-ca.json; issuing CA, type and token names are kebab-case, and ca create takes --ca-url.
+
+- `token create --domain '*'` makes a token that allows any DNS name, and any email domain for
+  user types.
+- `token create --ip` allows IP address SANs, and a CN that is an IP address, for the server name
+  rules: an address, such as `192.0.2.10`, a prefix, such as `10.0.0.0/8`, or `*` for any
+  address, repeated for more.
+- `token create --localhost` allows `localhost` certificates, with the IP SAN `127.0.0.1`. A
+  token takes at least one `--domain`, `--ip` or `--localhost`.
+- `token create --host ADDRESS` and `--network PREFIXES`, a comma-separated list, limit the
+  client addresses a token is accepted from; a request from another address is
+  `403 Forbidden`. `--host 192.168.1.4 --domain '*'` signs any name for 192.168.1.4 alone.
+- `serve --trusted-proxy`, or `serve.trusted_proxies` of `simple-ca.json`, names the proxies
+  whose `X-Forwarded-For` header gives the client of the signing API: the last address in it that
+  is not a trusted proxy. The header of any other peer is not read.
+- `tokens` of `simple-ca.json` holds the defaults of `token create`, `valid`, `types`, `domains`,
+  `ips`, `localhost`, `hosts` and `networks`, each replaced by the option of the same name.
+- `tokens-db.json` keeps the prefixes of a token in `ips` and `clients`, and `token list` shows
+  them in the `IPS` and `CLIENTS` columns; the `STATUS` column is gone, and an expired token not
+  purged yet is marked `(expired)` after its expiry time.
+- The names of issuing CAs (`ca create --issuing-ca`, also in `simple-ca-mini.py`), of the
+  certificate types of `simple-ca.json` and of tokens are kebab-case: words of lower-case letters
+  and digits joined by hyphens, such as `lab-servers`, `web-server` and `web-deploy`; other names
+  are refused.
+- `ca create --ca-url URL`, in `simple-ca` and `simple-ca-mini.py`, sets the base URL of the AIA
+  and CRL Distribution Point extensions; its former name, `--ca-publish-base-url`, is still
+  accepted and no longer listed in the help.
+
 ## 1.3.0
 
 update: simple-ca and simple-ca-mini group their commands under ca, cert, crl and token, a Dockerfile builds an image of simple-ca, and the documentation is in docs/.

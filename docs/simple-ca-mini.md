@@ -25,7 +25,7 @@ CA_DIR/
   {name}_cert.pem          certificate issued by the root CA
   {name}_key.pem           key of a certificate issued by the root CA
   {name}.pfx               PKCS#12 bundle (cert pfx)
-  {issuing_ca}/
+  {issuing-ca}/
     ca_cert.pem            issuing CA certificate
     ca_key.pem             issuing CA private key
     {name}_cert.pem        certificate issued by the issuing CA
@@ -43,7 +43,7 @@ alone.
 ## Commands
 
 ```sh
-simple-ca-mini.py ca create   [--ca-dir DIR] [--days N] [--ca-publish-base-url URL]
+simple-ca-mini.py ca create   [--ca-dir DIR] [--days N] [--ca-url URL]
                               [--issuing-ca NAME] CA_NAME
 simple-ca-mini.py cert create [--ca-dir DIR] [--cert-dir DIR] [--days N]
                               [--type server|user|none] CN|EMAIL [EMAIL|CN] [SAN ...]
@@ -64,11 +64,12 @@ directory above it.
 
 Without `--issuing-ca`, creates the root CA in the CA directory, with a path length of 1. With
 `--issuing-ca NAME`, creates an issuing CA in `CA_DIR/NAME/`, signed by the root CA in the CA
-directory, with a path length of 0. Both have the key usages keyCertSign and cRLSign. A CA that
-exists is left as it is, and `ca_bundle.pem` is written again with the root CA and every issuing
-CA. `--days` defaults to `days.ca` of `simple-ca.json`, else 3650.
+directory, with a path length of 0; `NAME` is a **kebab-case** name, such as `lab-servers`. Both
+have the key usages keyCertSign and cRLSign. A CA that exists is left as it is, and
+`ca_bundle.pem` is written again with the root CA and every issuing CA. `--days` defaults to
+`days.ca` of `simple-ca.json`, else 3650.
 
-`--ca-publish-base-url URL` is stored in `simple-ca.json` and embeds an AIA (Authority
+`--ca-url URL` is stored in `simple-ca.json` and embeds an AIA (Authority
 Information Access) extension in the issuing CAs and certificates issued from then on:
 `URL/ca_cert.crt` for those signed by the root CA, `URL/NAME/ca_cert.crt` for those signed by the
 issuing CA `NAME`. These are the URLs of [serve](#serve).
@@ -144,7 +145,7 @@ period, days left and SHA-256 fingerprint. The files are read on each request; a
 `404 Not Found`. Each request is logged to the standard error.
 
 ```sh
-simple-ca-mini.py ca create --ca-dir /tmp/ca --ca-publish-base-url http://pki.example.com:8080 "My Root CA"
+simple-ca-mini.py ca create --ca-dir /tmp/ca --ca-url http://pki.example.com:8080 "My Root CA"
 simple-ca-mini.py serve --ca-dir /tmp/ca --address 0.0.0.0 --port 8080
 ```
 
@@ -152,8 +153,7 @@ simple-ca-mini.py serve --ca-dir /tmp/ca --address 0.0.0.0 --port 8080
 
 The settings in the root CA directory, shared with `simple-ca`. Simple CA Mini reads:
 
-- `ca_publish_base_url` - base URL for the AIA extension, written by `ca create
-  --ca-publish-base-url`;
+- `ca_publish_base_url` - base URL for the AIA extension, written by `ca create --ca-url`;
 - `days` - defaults for `--days`: `ca` and `cert`.
 
 ```json
@@ -190,7 +190,7 @@ sudo useradd --system --home-dir /etc/simple-ca --no-create-home \
   --shell /usr/sbin/nologin simple-ca
 sudo install -d -o simple-ca -g simple-ca -m 750 /etc/simple-ca
 sudo -u simple-ca simple-ca-mini ca create --ca-dir /etc/simple-ca \
-  --ca-publish-base-url http://ca.example.com:8080 "My Root CA"
+  --ca-url http://ca.example.com:8080 "My Root CA"
 sudo -u simple-ca simple-ca-mini ca create --ca-dir /etc/simple-ca --issuing-ca servers "My Servers CA"
 sudo cp systemd/simple-ca-mini.service /etc/systemd/system/
 sudo systemctl daemon-reload

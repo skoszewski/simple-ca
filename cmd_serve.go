@@ -28,6 +28,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -45,7 +46,14 @@ func runServe(args []string) error {
 	port := fs.Int("port", 8080, "TCP `port` to listen on")
 	tlsCert := fs.String("tls-cert", "", "serve HTTPS with the certificate chain in this PEM `file`")
 	tlsKey := fs.String("tls-key", "", "private key of --tls-cert, a PEM `file`")
-	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
+	var proxies []string
+	fs.Func("trusted-proxy", "`address` or prefix of a proxy whose X-Forwarded-For names the client of the\n"+
+		"signing API; repeated for more (default: serve.trusted_proxies of simple-ca.json)", func(s string) error {
+		proxies = append(proxies, s)
+		return nil
+	})
+	_, given, err := parseArgs(fs, args, 0, 0)
+	if err != nil {
 		return err
 	}
 	if *address == "" {
@@ -63,11 +71,27 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	cfg, err := loadConfig(rootDir)
+	if err != nil {
+		return err
+	}
+	option := "--trusted-proxy"
+	if !given["trusted-proxy"] {
+		proxies, option = cfg.Serve.TrustedProxies, "serve.trusted_proxies of "+cfg.path
+	}
+	var trusted []netip.Prefix
+	for _, s := range proxies {
+		prefix, ok := parsePrefix(s)
+		if !ok {
+			return fmt.Errorf("%s: '%s' is not an IP address or a prefix such as 10.0.0.0/8", option, s)
+		}
+		trusted = append(trusted, prefix)
+	}
 	listener, err := net.Listen("tcp", net.JoinHostPort(*address, strconv.Itoa(*port)))
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Handler: newServeMux(rootDir), ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{Handler: newServeMux(rootDir, trusted), ReadHeaderTimeout: 10 * time.Second}
 
 	// The expired tokens of the root CA and its issuing CAs are removed on start and every
 	// tokensPurgeInterval.

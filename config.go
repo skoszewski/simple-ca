@@ -60,6 +60,25 @@ type acmeConfig struct {
 	Days    int      `json:"days,omitempty"`
 }
 
+// serveConfig holds the settings of serve: the addresses and prefixes of the proxies whose
+// X-Forwarded-For header names the client of a request.
+type serveConfig struct {
+	TrustedProxies []string `json:"trusted_proxies,omitempty"`
+}
+
+// tokensConfig holds the defaults of token create, each replaced by the option of the same name:
+// the validity, a duration such as 8h, the certificate types, the domains, the IP addresses,
+// localhost, and the client addresses and prefixes.
+type tokensConfig struct {
+	Valid     string   `json:"valid,omitempty"`
+	Types     []string `json:"types,omitempty"`
+	Domains   []string `json:"domains,omitempty"`
+	IPs       []string `json:"ips,omitempty"`
+	Localhost bool     `json:"localhost,omitempty"`
+	Hosts     []string `json:"hosts,omitempty"`
+	Networks  []string `json:"networks,omitempty"`
+}
+
 // config is the simple-ca.json file of a root CA directory, the settings of the root CA and its
 // issuing CAs.
 type config struct {
@@ -68,6 +87,8 @@ type config struct {
 	Days             daysConfig            `json:"days,omitzero"`
 	Types            map[string]typeConfig `json:"types,omitempty"`
 	ACME             acmeConfig            `json:"acme,omitzero"`
+	Serve            serveConfig           `json:"serve,omitzero"`
+	Tokens           tokensConfig          `json:"tokens,omitzero"`
 }
 
 // loadConfig reads simple-ca.json of caDir, refusing unknown settings, or returns an empty config

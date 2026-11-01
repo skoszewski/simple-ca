@@ -83,6 +83,16 @@ func parseIP(s string) (netip.Addr, bool) {
 	return addr, err == nil && addr.Zone() == ""
 }
 
+// parsePrefix returns s, an IPv4 or IPv6 address or prefix without a zone, as a masked prefix; an
+// address is the prefix of that address alone.
+func parsePrefix(s string) (netip.Prefix, bool) {
+	if addr, ok := parseIP(s); ok {
+		return netip.PrefixFrom(addr, addr.BitLen()), true
+	}
+	prefix, err := netip.ParsePrefix(s)
+	return prefix.Masked(), err == nil && prefix.Addr().Zone() == ""
+}
+
 // isHostname reports whether s is a hostname or an FQDN whose last label is not all digits, and
 // neither an IP address nor an OID.
 func isHostname(s string) bool {

@@ -71,9 +71,9 @@ func rebuildCABundle(caDir string) error {
 
 // ---- makeCA -----------------------------------------------------------------
 
-// makeCA creates the root CA in caDir, or with issuingCA set an issuing CA in caDir/issuingCA
-// signed by the root CA in caDir, with its database and an empty first CRL valid for days.crl of
-// simple-ca.json, 30 days without it, and skips a CA that exists.
+// makeCA creates the root CA in caDir, or with issuingCA, a kebab-case name, an issuing CA in
+// caDir/issuingCA signed by the root CA in caDir, with its database and an empty first CRL valid
+// for days.crl of simple-ca.json, 30 days without it, and skips a CA that exists.
 func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 	if days < 1 {
 		return errors.New("--days must be a positive integer")
@@ -83,6 +83,9 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 	}
 	if caName == "" {
 		return errors.New("CA name is required")
+	}
+	if issuingCA != "" && !kebabCaseRE.MatchString(issuingCA) {
+		return fmt.Errorf("issuing CA name '%s' is not a kebab-case name, such as servers or lab-servers", issuingCA)
 	}
 	if fileExists(filepath.Join(caDir, "ca_cert.pem")) {
 		rootDir, name, err := locateCA(caDir)

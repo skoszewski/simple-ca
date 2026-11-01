@@ -10,7 +10,7 @@ arguments it runs them as a command. `VERSION` sets the version `--version` prin
 docker build --build-arg VERSION=v1.3.0 -t simple-ca .
 docker volume create simple-ca
 docker run --rm -v simple-ca:/data simple-ca ca create \
-  --ca-publish-base-url http://pki.example.com:8080 "My Root CA"
+  --ca-url http://pki.example.com:8080 "My Root CA"
 docker run --rm -v simple-ca:/data simple-ca ca create --issuing-ca servers "My Servers CA"
 docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data simple-ca
 docker exec simple-ca simple-ca cert list --ca-dir /data/servers

@@ -30,9 +30,14 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"regexp"
 )
 
 // ---- helpers ----------------------------------------------------------------
+
+// kebabCaseRE matches a kebab-case name, the form of the names of issuing CAs, certificate types
+// and tokens: words of lower-case letters and digits joined by single hyphens, such as web-server.
+var kebabCaseRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // dirExists reports whether path is a directory.
 func dirExists(path string) bool {

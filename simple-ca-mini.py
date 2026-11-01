@@ -47,6 +47,7 @@ HOSTNAME_RE = re.compile(
     r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$", re.IGNORECASE)
 EMAIL_RE = re.compile(r"^[!-+\--?A-~]+@[!-+\--?A-~]+\.[!-+\--?A-~]+$")
 OID_RE = re.compile(r"^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))+$")
+KEBAB_CASE_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 
 # Certificate types: name rules, key usages and extended key usages.
 CERT_TYPES = {
@@ -191,14 +192,15 @@ def config_days(cfg, name, default):
 # ---- ca create --------------------------------------------------------------
 
 def make_ca(ca_dir, ca_name, days, issuing_ca, base_url):
-    """Create the root CA in ca_dir, or the issuing CA ca_dir/issuing_ca signed by it; a CA that
-    exists is skipped."""
+    """Create the root CA in ca_dir, or the issuing CA ca_dir/issuing_ca, a kebab-case name, signed
+    by it; a CA that exists is skipped."""
     if not os.path.isdir(ca_dir):
         raise CAError(f"CA directory {ca_dir} does not exist")
     if not ca_name:
         raise CAError("CA name is required")
-    if issuing_ca and (os.path.basename(issuing_ca) != issuing_ca or issuing_ca in (".", "..")):
-        raise CAError(f"invalid issuing CA name '{issuing_ca}': must be a directory name")
+    if issuing_ca and not KEBAB_CASE_RE.fullmatch(issuing_ca):
+        raise CAError(f"issuing CA name '{issuing_ca}' is not a kebab-case name, such as servers or "
+                      "lab-servers")
     if base_url and "," in base_url:
         raise CAError(f"invalid base URL '{base_url}': must not contain a comma")
     root_cert = os.path.join(ca_dir, "ca_cert.pem")
@@ -574,12 +576,13 @@ def main():
     p = ca.add_parser("create", help="create a root or issuing CA")
     p.add_argument("--ca-dir", help="directory of the root CA")
     p.add_argument("--days", type=int, help="validity period in days (default: 3650)")
-    p.add_argument("--ca-publish-base-url", metavar="URL",
+    p.add_argument("--ca-url", metavar="URL",
                    help="base URL for the AIA extension, stored in simple-ca.json")
+    # The former name of --ca-url, accepted and left out of the help.
+    p.add_argument("--ca-publish-base-url", dest="ca_url", help=argparse.SUPPRESS)
     p.add_argument("--issuing-ca", metavar="NAME", help="create an issuing CA in this directory")
     p.add_argument("ca_name", metavar="CA_NAME")
-    p.set_defaults(run=lambda a, ca_dir: make_ca(ca_dir, a.ca_name, a.days, a.issuing_ca,
-                                                 a.ca_publish_base_url))
+    p.set_defaults(run=lambda a, ca_dir: make_ca(ca_dir, a.ca_name, a.days, a.issuing_ca, a.ca_url))
 
     cert = groups.add_parser("cert", help="create certificates and PFX bundles").add_subparsers(
         dest="command", required=True, metavar="COMMAND")

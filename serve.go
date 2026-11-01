@@ -34,6 +34,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -164,7 +165,9 @@ type indexCA struct {
 // root CA in rootDir at /NAME, those of each of its issuing CAs at /CA/NAME, and ca_bundle.pem of
 // the root CA, also as the PKCS#7 file ca_bundle.p7b. The files are read on each request. With
 // acme.domains in simple-ca.json, it also serves the ACME server of each CA whose key is there.
-func newServeMux(rootDir string) *http.ServeMux {
+// The signing API and form take the client of a request from the X-Forwarded-For header of the
+// trusted proxies.
+func newServeMux(rootDir string, trusted []netip.Prefix) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
@@ -379,7 +382,7 @@ func newServeMux(rootDir string) *http.ServeMux {
 	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign, sharing
 	// the lock of the ACME server, which also writes index.txt.
 	mux.HandleFunc("POST /api/sign", func(w http.ResponseWriter, r *http.Request) {
-		apiSign(w, r, rootDir, &acme.mu)
+		apiSign(w, r, rootDir, trusted, &acme.mu)
 	})
 	mux.HandleFunc("GET /api/sign", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
@@ -393,7 +396,7 @@ func newServeMux(rootDir string) *http.ServeMux {
 			http.NotFound(w, r)
 			return
 		}
-		apiSign(w, r, filepath.Join(rootDir, ca), &acme.mu)
+		apiSign(w, r, filepath.Join(rootDir, ca), trusted, &acme.mu)
 	})
 
 	// /CA and /CA/ of an issuing CA redirect to its section of the index page.
@@ -412,7 +415,7 @@ func newServeMux(rootDir string) *http.ServeMux {
 	// The signing form of the root CA at /sign and of each issuing CA at /CA/sign.
 	for _, method := range []string{"GET", "POST"} {
 		mux.HandleFunc(method+" /sign", func(w http.ResponseWriter, r *http.Request) {
-			signPage(w, r, rootDir, "/sign", &acme.mu)
+			signPage(w, r, rootDir, "/sign", trusted, &acme.mu)
 		})
 		mux.HandleFunc(method+" /{ca}/sign", func(w http.ResponseWriter, r *http.Request) {
 			ca := r.PathValue("ca")
@@ -421,7 +424,7 @@ func newServeMux(rootDir string) *http.ServeMux {
 				http.NotFound(w, r)
 				return
 			}
-			signPage(w, r, filepath.Join(rootDir, ca), "/"+ca+"/sign", &acme.mu)
+			signPage(w, r, filepath.Join(rootDir, ca), "/"+ca+"/sign", trusted, &acme.mu)
 		})
 	}
 	return mux

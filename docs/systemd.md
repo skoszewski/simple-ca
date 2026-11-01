@@ -19,7 +19,7 @@ sudo useradd --system --home-dir /etc/simple-ca --no-create-home \
   --shell /usr/sbin/nologin simple-ca
 sudo install -d -o simple-ca -g simple-ca -m 750 /etc/simple-ca
 sudo -u simple-ca simple-ca ca create --ca-dir /etc/simple-ca \
-  --ca-publish-base-url http://ca.example.com:8080 "My Root CA"
+  --ca-url http://ca.example.com:8080 "My Root CA"
 sudo -u simple-ca simple-ca ca create --ca-dir /etc/simple-ca --issuing-ca servers "My Servers CA"
 sudo cp systemd/simple-ca.service systemd/simple-ca-crl.service systemd/simple-ca-crl.timer \
   /etc/systemd/system/

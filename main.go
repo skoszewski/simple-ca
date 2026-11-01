@@ -130,14 +130,25 @@ func printUsage(w io.Writer, g *command) {
 	fmt.Fprintf(w, "\nRun \"simple-ca %s COMMAND -h\" for the options of a command.\n", g.name)
 }
 
+// hiddenFlags are the former names of options, accepted as aliases and left out of the usage.
+var hiddenFlags = map[string]bool{"ca-publish-base-url": true}
+
 // newFlagSet returns the flag set of the subcommand name, whose usage names its arguments and
-// summary.
+// summary, and its options without hiddenFlags.
 func newFlagSet(name, arguments, summary string) *flag.FlagSet {
 	fs := flag.NewFlagSet("simple-ca "+name, flag.ContinueOnError)
 	fs.Usage = func() {
 		line := strings.TrimSpace("simple-ca " + name + " [options] " + arguments)
 		fmt.Fprintf(fs.Output(), "Usage: %s\n\n%s\n\nOptions:\n", line, summary)
-		fs.PrintDefaults()
+		shown := flag.NewFlagSet(fs.Name(), flag.ContinueOnError)
+		shown.SetOutput(fs.Output())
+		fs.VisitAll(func(f *flag.Flag) {
+			if !hiddenFlags[f.Name] {
+				shown.Var(f.Value, f.Name, f.Usage)
+				shown.Lookup(f.Name).DefValue = f.DefValue
+			}
+		})
+		shown.PrintDefaults()
 	}
 	return fs
 }

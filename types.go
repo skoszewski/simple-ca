@@ -27,7 +27,6 @@ import (
 	"encoding/asn1"
 	"fmt"
 	"maps"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -50,16 +49,14 @@ var builtinTypes = map[string]certTypeDef{
 	"none":   {"server", nil, nil},
 }
 
-var typeNameRE = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-
 // certTypes returns the built-in types with the types of simple-ca.json defined or redefined over
 // them. A type of the file redefines only the fields it gives; a new type has the server name
 // rules unless it names others.
 func (c *config) certTypes() (map[string]certTypeDef, error) {
 	types := maps.Clone(builtinTypes)
 	for name, t := range c.Types {
-		if !typeNameRE.MatchString(name) {
-			return nil, fmt.Errorf("type '%s' in %s: a type name is made of letters, digits and underscores", name, c.path)
+		if !kebabCaseRE.MatchString(name) {
+			return nil, fmt.Errorf("type '%s' in %s is not a kebab-case name, such as web-server", name, c.path)
 		}
 		def := types[name]
 		if def.names == "" {

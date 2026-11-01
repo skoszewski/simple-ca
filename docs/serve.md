@@ -7,6 +7,18 @@ listens on, `127.0.0.1` by default and `0.0.0.0` for all interfaces (`::` also w
 certificate chain and its key, it serves HTTPS instead, as [ACME](acme.md) clients require; the
 certificate can be one of the CA itself.
 
+Behind a reverse proxy, `--trusted-proxy`, an address or a prefix repeated for more, names the
+proxies whose `X-Forwarded-For` header gives the client of a request to the
+[signing API](signing-api.md), whose tokens can be limited to client addresses; without it,
+`serve.trusted_proxies` of [simple-ca.json](configuration.md) does. For a request from a trusted
+proxy, the client is the last address of `X-Forwarded-For` that is not a trusted proxy, so an
+address a client puts in the header itself is not taken. The header of any other peer is not
+read, and without trusted proxies the client is always the address the request comes from.
+
+```sh
+simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
+```
+
 | URL | File | Content type |
 |---|---|---|
 | `/` | an index page of the CAs, with links to their files | `text/html` |
@@ -38,11 +50,11 @@ The files are read on each request, so a CRL written by `crl create` is served a
 does not exist is `404 Not Found`. No other file is served. Each
 request is logged to the standard error.
 
-The URLs are those `--ca-publish-base-url` writes into the certificates, so with the base URL set
+The URLs are those `--ca-url` writes into the certificates, so with the base URL set
 to the address of the server, the AIA and CRL Distribution Point URLs of the certificates are
 served:
 
 ```sh
-simple-ca ca create --ca-dir /tmp/ca --ca-publish-base-url http://pki.example.com:8080 "My Root CA"
+simple-ca ca create --ca-dir /tmp/ca --ca-url http://pki.example.com:8080 "My Root CA"
 simple-ca serve --ca-dir /tmp/ca --address 0.0.0.0 --port 8080
 ```

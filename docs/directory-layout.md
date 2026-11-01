@@ -17,7 +17,7 @@ CA_DIR/
   {name}_cert.pem          certificate issued by the root CA
   {name}_key.pem           key of a certificate issued by the root CA
   {name}.pfx               PKCS#12 bundle (cert pfx)
-  {issuing_ca}/
+  {issuing-ca}/
     ca_cert.pem            issuing CA certificate
     ca_key.pem             issuing CA private key
     index.txt              certificates issued by the issuing CA

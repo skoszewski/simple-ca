@@ -23,9 +23,8 @@ go install github.com/skoszewski/simple-ca@latest
 ```sh
 mkdir -p /tmp/ca
 simple-ca ca create --ca-dir /tmp/ca "My Root CA"
-simple-ca ca create --ca-dir /tmp/ca --issuing-ca servers "My Servers CA"
-simple-ca cert create --ca-dir /tmp/ca/servers web.example.com
-openssl verify -CAfile /tmp/ca/ca_bundle.pem /tmp/ca/servers/web_cert.pem
+simple-ca cert create --ca-dir /tmp/ca web.example.com
+openssl verify -CAfile /tmp/ca/ca_bundle.pem /tmp/ca/web_cert.pem
 simple-ca serve --ca-dir /tmp/ca
 ```
 

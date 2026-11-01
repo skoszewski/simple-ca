@@ -5,7 +5,7 @@ The commands of `simple-ca` for CAs, certificates and CRLs. The token commands a
 write in [directory-layout.md](directory-layout.md).
 
 ```sh
-simple-ca ca create    [--ca-dir DIR] [--days N] [--ca-publish-base-url URL]
+simple-ca ca create    [--ca-dir DIR] [--days N] [--ca-url URL]
                        [--issuing-ca NAME] [--write-conf] CA_NAME
 simple-ca ca show      [--ca-dir DIR]
 
@@ -44,17 +44,20 @@ any other is an issuing CA, and its root CA is in the directory above it.
 
 Without `--issuing-ca`, creates the root CA in the CA directory. With `--issuing-ca NAME`,
 creates an issuing CA in `CA_DIR/NAME/`, signed by the root CA in the CA directory, and adds it
-to `ca_bundle.pem` and to `index.txt` of the root CA. The CA directory must not hold an issuing
-CA. A CA that exists is left as it is. `--days` defaults to 3650.
+to `ca_bundle.pem` and to `index.txt` of the root CA. `NAME` is a **kebab-case** name: words of
+lower-case letters and digits joined by hyphens, such as `servers` or `lab-servers`. The CA
+directory must not hold an issuing CA. A CA that exists is left as it is. `--days` defaults to
+3650.
 
 A new CA starts with an empty CRL, number 1, valid for `days.crl` of `simple-ca.json`, 30 days
 without it, so the CRL Distribution Point URL of its certificates has a CRL to serve from the
 start. `crl create` renews it before its next update.
 
-`--ca-publish-base-url URL` is stored in `simple-ca.json` and embeds AIA (Authority Information
+`--ca-url URL` is stored in `simple-ca.json` and embeds AIA (Authority Information
 Access) and CRL Distribution Point extensions in the issuing CAs and certificates issued from
 then on: `URL/ca_cert.crt` and `URL/crl.pem` for the root CA, `URL/NAME/ca_cert.crt` and
-`URL/NAME/crl.pem` for the issuing CA `NAME`.
+`URL/NAME/crl.pem` for the issuing CA `NAME`. Its former name, `--ca-publish-base-url`, is still
+accepted.
 
 `--write-conf` also writes `openssl.cnf`, a configuration of `openssl ca`, to the directory of the
 CA, the root CA or the issuing CA `--issuing-ca`; for a CA that exists, it writes the file again.
