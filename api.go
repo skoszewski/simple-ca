@@ -37,7 +37,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"html/template"
 	"io"
 	"log"
 	"maps"
@@ -68,10 +67,11 @@ var jwtHeader = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ
 
 // apiToken is a token of the signing API of a CA: its JWT ID, the certificate types, the domains
 // and the IP address prefixes it allows, "*" for any, the prefixes of the client addresses it is
-// used from, any without them, its validity, and the serial numbers of the certificates issued
-// with it. A revoked token has no entry.
+// used from, any without them, its validity, and the serial numbers of the certificates issued with
+// it. A token without a JWT ID is revoked: it expired when it was revoked, and is kept to be renewed
+// until it is purged.
 type apiToken struct {
-	ID      string    `json:"id"`
+	ID      string    `json:"id,omitempty"`
 	Types   []string  `json:"types"`
 	Domains []string  `json:"domains,omitempty"`
 	IPs     []string  `json:"ips,omitempty"`
@@ -79,6 +79,11 @@ type apiToken struct {
 	Issued  time.Time `json:"issued"`
 	Expires time.Time `json:"expires"`
 	Certs   []string  `json:"certs,omitempty"`
+}
+
+// revoked reports whether the token is revoked, having no JWT ID.
+func (t *apiToken) revoked() bool {
+	return t.ID == ""
 }
 
 // tokensDB is tokens-db.json of a CA directory, the tokens of its signing API by name.
@@ -155,9 +160,9 @@ func lockTokens(caDir string) (func(), error) {
 	}
 }
 
-// purgeTokens removes the expired tokens from tokens-db.json of caDir, when it exists, and returns
-// their count.
-func purgeTokens(caDir string) (int, error) {
+// purgeTokens removes from tokens-db.json of caDir, when it exists, the tokens that expired, or
+// were revoked, at least kept ago, every expired token for a kept of zero, and returns their count.
+func purgeTokens(caDir string, kept time.Duration) (int, error) {
 	if !fileExists(filepath.Join(caDir, tokensFile)) {
 		return 0, nil
 	}
@@ -172,11 +177,34 @@ func purgeTokens(caDir string) (int, error) {
 	}
 	now := time.Now()
 	n := len(db.Tokens)
-	maps.DeleteFunc(db.Tokens, func(_ string, t *apiToken) bool { return !now.Before(t.Expires) })
+	maps.DeleteFunc(db.Tokens, func(_ string, t *apiToken) bool { return !now.Add(-kept).Before(t.Expires) })
 	if n == len(db.Tokens) {
 		return 0, nil
 	}
 	return n - len(db.Tokens), db.save(caDir)
+}
+
+// purgeToken removes the token name, expired or revoked, from tokens-db.json of caDir; a token
+// still accepted is revoked first.
+func purgeToken(caDir, name string) error {
+	unlock, err := lockTokens(caDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	db, err := loadTokens(caDir)
+	if err != nil {
+		return err
+	}
+	t, ok := db.Tokens[name]
+	if !ok {
+		return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokensFile))
+	}
+	if time.Now().Before(t.Expires) {
+		return fmt.Errorf("token '%s' is still accepted; revoke it first", name)
+	}
+	delete(db.Tokens, name)
+	return db.save(caDir)
 }
 
 // makeToken adds the token name, valid for valid, for the certificate types certTypes, the domains
@@ -264,6 +292,19 @@ func makeToken(caDir, name string, valid time.Duration, certTypes, domains, ips,
 	now := time.Now().UTC().Truncate(time.Second)
 	tok := &apiToken{ID: randomID(), Types: certTypes, Domains: names, IPs: prefixes, Clients: clientPrefixes,
 		Issued: now, Expires: now.Add(valid)}
+	jwt, err := signToken(caKey, name, tok)
+	if err != nil {
+		return "", err
+	}
+	db.Tokens[name] = tok
+	if err := db.save(caDir); err != nil {
+		return "", err
+	}
+	return jwt, nil
+}
+
+// signToken returns the JWT of the token name, its claims signed with caKey.
+func signToken(caKey *rsa.PrivateKey, name string, tok *apiToken) (string, error) {
 	claims, err := json.Marshal(jwtClaims{tok.ID, name, tok.Issued.Unix(), tok.Expires.Unix()})
 	if err != nil {
 		return "", err
@@ -274,11 +315,69 @@ func makeToken(caDir, name string, valid time.Duration, certTypes, domains, ips,
 	if err != nil {
 		return "", err
 	}
+	return signed + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+// renewToken gives the token name of the CA in caDir, revoked, expired or not, a new JWT ID and new
+// times, valid for valid from now or, for zero, for as long as it was before, or for the default
+// validity of token create when it was revoked, keeping what it allows and where it is used from,
+// and returns its JWT. The JWT it had is refused from then on.
+func renewToken(caDir, name string, valid time.Duration) (string, error) {
+	if valid != 0 && valid < time.Second {
+		return "", errors.New("--valid must be at least 1s")
+	}
+	caKeyPath := filepath.Join(caDir, "ca_key.pem")
+	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) || !fileExists(caKeyPath) {
+		return "", fmt.Errorf(
+			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory", caDir)
+	}
+	caKey, err := loadKey(caKeyPath)
+	if err != nil {
+		return "", err
+	}
+	unlock, err := lockTokens(caDir)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	db, err := loadTokens(caDir)
+	if err != nil {
+		return "", err
+	}
+	old, ok := db.Tokens[name]
+	if !ok {
+		return "", fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokensFile))
+	}
+	switch {
+	case valid != 0:
+	case !old.revoked():
+		valid = old.Expires.Sub(old.Issued)
+	default:
+		// A revoked token, whose expiry is when it was revoked, takes the validity token create
+		// gives by default.
+		cfg, err := loadRootConfig(caDir)
+		if err != nil {
+			return "", err
+		}
+		valid = time.Hour
+		if cfg.Tokens.Valid != "" {
+			if valid, err = time.ParseDuration(cfg.Tokens.Valid); err != nil {
+				return "", fmt.Errorf("tokens.valid of %s: '%s' is not a duration such as 8h", cfg.path, cfg.Tokens.Valid)
+			}
+		}
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	tok := &apiToken{ID: randomID(), Types: old.Types, Domains: old.Domains, IPs: old.IPs, Clients: old.Clients,
+		Issued: now, Expires: now.Add(valid)}
+	jwt, err := signToken(caKey, name, tok)
+	if err != nil {
+		return "", err
+	}
 	db.Tokens[name] = tok
 	if err := db.save(caDir); err != nil {
 		return "", err
 	}
-	return signed + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+	return jwt, nil
 }
 
 // listTokens writes the tokens of the CA in caDir to w, one per line, sorted by name.
@@ -296,18 +395,23 @@ func listTokens(w io.Writer, caDir string) error {
 	for _, name := range slices.Sorted(maps.Keys(db.Tokens)) {
 		t := db.Tokens[name]
 		expires := t.Expires.UTC().Format(displayTimeFormat)
-		if !now.Before(t.Expires) {
+		switch {
+		case t.revoked():
+			expires = "revoked"
+		case !now.Before(t.Expires):
 			expires += " (expired)"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%d\n", name, expires,
 			strings.Join(t.Types, ","), cmp.Or(strings.Join(t.Domains, ","), "-"),
-			cmp.Or(strings.Join(t.IPs, ","), "-"), cmp.Or(strings.Join(t.Clients, ","), "any"), len(t.Certs))
+			cmp.Or(strings.Join(showPrefixes(t.IPs), ","), "-"), cmp.Or(strings.Join(showPrefixes(t.Clients), ","), "any"),
+			len(t.Certs))
 	}
 	return tw.Flush()
 }
 
-// revokeToken revokes the token name of the CA in caDir by removing it from tokens-db.json; its
-// JWT is unknown from then on, also when the name is used again, as the new token has a new ID.
+// revokeToken revokes the token name of the CA in caDir by taking its JWT ID from tokens-db.json
+// and making it expire now; its JWT is refused from then on, and the token is kept, to be renewed,
+// until it is purged.
 func revokeToken(caDir, name string) error {
 	unlock, err := lockTokens(caDir)
 	if err != nil {
@@ -318,10 +422,14 @@ func revokeToken(caDir, name string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := db.Tokens[name]; !ok {
+	t, ok := db.Tokens[name]
+	if !ok {
 		return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokensFile))
 	}
-	delete(db.Tokens, name)
+	if t.revoked() {
+		return fmt.Errorf("token '%s' is revoked already", name)
+	}
+	t.ID, t.Expires = "", time.Now().UTC().Truncate(time.Second)
 	if err := db.save(caDir); err != nil {
 		return err
 	}
@@ -372,6 +480,8 @@ func checkToken(db *tokensDB, caCert *x509.Certificate, token string) (string, *
 	now := time.Now()
 	t, ok := db.Tokens[c.Subject]
 	switch {
+	case ok && t.revoked():
+		return "", nil, apiErr(http.StatusUnauthorized, "the token has been revoked")
 	case !ok || t.ID != c.ID:
 		return "", nil, apiErr(http.StatusUnauthorized, "unknown token")
 	case now.Unix() >= c.ExpiresAt || !now.Before(t.Expires):
@@ -602,7 +712,6 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 // with the type it names for the bearer token of the request, as signWithToken, for the client
 // clientAddr finds with the trusted proxies, and returns the certificate with its chain.
 func apiSign(w http.ResponseWriter, r *http.Request, caDir string, trusted []netip.Prefix, mu *sync.Mutex) {
-	log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 	if !fileExists(filepath.Join(caDir, "ca_key.pem")) || !fileExists(filepath.Join(caDir, tokensFile)) {
 		http.NotFound(w, r)
 		return
@@ -652,72 +761,12 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string, trusted []net
 
 // ---- /sign ------------------------------------------------------------------
 
-// signTemplate is the page of /sign, a form of a CSR, a certificate type and a token, in the style
-// of the index page.
-var signTemplate = template.Must(template.New("sign").Parse(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sign a certificate request - {{.Title}} - simple-ca</title>
-    <script src="{{.Script}}"></script>
-  </head>
-  <body class="min-h-screen bg-slate-100 text-slate-900">
-    <div class="mx-auto max-w-3xl px-4 py-10 sm:py-16">
-      <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-        <div class="bg-slate-900 px-6 py-4 text-slate-100">
-          <h1 class="text-xl font-semibold">Sign a certificate request</h1>
-          <p class="mt-1 text-sm text-slate-300">{{.Title}}, served by simple-ca</p>
-        </div>
-        {{- if .Unavailable}}
-        <div class="space-y-4 px-6 py-5">
-          <p class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{{.Unavailable}}</p>
-          <a class="text-sm text-sky-700 hover:underline" href="/">All CAs</a>
-        </div>
-        {{- else}}
-        <form method="post" action="{{.Action}}" class="space-y-5 px-6 py-5">
-          {{- if .Error}}
-          <p class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{.Error}}</p>
-          {{- end}}
-          <div class="space-y-1">
-            <label for="csr" class="block text-sm font-medium">Certificate signing request (PEM)</label>
-            <textarea id="csr" name="csr" rows="14" required spellcheck="false"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs"
-              placeholder="-----BEGIN CERTIFICATE REQUEST-----">{{.CSR}}</textarea>
-          </div>
-          <div class="space-y-1">
-            <label for="type" class="block text-sm font-medium">Certificate type</label>
-            <select id="type" name="type" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              <option value="">the first type of the token</option>
-              {{- range .Types}}
-              <option value="{{.}}"{{if eq . $.Type}} selected{{end}}>{{.}}</option>
-              {{- end}}
-            </select>
-          </div>
-          <div class="space-y-1">
-            <label for="token" class="block text-sm font-medium">Token</label>
-            <input id="token" name="token" type="password" required autocomplete="off"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm">
-          </div>
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <a class="text-sm text-sky-700 hover:underline" href="/">All CAs</a>
-            <button type="submit" class="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-600">Sign and download</button>
-          </div>
-        </form>
-        {{- end}}
-      </div>
-    </div>
-  </body>
-</html>
-`))
-
 // signPage serves /sign for the CA in caDir, whose page is at path: GET shows the form, and POST
 // signs its CSR with its type and token, as signWithToken, and sends the certificate as a
 // download, or shows the form again with the error. For a CA without its key or its
 // tokens-db.json, the page says why it signs no requests, and a POST is 403 Forbidden. The client
 // is the one clientAddr finds with the trusted proxies.
 func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, trusted []netip.Prefix, mu *sync.Mutex) {
-	log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 	caCert, err1 := loadCert(filepath.Join(caDir, "ca_cert.pem"))
 	cfg, err2 := loadRootConfig(caDir)
 	var types map[string]certTypeDef
@@ -730,9 +779,12 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, truste
 		return
 	}
 	page := struct {
-		Title, Script, Action, CSR, Type, Error, Unavailable string
-		Types                                                []string
+		Title, Script, Action, CSR, Type, Error, Unavailable, Help string
+		Types                                                      []string
 	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: path, Types: slices.Sorted(maps.Keys(types))}
+	if helpSite != nil {
+		page.Help = helpPath
+	}
 
 	// A CA without its key or its tokens shows why it signs no requests, in place of the form.
 	switch {
@@ -771,7 +823,7 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, truste
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	if err := signTemplate.Execute(w, page); err != nil {
+	if err := pageTemplates.ExecuteTemplate(w, "sign.html", page); err != nil {
 		log.Printf("%s: %v", r.URL.Path, err)
 	}
 }

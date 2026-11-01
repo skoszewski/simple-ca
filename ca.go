@@ -87,6 +87,9 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 	if issuingCA != "" && !kebabCaseRE.MatchString(issuingCA) {
 		return fmt.Errorf("issuing CA name '%s' is not a kebab-case name, such as servers or lab-servers", issuingCA)
 	}
+	if route := "/" + issuingCA + "/"; route == helpPath || route == docsPath {
+		return fmt.Errorf("issuing CA name '%s' is taken by the pages that serve shows at %s", issuingCA, route)
+	}
 	if fileExists(filepath.Join(caDir, "ca_cert.pem")) {
 		rootDir, name, err := locateCA(caDir)
 		if err != nil {

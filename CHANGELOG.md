@@ -1,5 +1,77 @@
 # Changelog
 
+## 1.5.0
+
+feature: serve shows the clients of the signing API how to request a certificate at /help/, and serve --docs the guides at /docs/, drawn by serve-markdown's render package; token webui and cert webui manage the tokens and the certificates on web pages, and token renew renews a revoked or expired token, which is kept until purged; simple-ca-trust adds the CAs to the trust store of Windows, macOS or Linux.
+
+- `serve` shows `help/index.md`, embedded in the executable, as a page at `/help/`: what a client
+  needs, and how to make a key and a request with `openssl`, send it with `curl` and `jq`, save
+  and check the certificate, what the errors mean, and the signing form. `/help` redirects to
+  `/help/`. The index page links to it as "Signing help", and the signing forms as "How to sign".
+- `serve --docs` shows the guides of `docs/`, embedded in the executable, at `/docs/`, with a menu
+  of the guides in the order of the README; `/docs/` opens `usage.md`, and the index page links to
+  it as "Documentation". An executable built without the page's browser files refuses `--docs`.
+- The page needs the browser files of serve-markdown's page: `./build.mjs assets` downloads them
+  from the serve-markdown release `go.mod` names into `assets/markdown/`, `build`, `test` and
+  `check` do so when they are missing, and the release workflow and the `Dockerfile` embed them.
+  An executable built without them, as `go install` builds it, has no `/help/` page.
+- `ca create --issuing-ca help` and `--issuing-ca docs` are refused, being the routes of the pages.
+- `token webui` serves a web page managing the tokens of the root CA and its issuing CAs, one CA
+  at a time, chosen in a selector: it lists them, creates a token in a dialog with the options of
+  `token create` and the defaults of `simple-ca.json`, and renews, revokes and removes tokens. It
+  listens on `127.0.0.1:8081` by default. It prints the URL of the page with a random key as its
+  `?key=` query, valid until it stops. The page draws everything from the JSON API of
+  `token webui` below `/api/`, which takes the key in `Authorization: Bearer KEY` and refuses any
+  request without it; the page reads the key from the URL, or asks for it. A new or renewed
+  token is shown once, in a dialog with a Copy button, and leaves the page when the dialog
+  closes; renewing a token still accepted, revoking and removing ask in a dialog.
+- `cert webui` serves a web page managing the certificates of the root CA and its issuing CAs,
+  one CA at a time, as `token webui` does the tokens, on `127.0.0.1:8082` by default: it lists
+  the certificates and the CRL of a CA, shows the fields of a certificate as `cert show` does,
+  creates a certificate and signs a request in a dialog with the options of `cert create` and
+  `cert sign`, revokes a certificate for a reason, and writes the CRL. It writes the files to the CA directory as the commands do, and offers none to download.
+- `token revoke` keeps the token in `tokens-db.json` without its JWT ID, expired at once, instead
+  of removing it; an entry without a JWT ID is a revoked token. Its JWT is refused as revoked,
+  and `token list` and the page show `revoked` in place of the expiry. The name stays taken until
+  the token is purged.
+- `token renew NAME` renews a token, revoked, expired or not: it gets a new JWT ID and is valid
+  from now, for `--valid`, else as long as it was before or, revoked, for the default validity of
+  `token create`, with what it allowed; the JWT it had is refused from then on.
+- A revoked or expired token stays in `tokens-db.json`, to be renewed, until `token purge` removes
+  it for good: `token purge` removes every revoked and expired token, and `token purge NAME` one of
+  them; `serve` no longer removes expired tokens on its own. With `tokens.keep_expired` in
+  `simple-ca.json`, such as `720h`, `serve` removes the tokens expired, or revoked, for longer than
+  that, on start and every 5 minutes.
+- `token list` and `token webui` show a single IP address of a token as the address, such as
+  `127.0.0.1`, rather than as the prefix `127.0.0.1/32`; `tokens-db.json` keeps the prefix.
+- The index page and the signing forms follow the light or dark theme of the browser, as the
+  `/help/` and `/docs/` pages do.
+- `simple-ca-trust add` adds the root CA of the CA in `--ca-dir`, read from `ca_bundle.pem` of
+  the root CA, to the trusted roots and its issuing CAs to the intermediate CAs of the user, or
+  of the machine with `--machine`; `remove` removes them and `list` lists them. It is written for each platform with
+  its own toolset: .NET in `trust/windows/`, Swift in `trust/macos/` and Go in
+  `cmd/simple-ca-trust/` for Linux, which adds the CAs as trust anchors. `./build.mjs` builds the
+  Linux version with the rest, and `./build.mjs trust [<goos>/<goarch>]` the version of the host,
+  or of the platform named, skipping one the host's toolchains cannot build; the releases do not
+  carry it yet.
+- `serve`, `token webui` and `cert webui` run the same HTTP server: each logs every request to
+  the standard error, including those of unknown paths, which `serve` did not log, and an empty
+  `--address` is an error of all three.
+- The request field of the signing form, like the text fields of `token webui` and `cert webui`,
+  is not autocorrected, capitalized or spell-checked by the browser.
+- `./build.mjs` on Windows writes `simple-ca.exe`, which Windows runs, in place of `simple-ca`.
+- The Go client of the signing API moves from `examples/request-cert/` to `cmd/request-cert/`, a
+  command of the module: `go run ./cmd/request-cert` runs it, and
+  `go install github.com/skoszewski/simple-ca/cmd/request-cert@latest` installs it.
+- `request-cert` takes options: `--token-file`, `--type` and `--out-dir`, each replacing its
+  environment variable, `--version`, and `-h` for the usage; wrong arguments print the usage and
+  exit with 2. The token is read only from `SIMPLE_CA_TOKEN` or the token file, never from the
+  command line.
+- `./build.mjs build` also builds `request-cert`, named as `simple-ca` is: `request-cert`,
+  `request-cert.exe` on Windows, or `request-cert-<goos>-<goarch>`; `clean` removes it.
+- The Docker image holds `request-cert` in `/usr/local/bin`, beside `simple-ca`; it runs with
+  `--entrypoint request-cert`.
+
 ## 1.4.0
 
 feature: signing API tokens allow any name, IP addresses and localhost, are limited to client addresses behind trusted proxies, and take defaults from simple-ca.json; issuing CA, type and token names are kebab-case, and ca create takes --ca-url.

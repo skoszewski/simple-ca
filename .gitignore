@@ -29,10 +29,17 @@ go.work.sum
 /simple-ca
 /simple-ca-*
 !/simple-ca-mini.py
+/request-cert
+/request-cert-*
+/trust/macos/.build/
+/trust/windows/bin/
+/trust/windows/obj/
 /build/
 /dist/
 /tmp/
 /ca/
+/assets/markdown/*
+!/assets/markdown/.gitkeep
 
 # env file
 .env

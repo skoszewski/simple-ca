@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}} - simple-ca</title>
+    <script src="{{.Script}}"></script>
+    {{template "theme"}}
+  </head>
+  <body class="min-h-screen bg-page text-ink">
+    <div class="mx-auto max-w-3xl px-4 py-10 sm:py-16">
+      <div class="overflow-hidden rounded-2xl border border-line bg-card shadow-lg">
+        <div class="bg-head px-6 py-4 text-head-ink">
+          <h1 class="text-xl font-semibold">{{.Title}}</h1>
+          <p class="mt-1 text-sm text-head-muted">CA certificates and certificate revocation lists, served by simple-ca</p>
+          {{- if or .Help .Docs}}
+          <div class="mt-2 flex flex-wrap gap-4">
+            {{- if .Help}}
+            <a class="text-sm text-head-link hover:underline" href="{{.Help}}">Signing help</a>
+            {{- end}}
+            {{- if .Docs}}
+            <a class="text-sm text-head-link hover:underline" href="{{.Docs}}">Documentation</a>
+            {{- end}}
+          </div>
+          {{- end}}
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-accent-line bg-accent px-6 py-4">
+          <div>
+            <h2 class="text-base font-semibold text-accent-title">CA bundle</h2>
+            <p class="text-sm text-accent-ink">The root CA and all its issuing CAs in one file, to install or trust as a whole</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <a class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover" href="/ca_bundle.p7b">CA bundle (P7B)</a>
+            <a class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover" href="/ca_bundle.pem">CA bundle (PEM)</a>
+          </div>
+        </div>
+        <main class="divide-y divide-line">
+          {{- range .CAs}}
+          <section{{if .ID}} id="{{.ID}}"{{end}} class="space-y-2 px-6 py-5">
+            <div class="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 class="text-lg font-semibold">{{.Subject}}</h2>
+              <span class="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium text-subtle-ink">{{.Role}}</span>
+            </div>
+            <dl class="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
+              <dt class="text-muted">Issuer</dt>
+              <dd>{{.Issuer}}</dd>
+              <dt class="text-muted">Serial number</dt>
+              <dd class="font-mono text-xs break-all sm:text-sm">{{.Serial}}</dd>
+              <dt class="text-muted">Valid from</dt>
+              <dd>{{.NotBefore}}</dd>
+              <dt class="text-muted">Valid until</dt>
+              <dd>{{.NotAfter}}
+                <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium {{if eq .Expiry "expired"}}bg-bad text-bad-ink{{else if .ExpiresSoon}}bg-warn text-warn-ink{{else}}bg-good text-good-ink{{end}}">{{.Expiry}}</span>
+              </dd>
+              <dt class="text-muted">Key</dt>
+              <dd>{{.Key}}</dd>
+              <dt class="text-muted">SHA-256</dt>
+              <dd class="grid grid-cols-1 font-mono text-xs sm:grid-cols-[repeat(2,max-content)]">
+                {{- range $i, $group := .Fingerprint}}<span class="whitespace-nowrap">{{$group}}{{if lt $i 3}}:{{end}}</span>{{end -}}
+              </dd>
+              <dt class="text-muted">CRL</dt>
+              <dd>{{if .CRL}}{{.CRL}}{{else}}none yet{{end}}</dd>
+              {{- if .ACME}}
+              <dt class="text-muted">ACME directory</dt>
+              <dd class="font-mono text-xs break-all sm:text-sm">{{.ACME}}</dd>
+              {{- end}}
+              {{- if .API}}
+              <dt class="text-muted">Signing API</dt>
+              <dd class="font-mono text-xs break-all sm:text-sm">{{.API}}</dd>
+              {{- end}}
+            </dl>
+            <div class="flex flex-wrap gap-2 pt-1">
+              <a class="rounded-lg bg-solid px-3 py-1.5 text-sm font-medium text-solid-ink hover:bg-solid-hover" href="{{.Path}}ca_cert.crt">Certificate (DER)</a>
+              <a class="rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" href="{{.Path}}ca_cert.pem">Certificate (PEM)</a>
+              {{- if .CRL}}
+              <a class="rounded-lg bg-solid px-3 py-1.5 text-sm font-medium text-solid-ink hover:bg-solid-hover" href="{{.Path}}crl.crl">CRL (DER)</a>
+              <a class="rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" href="{{.Path}}crl.pem">CRL (PEM)</a>
+              {{- end}}
+              {{- if .API}}
+              <a class="rounded-lg bg-action px-3 py-1.5 text-sm font-medium text-action-ink hover:bg-action-hover" href="{{.Path}}sign">Sign a request</a>
+              {{- end}}
+            </div>
+          </section>
+          {{- end}}
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

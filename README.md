@@ -18,6 +18,8 @@ With Go installed:
 go install github.com/skoszewski/simple-ca@latest
 ```
 
+An executable installed with `go install` has no `/help/` page of `serve`; the releases have it.
+
 ## Quick start
 
 ```sh
@@ -42,8 +44,10 @@ The commands are in groups, `ca`, `cert`, `crl` and `token`, and `serve` stands 
 - [serve](docs/serve.md) - the HTTP server of the CA certificates, CRLs and the index page.
 - [ACME](docs/acme.md) - the ACME server of `serve`.
 - [Signing API](docs/signing-api.md) - tokens, the `/api/sign` API and the signing form.
-- [Signing API clients](docs/examples.md) - the clients in `examples/`, in Python, Node.js, Go
-  and the shell.
+- [Signing API clients](docs/examples.md) - the clients in `examples/` and `cmd/request-cert/`,
+  in Python, Node.js, Go and the shell.
+- [Trust stores](docs/trust.md) - `simple-ca-trust`, which adds the CAs to the trust store of
+  Windows, macOS or Linux.
 - [systemd](docs/systemd.md) - units for `serve` and the daily CRLs.
 - [Docker](docs/docker.md) - the container image.
 - [Simple CA Mini](docs/simple-ca-mini.md) - `simple-ca-mini.py`, a single Python 3 script that
@@ -61,3 +65,6 @@ MIT, see [LICENSE](LICENSE).
 `assets/tailwindcss-browser-4.3.3.js` is `dist/index.global.js` of the npm package
 `@tailwindcss/browser` 4.3.3, copyright Tailwind Labs, Inc., under the MIT licence of
 [assets/tailwindcss-browser-LICENSE](assets/tailwindcss-browser-LICENSE).
+
+The browser files of the `/help/` page, downloaded into `assets/markdown/`, are those of
+serve-markdown, bundled with the libraries its `LICENSES.md` names, each under its own licence.

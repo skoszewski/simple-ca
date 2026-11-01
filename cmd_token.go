@@ -24,6 +24,7 @@ package main
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"slices"
 	"strings"
@@ -133,7 +134,8 @@ func runTokenList(args []string) error {
 
 // runTokenRevoke runs token revoke.
 func runTokenRevoke(args []string) error {
-	fs := newFlagSet("token revoke", "NAME", "Revoke the token NAME of the signing API of the CA in --ca-dir.")
+	fs := newFlagSet("token revoke", "NAME", "Revoke the token NAME of the signing API of the CA in --ca-dir: its JWT is refused\n"+
+		"from then on, and the token is kept, to be renewed, until token purge removes it.")
 	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
 	rest, _, err := parseArgs(fs, args, 1, 1)
 	if err != nil {
@@ -142,17 +144,86 @@ func runTokenRevoke(args []string) error {
 	return revokeToken(resolveCADir(*caDir), rest[0])
 }
 
-// runTokenPurge runs token purge.
-func runTokenPurge(args []string) error {
-	fs := newFlagSet("token purge", "", "Remove the expired tokens of the signing API of the CA in --ca-dir.")
-	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+// runTokenWebUI runs token webui until it fails or is interrupted.
+func runTokenWebUI(args []string) error {
+	return runWebUI(args, "token webui", 8081, false,
+		"Serve a web page managing the tokens of the signing API of the root CA of the CA in\n"+
+			"--ca-dir and of its issuing CAs, with its API below /api/: list, create, renew, revoke and\n"+
+			"purge them.")
+}
+
+// runWebUI runs token webui, or cert webui with certs, named command, on port by default, until it
+// fails or is interrupted; summary describes it.
+func runWebUI(args []string, command string, port int, certs bool, summary string) error {
+	fs := newFlagSet(command, "", summary+"\n\n"+
+		"The API takes the key printed at the start as the bearer token of each request, until\n"+
+		command+" stops; the page asks for it, or reads it from ?key= of its URL.")
+	caDir := fs.String("ca-dir", "", "`directory` of the root CA or of one of its issuing CAs")
+	address := fs.String("address", "127.0.0.1", "`address` of the interface to listen on")
+	fs.IntVar(&port, "port", port, "TCP `port` to listen on")
 	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
 		return err
 	}
-	n, err := purgeTokens(resolveCADir(*caDir))
+	rootDir, _, err := locateCA(resolveCADir(*caDir))
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%d expired tokens removed\n", n)
+	ui := &webuiServer{rootDir: rootDir, key: randomID(), certs: certs}
+	what := "tokens"
+	if certs {
+		what = "certificates"
+	}
+	return runHTTPServer(ui.mux(), *address, port, "", "", func(origin string) {
+		if ip, err := netip.ParseAddr(*address); err != nil || !ip.IsLoopback() {
+			fmt.Fprintln(os.Stderr, "warning: the page is served over plain HTTP beyond this machine; "+
+				"its key can be read on the network")
+		}
+		fmt.Printf("Managing the %s of the CAs of %s; open this URL, or give the page its key, valid\n"+
+			"until %s stops:\n  %s/?key=%s\n", what, rootDir, command, origin, ui.key)
+	})
+}
+
+// runTokenPurge runs token purge.
+func runTokenPurge(args []string) error {
+	fs := newFlagSet("token purge", "[NAME]",
+		"Remove the expired and revoked tokens of the signing API of the CA in --ca-dir, or the\n"+
+			"token NAME alone, expired or revoked, for good: a token removed cannot be renewed.")
+	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	rest, _, err := parseArgs(fs, args, 0, 1)
+	if err != nil {
+		return err
+	}
+	if len(rest) == 1 {
+		if err := purgeToken(resolveCADir(*caDir), rest[0]); err != nil {
+			return err
+		}
+		fmt.Printf("Token %s removed\n", rest[0])
+		return nil
+	}
+	n, err := purgeTokens(resolveCADir(*caDir), 0)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%d expired or revoked tokens removed\n", n)
+	return nil
+}
+
+// runTokenRenew runs token renew.
+func runTokenRenew(args []string) error {
+	fs := newFlagSet("token renew", "NAME",
+		"Renew the token NAME of the signing API of the CA in --ca-dir, expired or not, and print\n"+
+			"it: it gets a new JWT ID and is valid from now, allowing what it allowed before, and the\n"+
+			"JWT it had is refused from then on.")
+	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	valid := fs.Duration("valid", 0, "validity `period` of the token, such as 30m, 8h or 720h (default: the period it had)")
+	rest, _, err := parseArgs(fs, args, 1, 1)
+	if err != nil {
+		return err
+	}
+	token, err := renewToken(resolveCADir(*caDir), rest[0], *valid)
+	if err != nil {
+		return err
+	}
+	fmt.Println(token)
 	return nil
 }

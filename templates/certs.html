@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Certificates - simple-ca</title>
+    <script src="{{.Script}}"></script>
+    {{template "theme"}}
+  </head>
+  <body class="min-h-screen bg-page text-ink">
+    <div class="mx-auto max-w-5xl space-y-6 px-4 py-10 sm:py-16">
+      <div class="rounded-2xl border border-line bg-card shadow-lg">
+        {{template "webui-top" "Certificates"}}
+        <main id="ca-section" class="space-y-4 px-6 py-5"></main>
+      </div>
+    </div>
+
+    {{template "webui-dialogs"}}
+
+    <dialog id="cert-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+      <form id="cert-form" class="grid grid-cols-1 gap-4 px-6 py-5 text-sm sm:grid-cols-2">
+        <h2 id="cert-title" class="text-lg font-semibold sm:col-span-2">Create a certificate</h2>
+        <p id="cert-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-bad-ink sm:col-span-2"></p>
+        <div class="space-y-1"><span id="cert-type-label" class="block font-medium">Type</span>
+          <div id="cert-type"></div></div>
+        <label class="space-y-1"><span class="block font-medium">Valid for, in days</span>
+          <input name="days" type="number" min="1" required class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <div data-create class="space-y-1 sm:col-span-2"><label for="cert-subject" class="block font-medium">Subject</label>
+          <input id="cert-subject" name="subject" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono">
+          <p id="cert-rules" class="text-muted"></p></div>
+        <label data-create class="space-y-1 sm:col-span-2"><span class="block font-medium">More names, comma- or space-separated</span>
+          <input name="sans" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <label data-sign class="space-y-1 sm:col-span-2"><span class="block font-medium">Certificate file name, written as NAME_cert.pem</span>
+          <input name="name" placeholder="web" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <label data-sign class="space-y-1 sm:col-span-2"><span class="block font-medium">Certificate signing request (PEM)</span>
+          <textarea name="csr" rows="8" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="-----BEGIN CERTIFICATE REQUEST-----" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-xs"></textarea></label>
+        <label class="space-y-1"><span class="block font-medium">Added key usages</span>
+          <input name="ku" placeholder="digitalSignature, keyEncipherment" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <label class="space-y-1"><span class="block font-medium">Added extended key usages</span>
+          <input name="eku" placeholder="clientAuth, 1.3.6.1.4.1.99999.1" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <div class="flex justify-end gap-2 sm:col-span-2">
+          <button id="cert-cancel" type="button" class="rounded-lg border border-field-line px-4 py-2 font-medium hover:bg-subtle">Cancel</button>
+          <button id="cert-submit" type="submit" class="rounded-lg bg-action px-4 py-2 font-semibold text-action-ink shadow-sm hover:bg-action-hover">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="show-dialog" class="m-auto w-full max-w-3xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+      <form method="dialog" class="space-y-4 px-6 py-5">
+        <h2 id="show-title" class="text-lg font-semibold break-all"></h2>
+        <p id="show-file" class="text-sm text-muted"></p>
+        <dl id="show-fields" class="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]"></dl>
+        <div class="flex justify-end">
+          <button value="close" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/assets/webui/webui.js"></script>
+    <script src="/assets/webui/certs.js"></script>
+  </body>
+</html>

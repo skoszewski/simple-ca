@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign a certificate request - {{.Title}} - simple-ca</title>
+    <script src="{{.Script}}"></script>
+    {{template "theme"}}
+  </head>
+  <body class="min-h-screen bg-page text-ink">
+    <div class="mx-auto max-w-3xl px-4 py-10 sm:py-16">
+      <div class="overflow-hidden rounded-2xl border border-line bg-card shadow-lg">
+        <div class="bg-head px-6 py-4 text-head-ink">
+          <h1 class="text-xl font-semibold">Sign a certificate request</h1>
+          <p class="mt-1 text-sm text-head-muted">{{.Title}}, served by simple-ca</p>
+        </div>
+        {{- if .Unavailable}}
+        <div class="space-y-4 px-6 py-5">
+          <p class="rounded-lg border border-warn-line bg-warn px-4 py-3 text-sm text-warn-ink">{{.Unavailable}}</p>
+          <div class="flex flex-wrap gap-4">
+            <a class="text-sm text-link hover:underline" href="/">All CAs</a>
+            {{- if .Help}}
+            <a class="text-sm text-link hover:underline" href="{{.Help}}">How to sign</a>
+            {{- end}}
+          </div>
+        </div>
+        {{- else}}
+        <form method="post" action="{{.Action}}" class="space-y-5 px-6 py-5">
+          {{- if .Error}}
+          <p class="rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink">{{.Error}}</p>
+          {{- end}}
+          <div class="space-y-1">
+            <label for="csr" class="block text-sm font-medium">Certificate signing request (PEM)</label>
+            <textarea id="csr" name="csr" rows="14" required autocorrect="off" autocapitalize="off" spellcheck="false"
+              class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-xs"
+              placeholder="-----BEGIN CERTIFICATE REQUEST-----">{{.CSR}}</textarea>
+          </div>
+          <div class="space-y-1">
+            <label for="type" class="block text-sm font-medium">Certificate type</label>
+            <select id="type" name="type" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 text-sm">
+              <option value="">the first type of the token</option>
+              {{- range .Types}}
+              <option value="{{.}}"{{if eq . $.Type}} selected{{end}}>{{.}}</option>
+              {{- end}}
+            </select>
+          </div>
+          <div class="space-y-1">
+            <label for="token" class="block text-sm font-medium">Token</label>
+            <input id="token" name="token" type="password" required autocomplete="off"
+              class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-sm">
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex flex-wrap gap-4">
+              <a class="text-sm text-link hover:underline" href="/">All CAs</a>
+              {{- if .Help}}
+              <a class="text-sm text-link hover:underline" href="{{.Help}}">How to sign</a>
+              {{- end}}
+            </div>
+            <button type="submit" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Sign and download</button>
+          </div>
+        </form>
+        {{- end}}
+      </div>
+    </div>
+  </body>
+</html>

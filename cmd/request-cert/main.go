@@ -21,19 +21,6 @@
 // SOFTWARE.
 
 // Command request-cert requests a server certificate from the signing API of simple-ca serve.
-//
-// Usage:
-//
-//	SIMPLE_CA_TOKEN=TOKEN request-cert API_URL CN [DNS_NAME ...]
-//	SIMPLE_CA_TOKEN_FILE=FILE request-cert API_URL CN [DNS_NAME ...]
-//
-// It makes an EC P-256 key and a certificate signing request for the CN, with the CN and the DNS
-// names as its DNS names, and sends it to API_URL, such as
-// https://pki.example.com/servers/api/sign, with a token made by simple-ca token create, in
-// SIMPLE_CA_TOKEN or in the file SIMPLE_CA_TOKEN_FILE names, and the certificate type in
-// SIMPLE_CA_TYPE, the first type of the token when it is unset. The key, the certificate and the
-// chain are written to CN_key.pem, CN_cert.pem and CN_chain.pem, a wildcard CN *.NAME as
-// wildcard.NAME; the key only once the certificate is signed.
 package main
 
 import (
@@ -46,37 +33,81 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 )
 
+// buildVersion is the version a release build is given at link time with
+// -ldflags "-X main.buildVersion=...", empty otherwise.
+var buildVersion string
+
+// errUsage reports wrong arguments, after the usage has been printed.
+var errUsage = errors.New("usage")
+
 func run() error {
-	token, tokenFile := os.Getenv("SIMPLE_CA_TOKEN"), os.Getenv("SIMPLE_CA_TOKEN_FILE")
-	if len(os.Args) < 3 || token+tokenFile == "" {
-		return errors.New("usage: SIMPLE_CA_TOKEN=TOKEN request-cert API_URL CN [DNS_NAME ...]\n" +
-			"       SIMPLE_CA_TOKEN_FILE=FILE request-cert API_URL CN [DNS_NAME ...]")
+	flag.Usage = func() {
+		fmt.Fprint(flag.CommandLine.Output(), "Usage:\n"+
+			"  SIMPLE_CA_TOKEN=TOKEN request-cert [options] API_URL CN [DNS_NAME ...]\n"+
+			"  request-cert --token-file FILE [options] API_URL CN [DNS_NAME ...]\n\n"+
+			"Requests a server certificate for CN and the DNS names from the signing API of\n"+
+			"simple-ca serve at API_URL, such as https://pki.example.com/servers/api/sign.\n\n"+
+			"Options:\n")
+		flag.PrintDefaults()
 	}
-	if token != "" && tokenFile != "" {
-		return errors.New("set SIMPLE_CA_TOKEN or SIMPLE_CA_TOKEN_FILE, not both")
+	tokenFile := flag.String("token-file", os.Getenv("SIMPLE_CA_TOKEN_FILE"),
+		"`file` holding the token, instead of SIMPLE_CA_TOKEN (default: SIMPLE_CA_TOKEN_FILE)")
+	certType := flag.String("type", os.Getenv("SIMPLE_CA_TYPE"),
+		"certificate `type` (default: SIMPLE_CA_TYPE, else the first type of the token)")
+	outDir := flag.String("out-dir", ".", "`directory` the key, the certificate and the chain are written to")
+	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Parse()
+
+	if *showVersion {
+		version := buildVersion
+		if info, ok := debug.ReadBuildInfo(); version == "" && ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			version = info.Main.Version
+		}
+		if version == "" {
+			version = "dev"
+		}
+		fmt.Println("request-cert", version)
+		return nil
 	}
-	if tokenFile != "" {
-		b, err := os.ReadFile(tokenFile)
+	if flag.NArg() < 2 {
+		fmt.Fprintln(flag.CommandLine.Output(), "request-cert: API_URL and CN are required")
+		flag.Usage()
+		return errUsage
+	}
+
+	token := os.Getenv("SIMPLE_CA_TOKEN")
+	switch {
+	case token != "" && *tokenFile != "":
+		return errors.New("give the token in SIMPLE_CA_TOKEN or in --token-file, not both")
+	case *tokenFile != "":
+		b, err := os.ReadFile(*tokenFile)
 		if err != nil {
-			return fmt.Errorf("SIMPLE_CA_TOKEN_FILE: %w", err)
+			return fmt.Errorf("--token-file: %w", err)
 		}
 		if token = strings.TrimSpace(string(b)); token == "" {
-			return fmt.Errorf("SIMPLE_CA_TOKEN_FILE: %s is empty", tokenFile)
+			return fmt.Errorf("--token-file: %s is empty", *tokenFile)
 		}
+	case token == "":
+		return errors.New("no token: set SIMPLE_CA_TOKEN, or give --token-file or SIMPLE_CA_TOKEN_FILE")
 	}
-	url, cn := os.Args[1], os.Args[2]
+
+	url, cn := flag.Arg(0), flag.Arg(1)
 	prefix := cn
 	if rest, ok := strings.CutPrefix(cn, "*."); ok {
 		prefix = "wildcard." + rest
 	}
+	prefix = filepath.Join(*outDir, prefix)
 	keyPath, certPath, chainPath := prefix+"_key.pem", prefix+"_cert.pem", prefix+"_chain.pem"
 	if _, err := os.Stat(keyPath); err == nil {
 		return fmt.Errorf("%s exists", keyPath)
@@ -87,7 +118,7 @@ func run() error {
 		return err
 	}
 	dnsNames := []string{cn}
-	for _, n := range os.Args[3:] {
+	for _, n := range flag.Args()[2:] {
 		if !slices.Contains(dnsNames, n) {
 			dnsNames = append(dnsNames, n)
 		}
@@ -99,8 +130,8 @@ func run() error {
 	}
 
 	request := map[string]string{"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr}))}
-	if t := os.Getenv("SIMPLE_CA_TYPE"); t != "" {
-		request["type"] = t
+	if *certType != "" {
+		request["type"] = *certType
 	}
 	body, err := json.Marshal(request)
 	if err != nil {
@@ -152,8 +183,10 @@ func run() error {
 }
 
 func main() {
-	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if err := run(); errors.Is(err, errUsage) {
+		os.Exit(2)
+	} else if err != nil {
+		fmt.Fprintln(os.Stderr, "request-cert:", err)
 		os.Exit(1)
 	}
 }

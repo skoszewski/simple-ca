@@ -1,0 +1,110 @@
+{{/* The colours of the pages by their role, each set once for the light and once for the dark
+     theme of the browser, for the utility classes of the templates. */}}
+{{define "theme" -}}
+<style type="text/tailwindcss">
+      @theme inline {
+        --color-page: var(--page);
+        --color-ink: var(--ink);
+        --color-muted: var(--muted);
+        --color-card: var(--card);
+        --color-line: var(--line);
+        --color-head: var(--head);
+        --color-head-ink: var(--head-ink);
+        --color-head-muted: var(--head-muted);
+        --color-head-link: var(--head-link);
+        --color-link: var(--link);
+        --color-accent: var(--accent);
+        --color-accent-line: var(--accent-line);
+        --color-accent-title: var(--accent-title);
+        --color-accent-ink: var(--accent-ink);
+        --color-action: var(--action);
+        --color-action-hover: var(--action-hover);
+        --color-action-ink: var(--action-ink);
+        --color-solid: var(--solid);
+        --color-solid-hover: var(--solid-hover);
+        --color-solid-ink: var(--solid-ink);
+        --color-subtle: var(--subtle);
+        --color-subtle-ink: var(--subtle-ink);
+        --color-field: var(--field);
+        --color-field-line: var(--field-line);
+        --color-good: var(--good);
+        --color-good-ink: var(--good-ink);
+        --color-warn: var(--warn);
+        --color-warn-line: var(--warn-line);
+        --color-warn-ink: var(--warn-ink);
+        --color-bad: var(--bad);
+        --color-bad-line: var(--bad-line);
+        --color-bad-ink: var(--bad-ink);
+      }
+      :root {
+        --page: var(--color-slate-100);
+        --ink: var(--color-slate-900);
+        --muted: var(--color-slate-500);
+        --card: var(--color-white);
+        --line: var(--color-slate-200);
+        --head: var(--color-slate-900);
+        --head-ink: var(--color-slate-100);
+        --head-muted: var(--color-slate-300);
+        --head-link: var(--color-sky-300);
+        --link: var(--color-sky-700);
+        --accent: var(--color-sky-50);
+        --accent-line: var(--color-sky-200);
+        --accent-title: var(--color-sky-950);
+        --accent-ink: var(--color-sky-900);
+        --action: var(--color-sky-700);
+        --action-hover: var(--color-sky-600);
+        --action-ink: var(--color-white);
+        --solid: var(--color-slate-900);
+        --solid-hover: var(--color-slate-700);
+        --solid-ink: var(--color-white);
+        --subtle: var(--color-slate-100);
+        --subtle-ink: var(--color-slate-600);
+        --field: var(--color-white);
+        --field-line: var(--color-slate-300);
+        --good: var(--color-emerald-100);
+        --good-ink: var(--color-emerald-700);
+        --warn: var(--color-amber-50);
+        --warn-line: var(--color-amber-200);
+        --warn-ink: var(--color-amber-900);
+        --bad: var(--color-red-50);
+        --bad-line: var(--color-red-200);
+        --bad-ink: var(--color-red-800);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: var(--color-slate-950);
+          --ink: var(--color-slate-100);
+          --muted: var(--color-slate-400);
+          --card: var(--color-slate-900);
+          --line: var(--color-slate-800);
+          --head: var(--color-slate-800);
+          --head-ink: var(--color-slate-50);
+          --head-muted: var(--color-slate-300);
+          --head-link: var(--color-sky-300);
+          --link: var(--color-sky-400);
+          --accent: color-mix(in oklab, var(--color-sky-950) 40%, var(--color-slate-900));
+          --accent-line: var(--color-slate-800);
+          --accent-title: var(--color-sky-100);
+          --accent-ink: var(--color-sky-200);
+          --action: var(--color-sky-700);
+          --action-hover: var(--color-sky-600);
+          --action-ink: var(--color-white);
+          --solid: var(--color-slate-100);
+          --solid-hover: var(--color-slate-300);
+          --solid-ink: var(--color-slate-900);
+          --subtle: var(--color-slate-800);
+          --subtle-ink: var(--color-slate-300);
+          --field: var(--color-slate-800);
+          --field-line: var(--color-slate-600);
+          --good: var(--color-emerald-950);
+          --good-ink: var(--color-emerald-300);
+          --warn: var(--color-amber-950);
+          --warn-line: var(--color-amber-900);
+          --warn-ink: var(--color-amber-200);
+          --bad: var(--color-red-950);
+          --bad-line: var(--color-red-900);
+          --bad-ink: var(--color-red-200);
+        }
+      }
+    </style>
+{{- end}}

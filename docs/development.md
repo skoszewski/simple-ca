@@ -5,12 +5,37 @@
 `./build.mjs` needs Node.js and Go; the tests need `openssl` on the `PATH`.
 
 ```sh
-./build.mjs                    # build simple-ca for the host
-./build.mjs build linux/arm64  # build simple-ca-linux-arm64
+./build.mjs                    # build simple-ca and request-cert for the host, and
+                               # simple-ca-trust on Linux
+./build.mjs build linux/arm64  # build simple-ca-linux-arm64, request-cert-linux-arm64 and
+                               # simple-ca-trust-linux-arm64
+./build.mjs trust              # build simple-ca-trust for the host with its own toolchain
+./build.mjs trust darwin/amd64 # build simple-ca-trust-darwin-amd64, on macOS only
 ./build.mjs test               # run the tests
 ./build.mjs check              # check formatting, vet and run the tests
 ./build.mjs clean              # remove the built executables
+./build.mjs assets             # download the browser files of the /help/ and /docs/ pages
 ```
+
+The `/help/` page, `help/index.md`, and the `/docs/` pages of `serve --docs`, the files of
+`docs/`, are drawn by the `render` package of
+[serve-markdown](https://github.com/skoszewski/serve-markdown), whose browser files are not in
+either repository. `./build.mjs assets` downloads `serve-markdown-assets-X.Y.Z.tar.gz` of the
+serve-markdown release `go.mod` names and unpacks it into `assets/markdown/`, which `serve`
+embeds; `assets/markdown/.version` names the release it came from. `build`, `test` and `check`
+download it first when `assets/markdown/` holds another release, and build without the
+pages, with a warning, when the download fails. A plain `go build` embeds what
+`assets/markdown/` holds, and builds without the pages when it holds only `.gitkeep`.
+
+`simple-ca-trust` is the Go program of `cmd/simple-ca-trust/` on Linux, which `build` builds
+with the rest, and on macOS and Windows a program of the platform's own toolset, which only
+`./build.mjs trust` builds, for the host or for the platform named: the Go program for `linux/*`
+on any host; Swift 6.4 or later from the package in `trust/macos/` for `darwin/*` on macOS
+only; and .NET 10
+from `trust/windows/` for `windows/*` on Windows only, published as a native (Native AOT)
+executable, which needs Visual Studio 2022 or later with the Desktop development with C++
+workload. A platform the host cannot build for is skipped with a note. The release
+workflow does not build it; [Trust stores](trust.md) has the commands for building it by hand.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
 are run with `./build.mjs test` or `./build.mjs check`.

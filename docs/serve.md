@@ -5,7 +5,8 @@ over HTTP, until it is stopped with Ctrl-C. `--address` is the address of the in
 listens on, `127.0.0.1` by default and `0.0.0.0` for all interfaces (`::` also works), and
 `--port` the TCP port, 8080 by default. With `--tls-cert` and `--tls-key`, PEM files of a
 certificate chain and its key, it serves HTTPS instead, as [ACME](acme.md) clients require; the
-certificate can be one of the CA itself.
+certificate can be one of the CA itself. With `--docs`, it also shows the guides of `simple-ca`,
+the files of `docs/`, at `/docs/`.
 
 Behind a reverse proxy, `--trusted-proxy`, an address or a prefix repeated for more, names the
 proxies whose `X-Forwarded-For` header gives the client of a request to the
@@ -36,6 +37,10 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/NAME/api/sign` | the signing API of the issuing CA `NAME`, `POST` | `application/json` |
 | `/sign` | the [signing form](signing-api.md#signing-form) of the root CA | `text/html` |
 | `/NAME/sign` | the signing form of the issuing CA `NAME` | `text/html` |
+| `/help/` | the help of the signing API for its clients | `text/html` |
+| `/help` | a redirect (`307 Temporary Redirect`) to `/help/` | |
+| `/docs/` | with `--docs`, the guides of `simple-ca`, from `usage.md` | `text/html` |
+| `/docs` | with `--docs`, a redirect (`307 Temporary Redirect`) to `/docs/` | |
 
 The index page lists the root CA and all its issuing CAs, also when `--ca-dir` is an issuing CA,
 each with its subject, issuer, serial number, validity period, days left before it expires,
@@ -43,12 +48,31 @@ marked when fewer than 30 are left, key and SHA-256 fingerprint, and its current
 number, the count of revoked certificates and its next update, marked when overdue. The CA bundle
 is offered at the top of the page, above the CAs, as P7B, which Windows opens and imports with
 all its certificates, and as PEM; each CA links to its certificate and CRL, in DER and PEM. The
-page is styled with the browser build of Tailwind CSS 4.3.3, embedded in the executable and
-served at `/assets/tailwindcss-browser-4.3.3.js`, so the page loads nothing from other sites.
+page and the signing forms follow the light or dark theme of the browser. They are styled with
+the browser build of Tailwind CSS 4.3.3, embedded in the executable and served at
+`/assets/tailwindcss-browser-4.3.3.js`, so the pages load nothing from other sites.
 
 The files are read on each request, so a CRL written by `crl create` is served at once; a file that
 does not exist is `404 Not Found`. No other file is served. Each
 request is logged to the standard error.
+
+`/help/` shows the clients of the [signing API](signing-api.md) how to request a certificate with
+`openssl`, `curl` and `jq`, or with the signing form: `help/index.md`, embedded in the
+executable, as a page drawn by the `render` package of
+[serve-markdown](https://github.com/skoszewski/serve-markdown), with an outline of its headings;
+the index page and the signing forms link to it. The page's browser files are those of the
+serve-markdown release `go.mod` names, which the release builds and the `Dockerfile` embed. An
+executable built without them, as `go install` builds it, has no `/help/` page: the route is
+`404 Not Found` and nothing links to it.
+
+With `--docs`, `/docs/` shows the guides of `simple-ca`, the files of `docs/` embedded in the
+executable, drawn the same way, with a menu of the guides and an outline of the headings, and
+the index page links to them as "Documentation"; `/docs/` opens `usage.md`. An executable built
+without the page's browser files refuses `--docs`.
+
+```sh
+simple-ca serve --ca-dir /etc/simple-ca --docs
+```
 
 The URLs are those `--ca-url` writes into the certificates, so with the base URL set
 to the address of the server, the AIA and CRL Distribution Point URLs of the certificates are

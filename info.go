@@ -166,7 +166,7 @@ func writeCertFields(w io.Writer, cert *x509.Certificate, now time.Time) {
 	for _, uri := range cert.URIs {
 		fmt.Fprintf(w, "URI:\t%s\n", uri)
 	}
-	// The registeredID names, which crypto/x509 does not parse.
+	// The registeredID names of the subjectAltName extension.
 	for _, ext := range cert.Extensions {
 		if !ext.Id.Equal(oidSubjectAltName) {
 			continue

@@ -25,7 +25,7 @@ package main
 import (
 	"crypto/sha256"
 	"crypto/x509"
-	_ "embed"
+	"embed"
 	"encoding/asn1"
 	"encoding/pem"
 	"errors"
@@ -33,11 +33,13 @@ import (
 	"html/template"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -69,87 +71,52 @@ const tailwindPath = "/assets/tailwindcss-browser-4.3.3.js"
 //go:embed assets/tailwindcss-browser-4.3.3.js
 var tailwindJS []byte
 
-// indexTemplate is the index page, a list of the CAs of indexCA with links to their files, in the
-// style of Tailwind CSS from its browser build.
-var indexTemplate = template.Must(template.New("index").Parse(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{.Title}} - simple-ca</title>
-    <script src="{{.Script}}"></script>
-  </head>
-  <body class="min-h-screen bg-slate-100 text-slate-900">
-    <div class="mx-auto max-w-3xl px-4 py-10 sm:py-16">
-      <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-        <div class="bg-slate-900 px-6 py-4 text-slate-100">
-          <h1 class="text-xl font-semibold">{{.Title}}</h1>
-          <p class="mt-1 text-sm text-slate-300">CA certificates and certificate revocation lists, served by simple-ca</p>
-        </div>
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-sky-200 bg-sky-50 px-6 py-4">
-          <div>
-            <h2 class="text-base font-semibold text-sky-950">CA bundle</h2>
-            <p class="text-sm text-sky-900">The root CA and all its issuing CAs in one file, to install or trust as a whole</p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <a class="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-600" href="/ca_bundle.p7b">CA bundle (P7B)</a>
-            <a class="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-600" href="/ca_bundle.pem">CA bundle (PEM)</a>
-          </div>
-        </div>
-        <main class="divide-y divide-slate-200">
-          {{- range .CAs}}
-          <section{{if .ID}} id="{{.ID}}"{{end}} class="space-y-2 px-6 py-5">
-            <div class="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 class="text-lg font-semibold">{{.Subject}}</h2>
-              <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">{{.Role}}</span>
-            </div>
-            <dl class="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
-              <dt class="text-slate-500">Issuer</dt>
-              <dd>{{.Issuer}}</dd>
-              <dt class="text-slate-500">Serial number</dt>
-              <dd class="font-mono text-xs break-all sm:text-sm">{{.Serial}}</dd>
-              <dt class="text-slate-500">Valid from</dt>
-              <dd>{{.NotBefore}}</dd>
-              <dt class="text-slate-500">Valid until</dt>
-              <dd>{{.NotAfter}}
-                <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium {{if eq .Expiry "expired"}}bg-red-100 text-red-700{{else if .ExpiresSoon}}bg-amber-100 text-amber-800{{else}}bg-emerald-100 text-emerald-700{{end}}">{{.Expiry}}</span>
-              </dd>
-              <dt class="text-slate-500">Key</dt>
-              <dd>{{.Key}}</dd>
-              <dt class="text-slate-500">SHA-256</dt>
-              <dd class="grid grid-cols-1 font-mono text-xs sm:grid-cols-[repeat(2,max-content)]">
-                {{- range $i, $group := .Fingerprint}}<span class="whitespace-nowrap">{{$group}}{{if lt $i 3}}:{{end}}</span>{{end -}}
-              </dd>
-              <dt class="text-slate-500">CRL</dt>
-              <dd>{{if .CRL}}{{.CRL}}{{else}}none yet{{end}}</dd>
-              {{- if .ACME}}
-              <dt class="text-slate-500">ACME directory</dt>
-              <dd class="font-mono text-xs break-all sm:text-sm">{{.ACME}}</dd>
-              {{- end}}
-              {{- if .API}}
-              <dt class="text-slate-500">Signing API</dt>
-              <dd class="font-mono text-xs break-all sm:text-sm">{{.API}}</dd>
-              {{- end}}
-            </dl>
-            <div class="flex flex-wrap gap-2 pt-1">
-              <a class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700" href="{{.Path}}ca_cert.crt">Certificate (DER)</a>
-              <a class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100" href="{{.Path}}ca_cert.pem">Certificate (PEM)</a>
-              {{- if .CRL}}
-              <a class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700" href="{{.Path}}crl.crl">CRL (DER)</a>
-              <a class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100" href="{{.Path}}crl.pem">CRL (PEM)</a>
-              {{- end}}
-              {{- if .API}}
-              <a class="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-600" href="{{.Path}}sign">Sign a request</a>
-              {{- end}}
-            </div>
-          </section>
-          {{- end}}
-        </main>
-      </div>
-    </div>
-  </body>
-</html>
-`))
+// tailwindHandler serves tailwindJS at tailwindPath, where the pages of serve and of the webuis
+// load it from.
+var tailwindHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Write(tailwindJS)
+})
+
+// runHTTPServer serves handler on the TCP port of address, over HTTPS with the certificate chain
+// in the PEM file tlsCert and its key in tlsKey when they are given, logging each request, until
+// it fails; listening is called with the origin of the server, such as http://127.0.0.1:8080, once
+// it listens.
+func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsKey string, listening func(origin string)) error {
+	if address == "" {
+		return errors.New("--address must not be empty; 0.0.0.0 is all interfaces")
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("--port must be from 1 to 65535, got %d", port)
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(port)))
+	if err != nil {
+		return err
+	}
+	server := &http.Server{ReadHeaderTimeout: 10 * time.Second,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+			handler.ServeHTTP(w, r)
+		})}
+	if tlsCert != "" {
+		listening("https://" + listener.Addr().String())
+		return server.ServeTLS(listener, tlsCert, tlsKey)
+	}
+	listening("http://" + listener.Addr().String())
+	return server.Serve(listener)
+}
+
+// templateFiles are the pages of serve, token webui and cert webui, in the style of Tailwind CSS
+// from its browser build: index.html, the list of the CAs; sign.html, the signing form;
+// tokens.html and certs.html, the tokens and the certificates of the CAs, with the parts they
+// share in webui-common.html; and theme.html, the colours all of them share.
+//
+//go:embed templates/*.html
+var templateFiles embed.FS
+
+// pageTemplates are templateFiles parsed, each named after its file.
+var pageTemplates = template.Must(template.ParseFS(templateFiles, "templates/*.html"))
 
 // indexCA is a CA of the index page: the fields of its certificate, its expiry as "expired" or the
 // days left, whether fewer than 30 days are left, its SHA-256 fingerprint in four groups of eight
@@ -166,11 +133,11 @@ type indexCA struct {
 // the root CA, also as the PKCS#7 file ca_bundle.p7b. The files are read on each request. With
 // acme.domains in simple-ca.json, it also serves the ACME server of each CA whose key is there.
 // The signing API and form take the client of a request from the X-Forwarded-For header of the
-// trusted proxies.
-func newServeMux(rootDir string, trusted []netip.Prefix) *http.ServeMux {
+// trusted proxies. An executable built with serve-markdown's page assets shows the help of the
+// signing API at /help/ and, with docs, the guides at /docs/.
+func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 		var cas []indexCA
 		var title string
 		cfg, err := loadConfig(rootDir)
@@ -246,21 +213,22 @@ func newServeMux(rootDir string, trusted []netip.Prefix) *http.ServeMux {
 			cas = append(cas, ca)
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := indexTemplate.Execute(w, struct {
-			Title, Script string
-			CAs           []indexCA
-		}{title, tailwindPath, cas}); err != nil {
+		help, guides := "", ""
+		if helpSite != nil {
+			help = helpPath
+		}
+		if docs && docsSite != nil {
+			guides = docsPath
+		}
+		if err := pageTemplates.ExecuteTemplate(w, "index.html", struct {
+			Title, Script, Help, Docs string
+			CAs                       []indexCA
+		}{title, tailwindPath, help, guides, cas}); err != nil {
 			log.Printf("%s: %v", r.URL.Path, err)
 		}
 	})
-	mux.HandleFunc("GET "+tailwindPath, func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		w.Write(tailwindJS)
-	})
+	mux.Handle("GET "+tailwindPath, tailwindHandler)
 	serve := func(w http.ResponseWriter, r *http.Request, dir, name string) {
-		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 		f, ok := servedFiles[name]
 		if !ok {
 			f.source, f.contentType = name, "application/x-pem-file"
@@ -292,7 +260,6 @@ func newServeMux(rootDir string, trusted []netip.Prefix) *http.ServeMux {
 		serve(w, r, rootDir, "ca_bundle.pem")
 	})
 	mux.HandleFunc("GET /ca_bundle.p7b", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 		b, err := os.ReadFile(filepath.Join(rootDir, "ca_bundle.pem"))
 		if errors.Is(err, os.ErrNotExist) {
 			http.NotFound(w, r)
@@ -352,7 +319,6 @@ func newServeMux(rootDir string, trusted []netip.Prefix) *http.ServeMux {
 		mux.HandleFunc("GET /{ca}/"+name, func(w http.ResponseWriter, r *http.Request) {
 			ca := r.PathValue("ca")
 			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
-				log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 				http.NotFound(w, r)
 				return
 			}
@@ -370,7 +336,6 @@ func newServeMux(rootDir string, trusted []netip.Prefix) *http.ServeMux {
 		mux.HandleFunc("/{ca}/acme/"+p, func(w http.ResponseWriter, r *http.Request) {
 			ca := r.PathValue("ca")
 			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
-				log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 				http.NotFound(w, r)
 				return
 			}
@@ -379,20 +344,18 @@ func newServeMux(rootDir string, trusted []netip.Prefix) *http.ServeMux {
 		})
 	}
 
-	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign, sharing
-	// the lock of the ACME server, which also writes index.txt.
+	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign, under
+	// the lock of the ACME server.
 	mux.HandleFunc("POST /api/sign", func(w http.ResponseWriter, r *http.Request) {
 		apiSign(w, r, rootDir, trusted, &acme.mu)
 	})
 	mux.HandleFunc("GET /api/sign", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc("POST /{ca}/api/sign", func(w http.ResponseWriter, r *http.Request) {
 		ca := r.PathValue("ca")
 		if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
-			log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 			http.NotFound(w, r)
 			return
 		}
@@ -402,7 +365,6 @@ func newServeMux(rootDir string, trusted []netip.Prefix) *http.ServeMux {
 	// /CA and /CA/ of an issuing CA redirect to its section of the index page.
 	for _, pattern := range []string{"GET /{ca}", "GET /{ca}/{$}"} {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 			ca := r.PathValue("ca")
 			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
 				http.NotFound(w, r)
@@ -420,12 +382,23 @@ func newServeMux(rootDir string, trusted []netip.Prefix) *http.ServeMux {
 		mux.HandleFunc(method+" /{ca}/sign", func(w http.ResponseWriter, r *http.Request) {
 			ca := r.PathValue("ca")
 			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
-				log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 				http.NotFound(w, r)
 				return
 			}
 			signPage(w, r, filepath.Join(rootDir, ca), "/"+ca+"/sign", trusted, &acme.mu)
 		})
 	}
-	return mux
+
+	// The help at /help/ and the guides at /docs/ are served by a mux in front of the routes of
+	// the CAs.
+	if helpSite == nil {
+		return mux
+	}
+	top := http.NewServeMux()
+	top.Handle(helpPath, helpSite)
+	if docs && docsSite != nil {
+		top.Handle(docsPath, docsSite)
+	}
+	top.Handle("/", mux)
+	return top
 }

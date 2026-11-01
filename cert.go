@@ -93,6 +93,19 @@ func parsePrefix(s string) (netip.Prefix, bool) {
 	return prefix.Masked(), err == nil && prefix.Addr().Zone() == ""
 }
 
+// showPrefixes returns the prefixes of a token as they are shown, a prefix of one address written
+// as the address alone, and "*" as it is.
+func showPrefixes(prefixes []string) []string {
+	shown := make([]string, len(prefixes))
+	for i, s := range prefixes {
+		shown[i] = s
+		if prefix, err := netip.ParsePrefix(s); err == nil && prefix.IsSingleIP() {
+			shown[i] = prefix.Addr().String()
+		}
+	}
+	return shown
+}
+
 // isHostname reports whether s is a hostname or an FQDN whose last label is not all digits, and
 // neither an IP address nor an OID.
 func isHostname(s string) bool {
@@ -276,7 +289,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 		}
 	}
 
-	// The subjectAltName extension, written here as crypto/x509 has no field for registeredID.
+	// The subjectAltName extension, with the registeredID names.
 	var names []asn1.RawValue
 	var described []string
 	for _, e := range emails {

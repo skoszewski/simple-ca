@@ -97,6 +97,7 @@ var commands = []command{
 		{name: "revoke", summary: "Revoke a certificate.", run: runCertRevoke},
 		{name: "list", summary: "List the certificates a CA issued.", run: runCertList},
 		{name: "show", summary: "Show the certificates in a file.", run: runCertShow},
+		{name: "webui", summary: "Serve a web page managing the certificates of the CAs.", run: runCertWebUI},
 	}},
 	{name: "crl", summary: "Create certificate revocation lists.", sub: []command{
 		{name: "create", summary: "Create the CRL of a CA, or of a root CA and all its issuing CAs.", run: runCRLCreate},
@@ -105,7 +106,9 @@ var commands = []command{
 		{name: "create", summary: "Create a token of the signing API of a CA.", run: runTokenCreate},
 		{name: "list", summary: "List the tokens of the signing API of a CA.", run: runTokenList},
 		{name: "revoke", summary: "Revoke a token of the signing API of a CA.", run: runTokenRevoke},
-		{name: "purge", summary: "Remove the expired tokens of the signing API of a CA.", run: runTokenPurge},
+		{name: "renew", summary: "Renew a token of the signing API of a CA, expired or not.", run: runTokenRenew},
+		{name: "purge", summary: "Remove the expired and revoked tokens of the signing API of a CA.", run: runTokenPurge},
+		{name: "webui", summary: "Serve a web page managing the tokens of the CAs.", run: runTokenWebUI},
 	}},
 	{name: "serve", summary: "Serve the CA certificates, CRLs, ACME and the signing API over HTTP.", run: runServe},
 }

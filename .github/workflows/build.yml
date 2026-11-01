@@ -2,7 +2,9 @@
 # checked for formatting and by go vet, built for every platform it is published for, and published
 # as a release, with the tag's message as its notes and as a prerelease for a prerelease version.
 # Each executable is given the tag as its version and published in a tar.gz, or a zip for Windows,
-# named after its version, without the v, and its platform.
+# named after its version, without the v, and its platform. It embeds the browser files of
+# serve-markdown's page for its /help/ page, which build.mjs downloads from the serve-markdown
+# release go.mod names.
 
 name: build
 
@@ -44,6 +46,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - name: Page assets
+        run: node build.mjs assets
       - name: Build
         id: build
         env:

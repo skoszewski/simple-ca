@@ -26,12 +26,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
-	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 )
 
@@ -46,6 +43,7 @@ func runServe(args []string) error {
 	port := fs.Int("port", 8080, "TCP `port` to listen on")
 	tlsCert := fs.String("tls-cert", "", "serve HTTPS with the certificate chain in this PEM `file`")
 	tlsKey := fs.String("tls-key", "", "private key of --tls-cert, a PEM `file`")
+	docs := fs.Bool("docs", false, "serve the guides of simple-ca at /docs/")
 	var proxies []string
 	fs.Func("trusted-proxy", "`address` or prefix of a proxy whose X-Forwarded-For names the client of the\n"+
 		"signing API; repeated for more (default: serve.trusted_proxies of simple-ca.json)", func(s string) error {
@@ -56,16 +54,12 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *address == "" {
-		fmt.Fprintf(fs.Output(), "%s: --address must not be empty; 0.0.0.0 is all interfaces\n", fs.Name())
-		fs.Usage()
-		return errUsage
-	}
-	if *port < 1 || *port > 65535 {
-		return fmt.Errorf("--port must be from 1 to 65535, got %d", *port)
-	}
 	if (*tlsCert == "") != (*tlsKey == "") {
 		return errors.New("--tls-cert and --tls-key must be given together")
+	}
+	if *docs && docsSite == nil {
+		return errors.New("--docs needs the browser files of serve-markdown's page, which this executable " +
+			"was built without; see docs/development.md")
 	}
 	rootDir, _, err := locateCA(resolveCADir(*caDir))
 	if err != nil {
@@ -87,38 +81,39 @@ func runServe(args []string) error {
 		}
 		trusted = append(trusted, prefix)
 	}
-	listener, err := net.Listen("tcp", net.JoinHostPort(*address, strconv.Itoa(*port)))
-	if err != nil {
-		return err
-	}
-	server := &http.Server{Handler: newServeMux(rootDir, trusted), ReadHeaderTimeout: 10 * time.Second}
-
-	// The expired tokens of the root CA and its issuing CAs are removed on start and every
-	// tokensPurgeInterval.
-	go func() {
-		for {
-			dirs := []string{rootDir}
-			entries, _ := os.ReadDir(rootDir)
-			for _, e := range entries {
-				if e.IsDir() && fileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
-					dirs = append(dirs, filepath.Join(rootDir, e.Name()))
-				}
-			}
-			for _, d := range dirs {
-				n, err := purgeTokens(d)
-				if err != nil {
-					log.Printf("purging the tokens of %s: %v", d, err)
-				} else if n > 0 {
-					log.Printf("%d expired tokens of %s removed", n, d)
-				}
-			}
-			time.Sleep(tokensPurgeInterval)
+	var kept time.Duration
+	if cfg.Tokens.KeepExpired != "" {
+		if kept, err = time.ParseDuration(cfg.Tokens.KeepExpired); err != nil || kept < 0 {
+			return fmt.Errorf("tokens.keep_expired of %s: '%s' is not a duration such as 720h", cfg.path, cfg.Tokens.KeepExpired)
 		}
-	}()
-	if *tlsCert != "" {
-		fmt.Printf("Serving the CAs of %s on https://%s/\n", rootDir, listener.Addr())
-		return server.ServeTLS(listener, *tlsCert, *tlsKey)
 	}
-	fmt.Printf("Serving the CAs of %s on http://%s/\n", rootDir, listener.Addr())
-	return server.Serve(listener)
+	return runHTTPServer(newServeMux(rootDir, trusted, *docs), *address, *port, *tlsCert, *tlsKey, func(origin string) {
+		fmt.Printf("Serving the CAs of %s on %s/\n", rootDir, origin)
+
+		// With tokens.keep_expired, the tokens of the root CA and its issuing CAs expired for
+		// longer are removed on start and every tokensPurgeInterval.
+		if cfg.Tokens.KeepExpired == "" {
+			return
+		}
+		go func() {
+			for {
+				dirs := []string{rootDir}
+				entries, _ := os.ReadDir(rootDir)
+				for _, e := range entries {
+					if e.IsDir() && fileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
+						dirs = append(dirs, filepath.Join(rootDir, e.Name()))
+					}
+				}
+				for _, d := range dirs {
+					n, err := purgeTokens(d, kept)
+					if err != nil {
+						log.Printf("purging the tokens of %s: %v", d, err)
+					} else if n > 0 {
+						log.Printf("%d tokens of %s expired for longer than %s removed", n, d, cfg.Tokens.KeepExpired)
+					}
+				}
+				time.Sleep(tokensPurgeInterval)
+			}
+		}()
+	})
 }

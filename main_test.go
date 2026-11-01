@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -23,7 +24,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
+
+	"github.com/skoszewski/serve-markdown/v3/render"
 )
 
 func verifyCert(t *testing.T, bundle, cert string) {
@@ -1017,7 +1021,7 @@ func TestWriteOpenSSLConf(t *testing.T) {
 
 func TestServe(t *testing.T) {
 	caDir := t.TempDir()
-	server := httptest.NewServer(newServeMux(caDir, nil))
+	server := httptest.NewServer(newServeMux(caDir, nil, false))
 	defer server.Close()
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
@@ -1237,7 +1241,7 @@ func TestACME(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	server := &http.Server{Handler: newServeMux(caDir, nil), ErrorLog: log.New(io.Discard, "", 0)}
+	server := &http.Server{Handler: newServeMux(caDir, nil, false), ErrorLog: log.New(io.Discard, "", 0)}
 	go server.ServeTLS(listener, filepath.Join(tlsDir, "localhost_cert.pem"), filepath.Join(tlsDir, "localhost_key.pem"))
 	defer server.Close()
 
@@ -1640,6 +1644,10 @@ func TestTokens(t *testing.T) {
 		strings.Contains(out.String(), "STATUS") {
 		t.Fatalf("token list output:\n%s\nwant the valid token deploy without a status", out.String())
 	}
+	if shown := showPrefixes([]string{"192.0.2.10/32", "10.0.0.0/8", "2001:db8::1/128", "2001:db8::/32", "*"}); !slices.Equal(shown,
+		[]string{"192.0.2.10", "10.0.0.0/8", "2001:db8::1", "2001:db8::/32", "*"}) {
+		t.Fatalf("showPrefixes = %v, want single addresses without their prefix length", shown)
+	}
 	if err := revokeToken(caDir, "deploy"); err != nil {
 		t.Fatalf("revokeToken: %v", err)
 	}
@@ -1649,43 +1657,95 @@ func TestTokens(t *testing.T) {
 	if err := revokeToken(caDir, "nosuch"); err == nil {
 		t.Fatal("revoking an unknown token succeeded, want an error")
 	}
+	// A revoked token is kept without its JWT ID, expired when it was revoked, holding its name
+	// until it is purged.
 	out.Reset()
-	if err := listTokens(&out, caDir); err != nil || strings.Contains(out.String(), "deploy") {
-		t.Fatalf("token list output:\n%s\n%v, want no revoked token", out.String(), err)
+	if err := listTokens(&out, caDir); err != nil || !strings.Contains(out.String(), "deploy  revoked  ") {
+		t.Fatalf("token list output:\n%s\n%v, want the revoked token marked revoked, without a time", out.String(), err)
 	}
-	if db, err := loadTokens(caDir); err != nil || len(db.Tokens) != 0 {
-		t.Fatalf("tokens after revoking: %v, want none", err)
+	if db, err := loadTokens(caDir); err != nil || db.Tokens["deploy"] == nil || db.Tokens["deploy"].ID != "" ||
+		time.Now().Before(db.Tokens["deploy"].Expires) || time.Since(db.Tokens["deploy"].Expires) > time.Minute {
+		t.Fatalf("tokens after revoking: %v, want deploy kept without its JWT ID, expired when revoked", err)
+	}
+	if _, err := makeToken(caDir, "deploy", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil); err == nil {
+		t.Fatal("makeToken with the name of a revoked token succeeded, want an error")
+	}
+	if err := purgeToken(caDir, "deploy"); err != nil {
+		t.Fatalf("purgeToken of the revoked token: %v", err)
 	}
 	if _, err := makeToken(caDir, "deploy", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil); err != nil {
-		t.Fatalf("makeToken with the name of a revoked token: %v", err)
+		t.Fatalf("makeToken with the name of a purged token: %v", err)
+	}
+	if err := purgeToken(caDir, "deploy"); err == nil || !strings.Contains(err.Error(), "revoke it first") {
+		t.Fatalf("purgeToken of a token still accepted: %v, want an error", err)
+	}
+
+	// A revoked token, without its expiry, is renewed for the default validity of token create.
+	if err := revokeToken(caDir, "deploy"); err != nil {
+		t.Fatalf("revokeToken: %v", err)
+	}
+	if _, err := renewToken(caDir, "deploy", 0); err != nil {
+		t.Fatalf("renewToken of the revoked token: %v", err)
+	}
+	if db, err := loadTokens(caDir); err != nil || db.Tokens["deploy"].revoked() ||
+		db.Tokens["deploy"].Expires.Sub(db.Tokens["deploy"].Issued) != time.Hour {
+		t.Fatalf("renewed revoked token %+v, %v, want it valid for an hour, not revoked", db.Tokens["deploy"], err)
 	}
 	if _, err := makeToken(caDir, "short", time.Millisecond, []string{"server"}, []string{"example.com"}, nil, nil); err == nil {
 		t.Fatal("makeToken valid for 1ms succeeded, want an error")
 	}
 
-	// purgeTokens removes the expired tokens alone.
-	if _, err := makeToken(caDir, "old", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil); err != nil {
+	// purgeTokens removes the expired and revoked tokens alone.
+	oldJWT, err := makeToken(caDir, "old", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil)
+	if err != nil {
 		t.Fatalf("makeToken old: %v", err)
+	}
+	expire := func() string {
+		t.Helper()
+		db, err := loadTokens(caDir)
+		if err != nil {
+			t.Fatalf("loadTokens: %v", err)
+		}
+		db.Tokens["old"].Expires = time.Now().Add(-time.Minute)
+		if err := db.save(caDir); err != nil {
+			t.Fatalf("save: %v", err)
+		}
+		return db.Tokens["old"].ID
+	}
+	oldID := expire()
+	out.Reset()
+	if err := listTokens(&out, caDir); err != nil || !strings.Contains(out.String(), " UTC (expired)") {
+		t.Fatalf("token list output:\n%s\n%v, want the expired token marked", out.String(), err)
+	}
+
+	// An expired token is kept for as long as it is to be kept, and renewed with a new JWT ID, valid
+	// for as long as it was before and allowing what it allowed.
+	if n, err := purgeTokens(caDir, time.Hour); err != nil || n != 0 {
+		t.Fatalf("purgeTokens keeping an hour: %d, %v, want the token expired a minute ago kept", n, err)
+	}
+	renewed, err := renewToken(caDir, "old", 0)
+	if err != nil {
+		t.Fatalf("renewToken: %v", err)
 	}
 	db, err = loadTokens(caDir)
 	if err != nil {
 		t.Fatalf("loadTokens: %v", err)
 	}
-	db.Tokens["old"].Expires = time.Now().Add(-time.Minute)
-	if err := db.save(caDir); err != nil {
-		t.Fatalf("save: %v", err)
+	if tok := db.Tokens["old"]; renewed == oldJWT || tok.ID == oldID || !time.Now().Before(tok.Expires) ||
+		tok.Expires.Sub(tok.Issued) != time.Hour || !slices.Equal(tok.Domains, []string{"example.com"}) {
+		t.Fatalf("renewed token %+v, want a new JWT and ID, valid for an hour from now, for example.com", tok)
 	}
-	out.Reset()
-	if err := listTokens(&out, caDir); err != nil || !strings.Contains(out.String(), " UTC (expired)") {
-		t.Fatalf("token list output:\n%s\n%v, want the expired token marked", out.String(), err)
+	if _, err := renewToken(caDir, "nowhere", 0); err == nil {
+		t.Fatal("renewToken of a token that is not there succeeded")
 	}
-	if n, err := purgeTokens(caDir); err != nil || n != 1 {
-		t.Fatalf("purgeTokens: %d, %v, want 1 removed", n, err)
+	expire()
+	if n, err := purgeTokens(caDir, 0); err != nil || n != 2 {
+		t.Fatalf("purgeTokens: %d, %v, want the expired token and the revoked ips removed", n, err)
 	}
 	if db, err := loadTokens(caDir); err != nil || len(db.Tokens) != 1 || db.Tokens["deploy"] == nil {
 		t.Fatalf("tokens after purging: %v, want deploy alone", err)
 	}
-	if n, err := purgeTokens(t.TempDir()); err != nil || n != 0 {
+	if n, err := purgeTokens(t.TempDir(), 0); err != nil || n != 0 {
 		t.Fatalf("purgeTokens without tokens-db.json: %d, %v, want 0", n, err)
 	}
 
@@ -1748,8 +1808,8 @@ func TestAPISign(t *testing.T) {
 	if err := revokeToken(issuingDir, "revoked"); err != nil {
 		t.Fatalf("revokeToken: %v", err)
 	}
-	if _, err := makeToken(issuingDir, "revoked", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil); err != nil {
-		t.Fatalf("makeToken with the name of the revoked token: %v", err)
+	if _, err := renewToken(issuingDir, "revoked", 0); err != nil {
+		t.Fatalf("renewToken of the revoked token: %v", err)
 	}
 	db, err := loadTokens(issuingDir)
 	if err != nil {
@@ -1782,7 +1842,7 @@ func TestAPISign(t *testing.T) {
 	withIP := csr("ip", "-subj", "/CN=web.example.com", "-addext", "subjectAltName=IP:192.0.2.1")
 	withO := csr("org", "-subj", "/O=Example/CN=web.example.com")
 
-	server := httptest.NewServer(newServeMux(caDir, nil))
+	server := httptest.NewServer(newServeMux(caDir, nil, false))
 	defer server.Close()
 	post := func(path, token, contentType, body string) (int, map[string]string) {
 		t.Helper()
@@ -2032,7 +2092,7 @@ func TestAPISign(t *testing.T) {
 	if err != nil {
 		t.Fatalf("makeToken proxied: %v", err)
 	}
-	behindProxy := httptest.NewServer(newServeMux(caDir, []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}))
+	behindProxy := httptest.NewServer(newServeMux(caDir, []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, false))
 	defer behindProxy.Close()
 	for _, c := range []struct {
 		url, forwarded string
@@ -2217,5 +2277,366 @@ func TestCAURLOption(t *testing.T) {
 	if !strings.Contains(out.String(), "-ca-url URL") || strings.Contains(out.String(), "publish") ||
 		!strings.Contains(out.String(), "(default 3650)") {
 		t.Fatalf("usage:\n%s\nwant --ca-url and the defaults, without --ca-publish-base-url", out.String())
+	}
+}
+
+func TestHelpPage(t *testing.T) {
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	caDir := t.TempDir()
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	for _, name := range []string{"help", "docs"} {
+		if err := makeCA(caDir, "Pages CA", 3650, name, ""); err == nil || !strings.Contains(err.Error(), "taken") {
+			t.Fatalf("makeCA --issuing-ca %s: %v, want it refused", name, err)
+		}
+	}
+
+	get := func(server *httptest.Server, path string) (int, string) {
+		resp, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		return resp.StatusCode, string(body)
+	}
+
+	// Without the page's browser files there is no help, and nothing links to it.
+	saved := helpSite
+	t.Cleanup(func() { helpSite = saved })
+	helpSite = nil
+	without := httptest.NewServer(newServeMux(caDir, nil, false))
+	defer without.Close()
+	if status, _ := get(without, "/help/"); status != http.StatusNotFound {
+		t.Errorf("/help/ without the assets: status %d, want 404", status)
+	}
+	for _, path := range []string{"/", "/sign"} {
+		if _, body := get(without, path); strings.Contains(body, helpPath) {
+			t.Errorf("%s links to %s without the assets", path, helpPath)
+		}
+	}
+
+	// With them, the help is a page at /help/, linked from the index page and the form.
+	pages, err := fs.Sub(helpPages, "help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helpSite = render.New(pages, render.Options{Prefix: helpPath, Search: render.IndexSearch{"index.md"},
+		Assets: fstest.MapFS{"page.js": {Data: []byte("// page")}}})
+	with := httptest.NewServer(newServeMux(caDir, nil, false))
+	defer with.Close()
+	if status, page := get(with, "/help/"); status != http.StatusOK || !strings.Contains(page, `src="/help/_/assets/page.js"`) {
+		t.Errorf("/help/: status %d, want the page shell:\n%s", status, page)
+	}
+	if status, body := get(with, "/help/_/content?path=%2Fhelp%2F"); status != http.StatusOK ||
+		!strings.Contains(body, `"title":"Requesting a certificate"`) || !strings.Contains(body, "## Send the request") {
+		t.Errorf("/help/ content: status %d, want the help:\n%s", status, body)
+	}
+	for _, path := range []string{"/", "/sign"} {
+		if _, body := get(with, path); !strings.Contains(body, `href="/help/"`) {
+			t.Errorf("%s does not link to /help/", path)
+		}
+	}
+	// The routes of the CAs stand beside the help.
+	if status, _ := get(with, "/ca_cert.pem"); status != http.StatusOK {
+		t.Errorf("/ca_cert.pem beside /help/: status %d, want 200", status)
+	}
+	// The guides are served, and linked from the index page, with serve --docs alone.
+	if status, _ := get(with, "/docs/"); status != http.StatusNotFound {
+		t.Errorf("/docs/ without --docs: status %d, want 404", status)
+	}
+	if _, body := get(with, "/"); strings.Contains(body, `href="/docs/"`) {
+		t.Error("the index page links to /docs/ without --docs")
+	}
+	guides, err := fs.Sub(docsPages, "docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedDocs := docsSite
+	t.Cleanup(func() { docsSite = savedDocs })
+	docsSite = render.New(guides, render.Options{Prefix: docsPath, Search: render.IndexSearch{"usage.md"},
+		Menu: docsMenu, List: render.DefaultList, Assets: fstest.MapFS{"page.js": {Data: []byte("// page")}}})
+	withDocs := httptest.NewServer(newServeMux(caDir, nil, true))
+	defer withDocs.Close()
+	status, page := get(withDocs, "/docs/")
+	if status != http.StatusOK || !strings.Contains(page, `<a href="/docs/usage.md" class="current">Usage</a>`) ||
+		!strings.Contains(page, `<a href="/docs/signing-api.md">Signing API</a>`) {
+		t.Errorf("/docs/: status %d, want the page shell with the menu of the guides:\n%s", status, page)
+	}
+	for _, name := range []string{"usage.md", "serve.md", "acme.md", "signing-api.md", "development.md"} {
+		if status, body := get(withDocs, "/docs/_/content?path=%2Fdocs%2F"+name); status != http.StatusOK ||
+			strings.Contains(body, `"error":"`) {
+			t.Errorf("/docs/%s: status %d, want the guide:\n%s", name, status, body)
+		}
+	}
+	if _, body := get(withDocs, "/"); !strings.Contains(body, `href="/docs/"`) {
+		t.Error("the index page does not link to /docs/ with --docs")
+	}
+}
+
+func TestTokenWebUI(t *testing.T) {
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	caDir := t.TempDir()
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+		t.Fatalf("makeCA issuing: %v", err)
+	}
+	server := httptest.NewServer((&webuiServer{rootDir: caDir, key: "the-key"}).mux())
+	defer server.Close()
+	call := func(key, method, path string, body any) (int, map[string]any) {
+		t.Helper()
+		var reader io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			reader = bytes.NewReader(b)
+		}
+		req, err := http.NewRequest(method, server.URL+path, reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		defer resp.Body.Close()
+		var answer map[string]any
+		json.NewDecoder(resp.Body).Decode(&answer)
+		return resp.StatusCode, answer
+	}
+
+	// The page and its scripts are served to anyone; the API takes the key alone, for as long as
+	// it runs.
+	resp, err := http.Get(server.URL + "/")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /: %v, %v, want the page", resp, err)
+	}
+	page, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	for _, script := range []string{"/assets/webui/webui.js", "/assets/webui/tokens.js"} {
+		if !strings.Contains(string(page), `<script src="`+script+`">`) {
+			t.Errorf("the page does not load %s", script)
+		}
+		resp, err := http.Get(server.URL + script)
+		if err != nil || resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/javascript") {
+			t.Errorf("GET %s: %v, %v, want the script", script, resp, err)
+			continue
+		}
+		resp.Body.Close()
+	}
+	for _, path := range []string{"/assets/webui/", "/assets/webui/missing.js"} {
+		if resp, err := http.Get(server.URL + path); err != nil || resp.StatusCode != http.StatusNotFound {
+			t.Errorf("GET %s: %v, %v, want 404", path, resp, err)
+		}
+	}
+	for _, key := range []string{"", "wrong"} {
+		if status, answer := call(key, "GET", "/api/cas", nil); status != http.StatusUnauthorized || answer["error"] == nil {
+			t.Errorf("GET /api/cas with the key %q: %d %v, want 401 with an error", key, status, answer)
+		}
+	}
+	for range 2 {
+		status, answer := call("the-key", "GET", "/api/cas", nil)
+		cas, _ := answer["cas"].([]any)
+		if status != http.StatusOK || answer["title"] != "Test CA" || len(cas) != 2 ||
+			cas[1].(map[string]any)["label"] != "issuing CA issuing-ca: Issuing CA" {
+			t.Fatalf("GET /api/cas: %d %v, want the root and the issuing CA", status, answer)
+		}
+	}
+
+	// A token is created, listed, renewed with a new JWT ID, revoked, kept, and purged.
+	if status, answer := call("the-key", "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "Bad_Name",
+		"valid": "1h", "domains": []string{"example.com"}}); status != http.StatusBadRequest ||
+		!strings.Contains(fmt.Sprint(answer["error"]), "kebab-case") {
+		t.Errorf("create with a bad name: %d %v, want 400 with the error", status, answer)
+	}
+	status, answer := call("the-key", "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "web-deploy",
+		"valid": "8h", "domains": []string{"example.com"}, "clients": []string{"192.168.1.0/24"}, "types": []string{"server"}})
+	if status != http.StatusCreated || !strings.HasPrefix(fmt.Sprint(answer["token"]), "eyJ") {
+		t.Fatalf("create: %d %v, want 201 with the token", status, answer)
+	}
+	status, answer = call("the-key", "GET", "/api/tokens?ca=issuing-ca", nil)
+	tokens, _ := answer["tokens"].([]any)
+	if status != http.StatusOK || len(tokens) != 1 || tokens[0].(map[string]any)["name"] != "web-deploy" ||
+		fmt.Sprint(tokens[0].(map[string]any)["clients"]) != "[192.168.1.0/24]" {
+		t.Fatalf("GET /api/tokens: %d %v, want web-deploy from 192.168.1.0/24", status, answer)
+	}
+	created, _ := loadTokens(filepath.Join(caDir, "issuing-ca"))
+	if status, answer := call("the-key", "POST", "/api/tokens/renew", map[string]any{"ca": "issuing-ca", "name": "web-deploy"}); status != http.StatusOK ||
+		!strings.HasPrefix(fmt.Sprint(answer["token"]), "eyJ") {
+		t.Errorf("renew: %d %v, want the renewed token", status, answer)
+	}
+	if db, _ := loadTokens(filepath.Join(caDir, "issuing-ca")); db.Tokens["web-deploy"].ID == created.Tokens["web-deploy"].ID {
+		t.Error("the renewed token has no new JWT ID")
+	}
+	if status, _ := call("the-key", "POST", "/api/tokens/revoke", map[string]any{"ca": "../x", "name": "web-deploy"}); status != http.StatusNotFound {
+		t.Errorf("revoke of a CA outside the root: %d, want 404", status)
+	}
+	if status, _ := call("the-key", "POST", "/api/tokens/revoke", map[string]any{"ca": "issuing-ca", "name": "web-deploy"}); status != http.StatusOK {
+		t.Errorf("revoke: %d, want 200", status)
+	}
+	status, answer = call("the-key", "GET", "/api/tokens?ca=issuing-ca", nil)
+	if tokens, _ := answer["tokens"].([]any); status != http.StatusOK || len(tokens) != 1 || tokens[0].(map[string]any)["revoked"] != true {
+		t.Errorf("GET /api/tokens after revoking: %d %v, want web-deploy kept, revoked", status, answer)
+	}
+	if status, answer := call("the-key", "POST", "/api/tokens/purge", map[string]any{"ca": "issuing-ca"}); status != http.StatusOK ||
+		answer["removed"] != float64(1) {
+		t.Errorf("purge: %d %v, want 1 removed", status, answer)
+	}
+	if status, _ := call("the-key", "POST", "/api/tokens/purge", map[string]any{"ca": "issuing-ca", "bogus": true}); status != http.StatusBadRequest {
+		t.Errorf("purge with an unknown field: %d, want 400", status)
+	}
+}
+
+func TestCertWebUI(t *testing.T) {
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	caDir := t.TempDir()
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+		t.Fatalf("makeCA issuing: %v", err)
+	}
+	issuingDir := filepath.Join(caDir, "issuing-ca")
+	server := httptest.NewServer((&webuiServer{rootDir: caDir, key: "the-key", certs: true}).mux())
+	defer server.Close()
+	call := func(key, method, path string, body any) (int, map[string]any) {
+		t.Helper()
+		var reader io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			reader = bytes.NewReader(b)
+		}
+		req, err := http.NewRequest(method, server.URL+path, reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		defer resp.Body.Close()
+		var answer map[string]any
+		json.NewDecoder(resp.Body).Decode(&answer)
+		return resp.StatusCode, answer
+	}
+
+	// The page loads the shared script and its own.
+	resp, err := http.Get(server.URL + "/")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /: %v, %v, want the page", resp, err)
+	}
+	page, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	for _, script := range []string{"/assets/webui/webui.js", "/assets/webui/certs.js"} {
+		if !strings.Contains(string(page), `<script src="`+script+`">`) {
+			t.Errorf("the page does not load %s", script)
+		}
+	}
+
+	// The API takes the key alone; the CAs come with the name rules, the reasons and the days.
+	if status, _ := call("wrong", "GET", "/api/certs?ca=issuing-ca", nil); status != http.StatusUnauthorized {
+		t.Errorf("GET /api/certs with a wrong key: %d, want 401", status)
+	}
+	status, answer := call("the-key", "GET", "/api/cas", nil)
+	if names, _ := answer["names"].(map[string]any); status != http.StatusOK || names["user"] != "user" ||
+		fmt.Sprint(answer["defaults"]) != "map[crl_days:30 days:365]" {
+		t.Fatalf("GET /api/cas: %d %v, want the name rules and the days", status, answer)
+	}
+	if status, _ := call("the-key", "POST", "/api/tokens", map[string]any{"ca": ""}); status != http.StatusNotFound {
+		t.Errorf("a token request of cert webui: %d, want 404", status)
+	}
+
+	// A certificate is created into the CA directory, once; a second create of the name is refused.
+	body := map[string]any{"ca": "issuing-ca", "type": "server", "subject": "web.example.com", "sans": []string{"192.0.2.10"}, "days": 30}
+	if status, answer := call("the-key", "POST", "/api/certs", body); status != http.StatusCreated {
+		t.Fatalf("create: %d %v, want 201", status, answer)
+	}
+	if !fileExists(filepath.Join(issuingDir, "web_cert.pem")) || !fileExists(filepath.Join(issuingDir, "web_key.pem")) {
+		t.Fatal("create wrote no certificate and key to the CA directory")
+	}
+	if status, _ := call("the-key", "POST", "/api/certs", body); status != http.StatusConflict {
+		t.Errorf("create of an existing name: %d, want 409", status)
+	}
+	if status, answer := call("the-key", "POST", "/api/certs", map[string]any{"ca": "issuing-ca", "type": "server",
+		"subject": "not a host", "days": 30}); status != http.StatusBadRequest || answer["error"] == nil {
+		t.Errorf("create with a bad CN: %d %v, want 400 with the error", status, answer)
+	}
+
+	// A request is signed into the CA directory under the name given, cleaned.
+	csrPath := filepath.Join(t.TempDir(), "api.csr")
+	if out, err := exec.Command("openssl", "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+		"-keyout", os.DevNull, "-subj", "/CN=api.example.com", "-out", csrPath).CombinedOutput(); err != nil {
+		t.Fatalf("openssl req: %v\n%s", err, out)
+	}
+	csr, _ := os.ReadFile(csrPath)
+	status, answer = call("the-key", "POST", "/api/certs/sign", map[string]any{"ca": "issuing-ca", "type": "server",
+		"name": "api server", "csr": string(csr), "days": 30})
+	if status != http.StatusCreated || answer["file"] != "api_server_cert.pem" || !fileExists(filepath.Join(issuingDir, "api_server_cert.pem")) {
+		t.Fatalf("sign: %d %v, want api_server_cert.pem in the CA directory", status, answer)
+	}
+	if status, _ := call("the-key", "POST", "/api/certs/sign", map[string]any{"ca": "issuing-ca", "type": "server",
+		"name": "../x", "csr": string(csr), "days": 30}); status != http.StatusBadRequest {
+		t.Errorf("sign with a name holding a directory: %d, want 400", status)
+	}
+
+	// The certificates are listed; one is revoked for a reason, and the CRL lists it.
+	status, answer = call("the-key", "GET", "/api/certs?ca=issuing-ca", nil)
+	certs, _ := answer["certs"].([]any)
+	if status != http.StatusOK || len(certs) != 2 || certs[0].(map[string]any)["status"] != "valid" {
+		t.Fatalf("GET /api/certs: %d %v, want the two certificates, valid", status, answer)
+	}
+	serial := certs[0].(map[string]any)["serial"]
+
+	// A certificate is shown from its file, as cert show writes it; the root CA shows its issuing CAs.
+	status, answer = call("the-key", "GET", "/api/certs/show?ca=issuing-ca&serial="+serial.(string), nil)
+	fields, _ := answer["fields"].([]any)
+	if status != http.StatusOK || answer["file"] != "web_cert.pem" ||
+		!slices.ContainsFunc(fields, func(f any) bool { return fmt.Sprint(f) == "[IP address 192.0.2.10]" }) {
+		t.Errorf("GET /api/certs/show: %d %v, want web_cert.pem with its IP address", status, answer)
+	}
+	if status, answer := call("the-key", "GET", "/api/certs/show?ca=issuing-ca&serial=00", nil); status != http.StatusNotFound || answer["error"] == nil {
+		t.Errorf("GET /api/certs/show of an unknown serial: %d %v, want 404 with an error", status, answer)
+	}
+	_, answer = call("the-key", "GET", "/api/certs?ca=", nil)
+	rootCerts, _ := answer["certs"].([]any)
+	if len(rootCerts) != 1 {
+		t.Fatalf("GET /api/certs of the root CA: %v, want the issuing CA", answer)
+	}
+	if status, answer := call("the-key", "GET", "/api/certs/show?ca=&serial="+rootCerts[0].(map[string]any)["serial"].(string), nil); status != http.StatusOK || answer["file"] != "issuing-ca/ca_cert.pem" {
+		t.Errorf("GET /api/certs/show of the issuing CA: %d %v, want issuing-ca/ca_cert.pem", status, answer)
+	}
+
+	if status, _ := call("the-key", "POST", "/api/certs/revoke", map[string]any{"ca": "issuing-ca", "serial": serial, "reason": "nonsense"}); status != http.StatusBadRequest {
+		t.Errorf("revoke with an unknown reason: %d, want 400", status)
+	}
+	if status, answer := call("the-key", "POST", "/api/certs/revoke", map[string]any{"ca": "issuing-ca", "serial": serial, "reason": "superseded"}); status != http.StatusOK {
+		t.Fatalf("revoke: %d %v, want 200", status, answer)
+	}
+	if status, _ := call("the-key", "POST", "/api/certs/revoke", map[string]any{"ca": "issuing-ca", "serial": serial}); status != http.StatusBadRequest {
+		t.Errorf("revoke twice: %d, want 400", status)
+	}
+	if status, answer := call("the-key", "POST", "/api/crl", map[string]any{"ca": "issuing-ca", "days": 7}); status != http.StatusOK {
+		t.Fatalf("crl: %d %v, want 200", status, answer)
+	}
+	status, answer = call("the-key", "GET", "/api/certs?ca=issuing-ca", nil)
+	certs, _ = answer["certs"].([]any)
+	crl, _ := answer["crl"].(map[string]any)
+	if status != http.StatusOK || certs[0].(map[string]any)["status"] != "revoked" || certs[0].(map[string]any)["reason"] != "superseded" ||
+		crl["number"] != "2" {
+		t.Errorf("GET /api/certs after revoking: %d %v, want the certificate revoked, superseded, and CRL number 2", status, answer)
 	}
 }

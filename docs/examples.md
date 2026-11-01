@@ -1,13 +1,14 @@
 # Signing API clients
 
-Each program in `examples/` requests a server certificate from the [signing API](signing-api.md)
-of `simple-ca serve`, the same way in Python, Node.js, Go and the shell:
+Each of these programs requests a server certificate from the [signing API](signing-api.md) of
+`simple-ca serve`, the same way in Python, Node.js, Go and the shell; the Go one is a command of
+the module, in `cmd/request-cert/`, and the others are in `examples/`:
 
 | File | Language | Requirements |
 |---|---|---|
 | `examples/request_cert.py` | Python 3 | the `openssl` command |
 | `examples/request-cert.mjs` | Node.js 18 or later | the `openssl` command |
-| `examples/request-cert/main.go` | Go | none, the standard library |
+| `cmd/request-cert/main.go` | Go | none, the standard library |
 | `examples/request-cert.sh` | Bash | `openssl`, `curl` and `jq` |
 
 ```text
@@ -41,6 +42,22 @@ status and the error of the API, such as
 Python, Node.js and the shell make the key and the request with `openssl`, as their standard
 libraries cannot make a certificate signing request; Go makes them with `crypto/x509`.
 
+## Options of the Go command
+
+The Go `request-cert` also takes options, each of which replaces its environment variable:
+
+```text
+SIMPLE_CA_TOKEN=TOKEN request-cert [options] API_URL CN [DNS_NAME ...]
+request-cert --token-file FILE [options] API_URL CN [DNS_NAME ...]
+```
+
+- `--token-file FILE` - the file holding the token, `SIMPLE_CA_TOKEN_FILE` by default. The token
+  itself is read only from `SIMPLE_CA_TOKEN` or the file, never from the command line.
+- `--type TYPE` - the certificate type, `SIMPLE_CA_TYPE` by default.
+- `--out-dir DIR` - the directory of the three files, the working directory by default.
+- `--version` prints the version, and `-h` the usage. Wrong arguments print the usage and exit
+  with 2.
+
 ## Examples
 
 ```sh
@@ -51,11 +68,17 @@ export SIMPLE_CA_TOKEN_FILE=deploy.token
 examples/request_cert.py https://pki.example.com:8443/servers/api/sign web.example.com www.example.com
 examples/request-cert.mjs https://pki.example.com:8443/servers/api/sign api.example.com
 examples/request-cert.sh https://pki.example.com:8443/servers/api/sign '*.apps.example.com'
-go run ./examples/request-cert https://pki.example.com:8443/servers/api/sign db.example.com
+go run ./cmd/request-cert --out-dir /etc/ssl/db https://pki.example.com:8443/servers/api/sign db.example.com
 ```
 
-The commands run from the repository root; `go build -o request-cert ./examples/request-cert`
-builds the Go program on its own.
+The commands run from the repository root. `./build.mjs` builds the Go program as `request-cert`
+beside `simple-ca`, `request-cert.exe` on Windows, and `./build.mjs build <goos>/<goarch>` as
+`request-cert-<goos>-<goarch>` (see [Development](development.md)). With Go installed, it is also
+installed on its own:
+
+```sh
+go install github.com/skoszewski/simple-ca/cmd/request-cert@latest
+```
 
 ## HTTPS with the CA's own certificate
 

@@ -20,7 +20,11 @@
 
 ## Code
 
-- Go standard library only; `go-pkcs12` is the one dependency, and no other is added.
+- Go standard library only; `go-pkcs12` and serve-markdown's `render` package, which draws the
+  `/help/` page, are the dependencies, and no other is added.
+- `simple-ca-trust` uses each platform's standard library only: `cmd/simple-ca-trust` the Go
+  standard library, `trust/windows` the .NET base class library, without NuGet packages, and
+  `trust/macos` Swift with the system frameworks, without package dependencies.
 - The command line uses the standard `flag` package, without a command framework.
 - Commands are grouped as `simple-ca GROUP COMMAND`: `ca`, `cert`, `crl` and `token`, with the
   verb `create` for making things; `serve` stands alone. No flat commands are added.

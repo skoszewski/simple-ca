@@ -1,0 +1,42 @@
+{{/* The parts token webui and cert webui share: the top of the page with the CA chooser, and the
+     dialogs asking for the key and for a confirmation. */}}
+
+{{define "webui-top" -}}
+        <div class="rounded-t-2xl bg-head px-6 py-4 text-head-ink">
+          <h1 class="text-xl font-semibold">{{.}}</h1>
+          <p id="title" class="mt-1 text-sm text-head-muted">simple-ca</p>
+        </div>
+        <div id="chooser-row" class="hidden items-center gap-3 border-b border-line px-6 py-4">
+          <span id="ca-label" class="text-sm font-medium">CA</span>
+          <div id="ca-picker" class="min-w-0 flex-1"></div>
+        </div>
+        <p id="message" class="mx-6 mt-5 hidden rounded-lg border border-accent-line bg-accent px-4 py-3 text-sm text-accent-ink"></p>
+        <p id="error" class="mx-6 mt-5 hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink"></p>
+{{- end}}
+
+{{define "webui-dialogs" -}}
+    <dialog id="login" class="m-auto w-full max-w-md rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+      <form id="login-form" class="space-y-4 px-6 py-5">
+        <p id="login-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink"></p>
+        <label class="block space-y-1 text-sm">
+          <span class="block font-medium">Key</span>
+          <input id="login-key" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono">
+        </label>
+        <p class="text-sm text-muted">Paste the key printed when the page was started.</p>
+        <div class="flex justify-end">
+          <button type="submit" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Open</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="confirm" class="m-auto w-full max-w-md overflow-visible rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+      <form method="dialog" class="space-y-5 px-6 py-5">
+        <p id="confirm-message" class="text-sm"></p>
+        <div id="confirm-extra"></div>
+        <div class="flex justify-end gap-2">
+          <button value="cancel" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Cancel</button>
+          <button id="confirm-action" value="confirm" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+{{- end}}

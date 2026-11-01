@@ -22,7 +22,8 @@ writes it, and it can be written or edited by hand. A setting not described here
   },
   "acme": {"domains": ["example.com", "lab.example.org"], "days": 30},
   "serve": {"trusted_proxies": ["127.0.0.1", "10.0.0.0/8"]},
-  "tokens": {"valid": "8h", "domains": ["lab.example.org"], "networks": ["192.168.1.0/24"]}
+  "tokens": {"valid": "8h", "domains": ["lab.example.org"], "networks": ["192.168.1.0/24"],
+             "keep_expired": "720h"}
 }
 ```
 
@@ -35,10 +36,12 @@ writes it, and it can be written or edited by hand. A setting not described here
 - `serve` - the settings of [serve](serve.md):
   - `trusted_proxies` - the addresses and prefixes of the proxies whose `X-Forwarded-For` header
     names the client of the [signing API](signing-api.md); `serve --trusted-proxy` replaces them.
-- `tokens` - the defaults of [token create](signing-api.md#token-create-list-revoke-and-purge),
+- `tokens` - the defaults of [token create](signing-api.md#token-create-list-renew-revoke-and-purge),
   each replaced by the option of the same name: `valid`, a duration such as `8h`, `types`,
   `domains`, `ips`, `localhost`, `hosts` and `networks`, a list of prefixes; `--host` and
-  `--network` replace `hosts` and `networks` together.
+  `--network` replace `hosts` and `networks` together. `keep_expired`, a duration such as
+  `720h`, is how long `serve` keeps an expired or revoked token before removing it; without it,
+  such a token stays until `token purge` removes it.
 - `types` - certificate types for `cert create --type` and `cert sign --type`, by **kebab-case**
   name: words of lower-case letters and digits joined by hyphens, such as `web-server`. A type
   named `server`, `user` or `none` redefines the built-in type, and any other name defines a new

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tokens - simple-ca</title>
+    <script src="{{.Script}}"></script>
+    {{template "theme"}}
+  </head>
+  <body class="min-h-screen bg-page text-ink">
+    <div class="mx-auto max-w-5xl space-y-6 px-4 py-10 sm:py-16">
+      <div class="rounded-2xl border border-line bg-card shadow-lg">
+        {{template "webui-top" "Tokens of the signing API"}}
+        <main id="ca-section" class="space-y-4 px-6 py-5"></main>
+      </div>
+    </div>
+
+    {{template "webui-dialogs"}}
+
+    <dialog id="create-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+      <form id="create-form" class="grid grid-cols-1 gap-4 px-6 py-5 text-sm sm:grid-cols-2">
+        <h2 id="create-title" class="text-lg font-semibold sm:col-span-2">Create a token</h2>
+        <p id="create-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-bad-ink sm:col-span-2"></p>
+        <label class="space-y-1"><span class="block font-medium">Name</span>
+          <input name="name" required placeholder="web-deploy" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <label class="space-y-1"><span class="block font-medium">Valid for</span>
+          <input name="valid" required placeholder="1h, 8h, 720h" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <label class="space-y-1"><span class="block font-medium">Names in certificates: domains, or * for any name</span>
+          <input name="domains" placeholder="example.com, lab.example.org" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <label class="space-y-1"><span class="block font-medium">IP addresses in certificates: addresses or prefixes, or *</span>
+          <input name="ips" placeholder="192.0.2.10, 10.0.0.0/8" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <label class="space-y-1"><span class="block font-medium">Used from: client addresses or prefixes; empty for any client</span>
+          <input name="clients" placeholder="192.168.1.4, 192.168.1.0/24" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <fieldset class="space-y-1"><legend class="font-medium">Certificate types</legend>
+          <div id="create-types" class="flex flex-wrap gap-x-4 gap-y-1"></div>
+        </fieldset>
+        <label class="flex items-center gap-1.5"><input type="checkbox" name="localhost"> localhost certificates: the name localhost and the IP address 127.0.0.1</label>
+        <div class="flex justify-end gap-2 sm:col-span-2">
+          <button id="create-cancel" type="button" class="rounded-lg border border-field-line px-4 py-2 font-medium hover:bg-subtle">Cancel</button>
+          <button type="submit" class="rounded-lg bg-action px-4 py-2 font-semibold text-action-ink shadow-sm hover:bg-action-hover">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="token-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+      <form method="dialog" class="space-y-4 px-6 py-5">
+        <p class="text-sm">The token <strong id="new-token-name"></strong> is shown this once; copy it now. It is
+          gone from the page once this dialog closes.</p>
+        <textarea id="new-token" readonly rows="5" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-xs"></textarea>
+        <div class="flex justify-end gap-2">
+          <button id="copy-token" type="button" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Copy</button>
+          <button value="close" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/assets/webui/webui.js"></script>
+    <script src="/assets/webui/tokens.js"></script>
+  </body>
+</html>

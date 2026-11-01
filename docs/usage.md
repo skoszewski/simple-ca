@@ -17,14 +17,17 @@ simple-ca cert pfx     [--ca-dir DIR] [--password PASS] CERT_PATH
 simple-ca cert revoke  [--ca-dir DIR] [--reason REASON] CERT_PATH
 simple-ca cert list    [--ca-dir DIR] [--valid] [--revoked] [--expired]
 simple-ca cert show    CERT_FILE
+simple-ca cert webui   [--ca-dir DIR] [--address ADDRESS] [--port PORT]
 
 simple-ca crl create   [--ca-dir DIR] [--days N] [--all]
 
 simple-ca token create [--ca-dir DIR] [--valid DURATION] [--type TYPE ...]
                        --domain DOMAIN [--domain DOMAIN ...] NAME
 simple-ca token list   [--ca-dir DIR]
+simple-ca token renew  [--ca-dir DIR] [--valid DURATION] NAME
 simple-ca token revoke [--ca-dir DIR] NAME
-simple-ca token purge  [--ca-dir DIR]
+simple-ca token purge  [--ca-dir DIR] [NAME]
+simple-ca token webui  [--ca-dir DIR] [--address ADDRESS] [--port PORT]
 
 simple-ca serve        [--ca-dir DIR] [--address ADDRESS] [--port PORT]
                        [--tls-cert FILE --tls-key FILE]
@@ -45,8 +48,9 @@ any other is an issuing CA, and its root CA is in the directory above it.
 Without `--issuing-ca`, creates the root CA in the CA directory. With `--issuing-ca NAME`,
 creates an issuing CA in `CA_DIR/NAME/`, signed by the root CA in the CA directory, and adds it
 to `ca_bundle.pem` and to `index.txt` of the root CA. `NAME` is a **kebab-case** name: words of
-lower-case letters and digits joined by hyphens, such as `servers` or `lab-servers`. The CA
-directory must not hold an issuing CA. A CA that exists is left as it is. `--days` defaults to
+lower-case letters and digits joined by hyphens, such as `servers` or `lab-servers`, but not
+`help` or `docs`, the routes of the pages of [serve](serve.md). The CA directory must not hold an issuing
+CA. A CA that exists is left as it is. `--days` defaults to
 3650.
 
 A new CA starts with an empty CRL, number 1, valid for `days.crl` of `simple-ca.json`, 30 days
@@ -251,6 +255,56 @@ STATUS   EXPIRES                  REVOKED                  REASON         SERIAL
 valid    2027-10-30 21:51:52 UTC  -                        -              22AECF2AC0EE6D9185176A6CCEE9FC743F12EB9A  /CN=web.example.com
 revoked  2027-10-30 21:51:52 UTC  2026-10-30 21:51:52 UTC  keyCompromise  12193ECDF2A38AF35B12C657CD52BC5C4CC7626D  /CN=alice.example.com
 ```
+
+## cert webui
+
+Serves a web page managing the certificates of the root CA of the CA directory and of all its
+issuing CAs, until it is stopped with Ctrl-C; it is the commands above on a page, and offers no
+file to download. The page shows one CA, chosen in its CA selector, the root CA at first:
+
+- its certificates, with their status, subject, expiry and revocation, and its current CRL, with
+  its number and next update, marked when overdue;
+- **Show**: the fields of a certificate, as `cert show` writes them, in a dialog naming the file
+  they are read from: a certificate file of the CA directory, `NAME_cert.pem`, or for the root CA
+  the `ca_cert.pem` of an issuing CA. A certificate whose file a later certificate of the same name
+  replaced, or which is not in the CA directory, cannot be shown;
+- **Create a certificate**: a dialog of `cert create`, with the type, the subject and the other
+  names, the days, and the key usages and extended key usages added to those of the type; the
+  certificate and its key are written to the CA directory;
+- **Sign a request**: a dialog of `cert sign`, with the type, the name of the certificate file,
+  the request in PEM, the days and the usages; the certificate is written to the CA directory as
+  `NAME_cert.pem`, `NAME` cleaned as `cert sign` cleans the name of the request file;
+- **Revoke**: revokes a certificate, as `cert revoke` does, for the reason chosen in the dialog
+  asking first;
+- **Write the CRL**: writes a new CRL, as `crl create` does, valid for the days given in the dialog
+  asking first.
+
+A CA whose key is not in its directory can only be looked at. The days start from `days.cert` and
+`days.crl` of [simple-ca.json](configuration.md).
+
+```sh
+simple-ca cert webui --ca-dir /etc/simple-ca
+```
+
+`--address` is the address of the interface it listens on, `127.0.0.1` by default, and `--port`
+the TCP port, 8082 by default. Like [token webui](signing-api.md#token-webui), it prints the URL
+of the page with a random key as its `?key=` query, valid until it stops; the page reads the key
+from that URL, or asks for it, and draws the certificates from its API, below `/api/`, sending
+the key in the `Authorization` header. Each request is logged to the standard error, as `serve`
+logs them.
+
+| Request | Body | Answer |
+|---|---|---|
+| `GET /api/cas` | | `title`, `cas`, `types`, `names`, the name rules of each type, `reasons` and `defaults`, `days` and `crl_days` |
+| `GET /api/certs?ca=CA` | | `certs`, each with `serial`, `subject`, `status`, `expires`, `revoked` and `reason`; `crl`, with `number`, `next_update` and `overdue`, or null |
+| `GET /api/certs/show?ca=CA&serial=SERIAL` | | `file`, the file holding the certificate, relative to the CA directory; `fields`, each a name and its value, as `cert show` writes them; `404 Not Found` when no file holds it |
+| `POST /api/certs` | `ca`, `type`, `subject`, `sans`, `days`, `ku`, `eku` | `201 Created`, `subject` |
+| `POST /api/certs/sign` | `ca`, `type`, `name`, `csr`, `days`, `ku`, `eku` | `201 Created`, `file`, the name of the certificate file |
+| `POST /api/certs/revoke` | `ca`, `serial`, `reason` | `serial` |
+| `POST /api/crl` | `ca`, `days` | `ca` |
+
+`CA` is the name of an issuing CA, or empty for the root CA. A create whose certificate and key
+files exist already is `409 Conflict`, as `cert create` leaves such a certificate.
 
 ## Example
 

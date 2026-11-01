@@ -343,7 +343,6 @@ type acmeCA struct {
 // handle serves the ACME request r for the CA in caDir at the ACME path path, below prefix, the
 // URL path of the CA's ACME paths; it is 404 Not Found when the CA has no ACME.
 func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caDir, prefix, path string) {
-	log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 	cfg, err := loadConfig(rootDir)
 	if err != nil || len(cfg.ACME.Domains) == 0 || !fileExists(filepath.Join(caDir, "ca_key.pem")) {
 		if err != nil {

@@ -1,0 +1,99 @@
+# Trust stores
+
+`simple-ca-trust` adds the root CA and the issuing CAs of a simple-ca CA to the trust store of a
+machine, so that its programs accept the certificates the CA issues, removes them, and lists the
+CAs it added. It is one utility with one command line, written for each platform with the
+platform's own toolset:
+
+| Platform | Source | Built with | Store |
+|---|---|---|---|
+| Windows | `trust/windows/` | .NET 10 | the certificate stores of the user or the computer |
+| macOS | `trust/macos/` | Swift | the login or the System keychain, and the trust settings |
+| Linux | `cmd/simple-ca-trust/` | Go | the system trust anchors |
+
+```sh
+simple-ca-trust add    [--user | --machine] [--ca-dir DIR]
+simple-ca-trust remove [--user | --machine] [--ca-dir DIR]
+simple-ca-trust list   [--user | --machine]
+simple-ca-trust --version
+```
+
+## The CA directory
+
+`--ca-dir` is the directory of the root CA or of one of its issuing CAs, as for `simple-ca`; it
+defaults to `$SIMPLE_CA_DIR`, else the working directory. The CAs are read from `ca_bundle.pem`
+of the root CA, the root CA and all its issuing CAs: in the directory itself, or in its parent
+when its `ca_cert.pem` is that of an issuing CA.
+
+On a machine without the CA, the directory holds a copy of `ca_bundle.pem`, which `serve`
+publishes at `/ca_bundle.pem`; compare the SHA-256 fingerprint of its root CA with the one
+`simple-ca ca show` prints on the CA's machine before trusting it.
+
+`ca_bundle.pem` must hold exactly one root CA, a CA certificate signed by its own key; every
+other certificate in it must be a CA certificate the root CA signed. A bundle that does not is
+refused before anything is changed.
+
+## The commands
+
+- `add` adds the root CA as a trusted root and the issuing CAs as intermediate CAs. A CA already
+  there is left as it is.
+- `remove` removes the CAs of the bundle, and the trust of its root CA.
+- `list` lists the CAs `simple-ca-trust` added, with their role, subject, expiry and SHA-256
+  fingerprint, written as `simple-ca ca show` writes it.
+
+`--user`, the default on Windows and macOS, changes the store of the current user; `--machine`
+changes the store of the machine, used by all its users and services, and needs Administrator or
+root. Linux has only the machine's store: `--machine` is its default, and `--user` is refused.
+The exit status is 0 on success, 1 on an error and 2 on a wrong command line.
+
+## Windows
+
+The root CA goes to Trusted Root Certification Authorities and the issuing CAs to Intermediate
+Certification Authorities, of the current user, or of the computer with `--machine`, which needs
+an elevated prompt. The CAs it added are those whose friendly name starts with `simple-ca: `.
+
+## macOS
+
+The CAs go to the login keychain, or the System keychain with `--machine`, labelled
+`simple-ca: ` and their subject, and the root CA is marked as always trusted, in the user's trust
+settings or, with `--machine`, in the trust settings of all users. The issuing CAs need no trust
+settings: they are found in the keychain when a chain is built.
+
+- Trusting the root CA in the user's settings asks for the user's password in a dialog, and it is
+  possible only in a session logged in at the login window, not over SSH.
+- `--machine` is run with `sudo`, and then asks for nothing more.
+- A `simple-ca-trust` downloaded with a browser is quarantined and refused by Gatekeeper, being
+  unsigned; `xattr -d com.apple.quarantine simple-ca-trust` lifts that.
+
+## Linux
+
+The CAs are written, as PEM, to the directory of the trust anchors the administrator adds, and
+the distribution's command rebuilds the trust store from it:
+
+| Distribution | Directory | Command |
+|---|---|---|
+| Debian, Ubuntu | `/usr/local/share/ca-certificates/` | `update-ca-certificates` |
+| Fedora, RHEL and derivatives | `/etc/pki/ca-trust/source/anchors/` | `update-ca-trust extract` |
+
+Each CA is the file `simple-ca-` and the first 16 hexadecimal digits of its SHA-256
+fingerprint, with `.crt`. Linux has no store of intermediate CAs: the issuing CAs are trust
+anchors like the root CA, and stay trusted on their own while they are there. Browsers that keep
+their own NSS databases, such as Firefox, are not changed.
+
+## Building
+
+There is no release build of `simple-ca-trust` yet. `./build.mjs trust` builds it for the host,
+or `./build.mjs trust <goos>/<goarch>` for another platform the host's toolchains can build for
+(see [Development](development.md)), or by hand, from the repository root:
+
+```sh
+# Linux, with Go
+go build -o simple-ca-trust ./cmd/simple-ca-trust
+
+# macOS, with Swift 6.4 or later
+swift build -c release --package-path trust/macos
+cp "$(swift build -c release --package-path trust/macos --show-bin-path)/simple-ca-trust" .
+
+# Windows, with .NET 10 and Visual Studio's Desktop development with C++ workload
+dotnet publish trust/windows -c Release -r win-x64 -o build/trust-windows
+```

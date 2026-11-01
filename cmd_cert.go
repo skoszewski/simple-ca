@@ -169,3 +169,11 @@ func runCertShow(args []string) error {
 	}
 	return showCert(os.Stdout, rest[0])
 }
+
+// runCertWebUI runs cert webui until it fails or is interrupted.
+func runCertWebUI(args []string) error {
+	return runWebUI(args, "cert webui", 8082, true,
+		"Serve a web page managing the certificates of the root CA of the CA in --ca-dir and of its\n"+
+			"issuing CAs, with its API below /api/: list them, create a certificate, sign a request,\n"+
+			"revoke a certificate and write the CRL, into the CA directories as the commands do.")
+}
