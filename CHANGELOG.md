@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.2
+
+fix: the Windows simple-ca-trust builds with the .NET SDK alone, on any host, and runs on the installed .NET runtime.
+
+- The Windows `simple-ca-trust.exe` is published as a single file running on the .NET 10 runtime
+  installed on the machine, instead of a native executable whose build needs Visual Studio's C++
+  tools; `dotnet publish --self-contained` makes one carrying the runtime.
+- `./build.mjs trust windows/<goarch>` builds it on any host with the .NET 10 SDK.
+
 ## 1.5.1
 
 fix: simple-ca builds without a Go workspace, go.sum holding the checksums of serve-markdown's render package.

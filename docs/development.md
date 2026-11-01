@@ -31,10 +31,9 @@ pages, with a warning, when the download fails. A plain `go build` embeds what
 with the rest, and on macOS and Windows a program of the platform's own toolset, which only
 `./build.mjs trust` builds, for the host or for the platform named: the Go program for `linux/*`
 on any host; Swift 6.4 or later from the package in `trust/macos/` for `darwin/*` on macOS
-only; and .NET 10
-from `trust/windows/` for `windows/*` on Windows only, published as a native (Native AOT)
-executable, which needs Visual Studio 2022 or later with the Desktop development with C++
-workload. A platform the host cannot build for is skipped with a note. The release
+only; and the .NET 10 SDK from `trust/windows/` for `windows/*` on any host, published as a
+single `simple-ca-trust.exe` that runs on the .NET 10 runtime installed on the machine. A
+platform the host cannot build for is skipped with a note. The release
 workflow does not build it; [Trust stores](trust.md) has the commands for building it by hand.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they

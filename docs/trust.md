@@ -51,6 +51,8 @@ The exit status is 0 on success, 1 on an error and 2 on a wrong command line.
 The root CA goes to Trusted Root Certification Authorities and the issuing CAs to Intermediate
 Certification Authorities, of the current user, or of the computer with `--machine`, which needs
 an elevated prompt. The CAs it added are those whose friendly name starts with `simple-ca: `.
+`simple-ca-trust.exe` runs on the .NET 10 runtime, which must be installed, unless it was built
+self-contained.
 
 ## macOS
 
@@ -94,6 +96,10 @@ go build -o simple-ca-trust ./cmd/simple-ca-trust
 swift build -c release --package-path trust/macos
 cp "$(swift build -c release --package-path trust/macos --show-bin-path)/simple-ca-trust" .
 
-# Windows, with .NET 10 and Visual Studio's Desktop development with C++ workload
+# Windows, with the .NET 10 SDK, on any host
 dotnet publish trust/windows -c Release -r win-x64 -o build/trust-windows
 ```
+
+The Windows `simple-ca-trust.exe` needs the .NET 10 runtime on the machine it runs on. Adding
+`--self-contained` to `dotnet publish` makes one that carries the runtime itself, about 70 MB
+instead of about 200 KB.

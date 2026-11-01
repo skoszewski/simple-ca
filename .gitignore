@@ -34,6 +34,16 @@ go.work.sum
 /trust/macos/.build/
 /trust/windows/bin/
 /trust/windows/obj/
+
+# Per-user files of Xcode, Visual Studio and Rider
+/trust/macos/.swiftpm/
+xcuserdata/
+*.xcuserstate
+DerivedData/
+/trust/windows/.vs/
+/trust/windows/.idea/
+*.csproj.user
+*.suo
 /build/
 /dist/
 /tmp/

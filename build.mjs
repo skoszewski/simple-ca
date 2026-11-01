@@ -10,9 +10,8 @@
 // release.mjs.
 //
 // The trust action writes simple-ca-trust for the host, or simple-ca-trust-<goos>-<goarch> for
-// the platform named: cmd/simple-ca-trust with go for linux, on any host; trust/macos with swift
-// for darwin and trust/windows with dotnet for windows, each on a host of its platform only, and
-// skipped elsewhere.
+// the platform named: cmd/simple-ca-trust with go for linux and trust/windows with dotnet for
+// windows, on any host; trust/macos with swift for darwin, on macOS only, and skipped elsewhere.
 //
 // The assets action downloads the browser files of serve-markdown's page, for the version of
 // serve-markdown in go.mod, from its GitHub release into assets/markdown, which serve embeds
@@ -143,8 +142,8 @@ switch (action) {
     }
     break;
   case "trust": {
-    // The target is the platform named, else the host; the Swift and .NET versions are built only
-    // on a host of their own platform, the Go version on any host.
+    // The target is the platform named, else the host; the Swift version is built only on macOS,
+    // the Go and .NET versions on any host.
     const host = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform] ?? process.platform;
     const goos = env.GOOS ?? host;
     const goarch = env.GOARCH ?? { x64: "amd64", arm64: "arm64" }[process.arch] ?? process.arch;
@@ -158,13 +157,13 @@ switch (action) {
       const bin = run("swift", ["build", "-c", "release", "--package-path", macos, ...arch, "--show-bin-path"],
         { capture: true }).trim();
       copyFileSync(join(bin, "simple-ca-trust"), join(root, name));
-    } else if (goos === "windows" && host === "windows") {
+    } else if (goos === "windows") {
       const out = join(root, "build", `trust-windows-${goarch}`);
       run("dotnet", ["publish", join(root, "trust", "windows"), "-c", "Release",
         "-r", `win-${{ amd64: "x64", arm64: "arm64" }[goarch] ?? goarch}`, "-o", out]);
       copyFileSync(join(out, "simple-ca-trust.exe"), join(root, `${name}.exe`));
-    } else if (goos === "darwin" || goos === "windows") {
-      console.error(`note: simple-ca-trust for ${goos} is built on ${goos} only; skipped`);
+    } else if (goos === "darwin") {
+      console.error("note: simple-ca-trust for darwin is built on darwin only; skipped");
     } else {
       console.error(`note: simple-ca-trust has no version for ${goos}; skipped`);
     }
