@@ -34,6 +34,7 @@ go.work.sum
 /trust/macos/.build/
 /trust/windows/bin/
 /trust/windows/obj/
+/trust/windows/simple-ca-trust.csproj
 
 # Per-user files of Xcode, Visual Studio and Rider
 /trust/macos/.swiftpm/

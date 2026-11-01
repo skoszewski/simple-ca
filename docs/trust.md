@@ -96,10 +96,12 @@ go build -o simple-ca-trust ./cmd/simple-ca-trust
 swift build -c release --package-path trust/macos
 cp "$(swift build -c release --package-path trust/macos --show-bin-path)/simple-ca-trust" .
 
-# Windows, with the .NET 10 SDK, on any host
-dotnet publish trust/windows -c Release -r win-x64 -o build/trust-windows
+# Windows, with the .NET 10 SDK and Node.js, on any host
+node build.mjs trust windows/amd64
+node build.mjs trust --self-contained windows/amd64
 ```
 
-The Windows `simple-ca-trust.exe` needs the .NET 10 runtime on the machine it runs on. Adding
-`--self-contained` to `dotnet publish` makes one that carries the runtime itself, about 70 MB
-instead of about 200 KB.
+The project file of the Windows version, `trust/windows/simple-ca-trust.csproj`, is not in the
+repository: `build.mjs trust` writes it for each build. The Windows `simple-ca-trust.exe` needs
+the .NET 10 runtime on the machine it runs on; with `--self-contained` it carries the runtime
+itself, about 80 MB instead of about 200 KB.

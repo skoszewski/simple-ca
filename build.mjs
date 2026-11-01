@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Builds, tests and checks simple-ca.
-// Usage: ./build.mjs [build|trust|test|check|clean|assets] [<goos>/<goarch>]
+// Usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
 //
 // The build action writes simple-ca, request-cert, the Go client of the signing API in
 // cmd/request-cert, and on Linux simple-ca-trust of cmd/simple-ca-trust. The platform defaults
@@ -12,6 +12,9 @@
 // The trust action writes simple-ca-trust for the host, or simple-ca-trust-<goos>-<goarch> for
 // the platform named: cmd/simple-ca-trust with go for linux and trust/windows with dotnet for
 // windows, on any host; trust/macos with swift for darwin, on macOS only, and skipped elsewhere.
+// For windows it writes the project file trust/windows/simple-ca-trust.csproj, for a single
+// simple-ca-trust.exe running on the installed .NET runtime, or carrying the runtime with
+// --self-contained.
 //
 // The assets action downloads the browser files of serve-markdown's page, for the version of
 // serve-markdown in go.mod, from its GitHub release into assets/markdown, which serve embeds
@@ -24,9 +27,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [<goos>/<goarch>]";
+const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]";
 const root = dirname(fileURLToPath(import.meta.url));
-const [action = "build", platform = ""] = process.argv.slice(2);
+const selfContained = process.argv.includes("--self-contained");
+const [action = "build", platform = ""] = process.argv.slice(2).filter((arg) => arg !== "--self-contained");
 const markdownAssets = join(root, "assets", "markdown");
 const versionFile = join(markdownAssets, ".version");
 const requiredTag = readFileSync(join(root, "go.mod"), "utf8")
@@ -87,7 +91,7 @@ async function fetchMarkdownAssets() {
 
 const env = { ...process.env, CGO_ENABLED: "0" };
 
-if (!["build", "trust", "test", "check", "clean", "assets"].includes(action)) {
+if (!["build", "trust", "test", "check", "clean", "assets"].includes(action) || (selfContained && action !== "trust")) {
   console.error(usage);
   process.exit(2);
 }
@@ -158,8 +162,29 @@ switch (action) {
         { capture: true }).trim();
       copyFileSync(join(bin, "simple-ca-trust"), join(root, name));
     } else if (goos === "windows") {
+      // The project file is written for each build, self-contained or running on the installed
+      // .NET runtime.
+      const project = join(root, "trust", "windows", "simple-ca-trust.csproj");
+      writeFileSync(project, `<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>simple-ca-trust</AssemblyName>
+    <RootNamespace>SimpleCaTrust</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>${selfContained}</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <InformationalVersion>dev</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+</Project>
+`);
       const out = join(root, "build", `trust-windows-${goarch}`);
-      run("dotnet", ["publish", join(root, "trust", "windows"), "-c", "Release",
+      run("dotnet", ["publish", project, "-c", "Release",
         "-r", `win-${{ amd64: "x64", arm64: "arm64" }[goarch] ?? goarch}`, "-o", out]);
       copyFileSync(join(out, "simple-ca-trust.exe"), join(root, `${name}.exe`));
     } else if (goos === "darwin") {
@@ -191,7 +216,7 @@ switch (action) {
     }
     rmSync(`${root}/build`, { recursive: true, force: true });
     rmSync(`${root}/dist`, { recursive: true, force: true });
-    for (const dir of ["trust/macos/.build", "trust/windows/bin", "trust/windows/obj"]) {
+    for (const dir of ["trust/macos/.build", "trust/windows/bin", "trust/windows/obj", "trust/windows/simple-ca-trust.csproj"]) {
       rmSync(join(root, dir), { recursive: true, force: true });
     }
     break;

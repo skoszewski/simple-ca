@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.3
+
+fix: build.mjs trust writes the project file of the Windows simple-ca-trust, which builds again, running on the installed .NET runtime or self-contained with --self-contained.
+
+- `./build.mjs trust` writes `trust/windows/simple-ca-trust.csproj`, which is not in the
+  repository, before building the Windows `simple-ca-trust.exe`, which failed with MSB1003
+  without it.
+- `./build.mjs trust --self-contained` builds a Windows `simple-ca-trust.exe` carrying the .NET
+  runtime; without it, the executable runs on the .NET 10 runtime installed on the machine.
+
 ## 1.5.2
 
 fix: the Windows simple-ca-trust builds with the .NET SDK alone, on any host, and runs on the installed .NET runtime.

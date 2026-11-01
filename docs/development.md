@@ -11,6 +11,8 @@
                                # simple-ca-trust-linux-arm64
 ./build.mjs trust              # build simple-ca-trust for the host with its own toolchain
 ./build.mjs trust darwin/amd64 # build simple-ca-trust-darwin-amd64, on macOS only
+./build.mjs trust --self-contained windows/arm64
+                               # build simple-ca-trust-windows-arm64.exe carrying the .NET runtime
 ./build.mjs test               # run the tests
 ./build.mjs check              # check formatting, vet and run the tests
 ./build.mjs clean              # remove the built executables
@@ -32,7 +34,9 @@ with the rest, and on macOS and Windows a program of the platform's own toolset,
 `./build.mjs trust` builds, for the host or for the platform named: the Go program for `linux/*`
 on any host; Swift 6.4 or later from the package in `trust/macos/` for `darwin/*` on macOS
 only; and the .NET 10 SDK from `trust/windows/` for `windows/*` on any host, published as a
-single `simple-ca-trust.exe` that runs on the .NET 10 runtime installed on the machine. A
+single `simple-ca-trust.exe` that runs on the .NET 10 runtime installed on the machine, or
+carries it with `--self-contained`. `build.mjs` writes the project file of the Windows version,
+`trust/windows/simple-ca-trust.csproj`, which is not in the repository, for each build. A
 platform the host cannot build for is skipped with a note. The release
 workflow does not build it; [Trust stores](trust.md) has the commands for building it by hand.
 
