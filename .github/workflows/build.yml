@@ -1,10 +1,12 @@
 # A semver tag with a leading v on a commit on main, naming the newest CHANGELOG.md entry, is
 # checked for formatting and by go vet, built for every platform it is published for, and published
 # as a release, with the tag's message as its notes and as a prerelease for a prerelease version.
-# Each executable is given the tag as its version and published in a tar.gz, or a zip for Windows,
-# named after its version, without the v, and its platform. It embeds the browser files of
-# serve-markdown's page for its /help/ page, which build.mjs downloads from the serve-markdown
-# release go.mod names.
+# simple-ca and request-cert are given the tag as their version and published together in a
+# tar.gz, or a zip for Windows, named after the version, without the v, and the platform.
+# simple-ca embeds the browser files of serve-markdown's page for its /help/ page, which build.mjs
+# downloads from the serve-markdown release go.mod names. simple-ca-trust is built by build.mjs for macOS with Swift on the Xcode 27
+# image and for Windows with .NET, running on the installed .NET runtime, and published the same
+# way as simple-ca-trust-<version>-<platform>.
 
 name: build
 
@@ -59,19 +61,20 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           export GOOS="${PLATFORM%%/*}" GOARCH="${PLATFORM##*/}"
-          binary="simple-ca"
+          exe=""
           if [ "$GOOS" = "windows" ]; then
-            binary="$binary.exe"
+            exe=".exe"
           fi
           version="${TAG#v}"
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/$binary" .
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/simple-ca$exe" .
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/request-cert$exe" ./cmd/request-cert
           mkdir -p dist
           if [ "$GOOS" = "windows" ]; then
             archive="simple-ca-$version-$GOOS-$GOARCH.zip"
-            (cd build && zip -9 "../dist/$archive" "$binary")
+            (cd build && zip -9 "../dist/$archive" "simple-ca$exe" "request-cert$exe")
           else
             archive="simple-ca-$version-$GOOS-$GOARCH.tar.gz"
-            tar -czf "dist/$archive" -C build "$binary"
+            tar -czf "dist/$archive" -C build "simple-ca$exe" "request-cert$exe"
           fi
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
@@ -80,8 +83,74 @@ jobs:
           archive: false
           if-no-files-found: error
 
+  trust-macos:
+    needs: check
+    runs-on: xcode-27
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - name: Swift
+        run: swift --version
+      - name: Build
+        id: build
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          printf '/// The version simple-ca-trust prints; a release build replaces this file.\nlet version = "%s"\n' "$TAG" \
+            > trust/macos/Sources/simple-ca-trust/Version.swift
+          node build.mjs trust "darwin/$GOARCH"
+          mkdir -p build dist
+          cp "simple-ca-trust-darwin-$GOARCH" build/simple-ca-trust
+          archive="simple-ca-trust-${TAG#v}-darwin-$GOARCH.tar.gz"
+          tar -czf "dist/$archive" -C build simple-ca-trust
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/${{ steps.build.outputs.archive }}
+          archive: false
+          if-no-files-found: error
+
+  trust-windows:
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        id: build
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          TAG: ${{ github.ref_name }}
+          InformationalVersion: ${{ github.ref_name }}
+        run: |
+          node build.mjs trust "windows/$GOARCH"
+          mkdir -p build dist
+          cp "simple-ca-trust-windows-$GOARCH.exe" build/simple-ca-trust.exe
+          archive="simple-ca-trust-${TAG#v}-windows-$GOARCH.zip"
+          (cd build && zip -9 "../dist/$archive" simple-ca-trust.exe)
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/${{ steps.build.outputs.archive }}
+          archive: false
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, trust-macos, trust-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write

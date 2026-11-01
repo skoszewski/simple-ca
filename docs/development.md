@@ -37,8 +37,11 @@ only; and the .NET 10 SDK from `trust/windows/` for `windows/*` on any host, pub
 single `simple-ca-trust.exe` that runs on the .NET 10 runtime installed on the machine, or
 carries it with `--self-contained`. `build.mjs` writes the project file of the Windows version,
 `trust/windows/simple-ca-trust.csproj`, which is not in the repository, for each build. A
-platform the host cannot build for is skipped with a note. The release
-workflow does not build it; [Trust stores](trust.md) has the commands for building it by hand.
+platform the host cannot build for is skipped with a note. The release workflow builds the
+macOS version for `darwin/amd64` and `darwin/arm64` on GitHub's Xcode 27 image, and the Windows
+version for `windows/amd64` and `windows/arm64`, running on the installed .NET runtime, with
+`build.mjs trust`, and publishes them as `simple-ca-trust-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip`
+for Windows; [Trust stores](trust.md) has the commands for building it by hand.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
 are run with `./build.mjs test` or `./build.mjs check`.

@@ -14,7 +14,7 @@
 // windows, on any host; trust/macos with swift for darwin, on macOS only, and skipped elsewhere.
 // For windows it writes the project file trust/windows/simple-ca-trust.csproj, for a single
 // simple-ca-trust.exe running on the installed .NET runtime, or carrying the runtime with
-// --self-contained.
+// --self-contained; its version is dev, or the InformationalVersion environment variable.
 //
 // The assets action downloads the browser files of serve-markdown's page, for the version of
 // serve-markdown in go.mod, from its GitHub release into assets/markdown, which serve embeds
@@ -177,7 +177,7 @@ switch (action) {
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>${selfContained}</SelfContained>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <InformationalVersion>dev</InformationalVersion>
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">dev</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 

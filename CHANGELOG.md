@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.5
+
+fix: the releases carry request-cert beside simple-ca, and simple-ca-trust for macOS and Windows.
+
+- The release archives `simple-ca-X.Y.Z-<goos>-<goarch>` hold `request-cert`, the Go client of
+  the signing API, beside `simple-ca`, with the release as its version.
+- The release workflow builds `simple-ca-trust` for macOS, amd64 and arm64, with Swift on
+  GitHub's Xcode 27 image, and for Windows, amd64 and arm64, with .NET, and publishes them as
+  `simple-ca-trust-X.Y.Z-darwin-<arch>.tar.gz` and `simple-ca-trust-X.Y.Z-windows-<arch>.zip`;
+  each prints the release as its version. The Windows one runs on the installed .NET 10 runtime.
+- `./build.mjs trust` gives the Windows `simple-ca-trust.exe` the version in the
+  `InformationalVersion` environment variable, else `dev`.
+
 ## 1.5.4
 
 gap: simple-ca-trust add and remove take the root CA certificate or a CA bundle with --file, instead of --ca-dir.

@@ -11,7 +11,8 @@ API for the CAs.
 ## Installation
 
 Download the archive for your platform from the
-[releases](https://github.com/skoszewski/simple-ca/releases) and put `simple-ca` on your `PATH`.
+[releases](https://github.com/skoszewski/simple-ca/releases) and put `simple-ca` on your `PATH`;
+the archive also holds `request-cert`, the Go client of the signing API.
 With Go installed:
 
 ```sh

@@ -88,7 +88,9 @@ their own NSS databases, such as Firefox, are not changed.
 
 ## Building
 
-There is no release build of `simple-ca-trust` yet. `./build.mjs trust` builds it for the host,
+The releases carry the macOS and Windows versions, as `simple-ca-trust-X.Y.Z-darwin-<goarch>.tar.gz`
+and `simple-ca-trust-X.Y.Z-windows-<goarch>.zip`; the Windows one runs on the installed .NET 10
+runtime. `./build.mjs trust` builds it for the host,
 or `./build.mjs trust <goos>/<goarch>` for another platform the host's toolchains can build for
 (see [Development](development.md)), or by hand, from the repository root:
 

@@ -73,8 +73,8 @@ go run ./cmd/request-cert --out-dir /etc/ssl/db https://pki.example.com:8443/ser
 
 The commands run from the repository root. `./build.mjs` builds the Go program as `request-cert`
 beside `simple-ca`, `request-cert.exe` on Windows, and `./build.mjs build <goos>/<goarch>` as
-`request-cert-<goos>-<goarch>` (see [Development](development.md)). With Go installed, it is also
-installed on its own:
+`request-cert-<goos>-<goarch>` (see [Development](development.md)). The release archives of
+`simple-ca` hold it too. With Go installed, it is also installed on its own:
 
 ```sh
 go install github.com/skoszewski/simple-ca/cmd/request-cert@latest
