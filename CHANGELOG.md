@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1
+
+fix: simple-ca builds without a Go workspace, go.sum holding the checksums of serve-markdown's render package.
+
+- `go.sum` holds the checksums of `github.com/skoszewski/serve-markdown/v3` v3.5.0 and of
+  `go.yaml.in/yaml/v3`, which the release workflow, `go install` and the `Dockerfile` need; the
+  release workflow of 1.5.0 failed at `go vet` for their lack, and published nothing.
+
 ## 1.5.0
 
 feature: serve shows the clients of the signing API how to request a certificate at /help/, and serve --docs the guides at /docs/, drawn by serve-markdown's render package; token webui and cert webui manage the tokens and the certificates on web pages, and token renew renews a revoked or expired token, which is kept until purged; simple-ca-trust adds the CAs to the trust store of Windows, macOS or Linux.
