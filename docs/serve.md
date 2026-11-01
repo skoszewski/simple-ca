@@ -50,14 +50,17 @@ is offered at the top of the page, above the CAs, as P7B, which Windows opens an
 all its certificates, and as PEM; each CA links to its certificate and CRL, in DER and PEM. The
 page and the signing forms follow the light or dark theme of the browser. They are styled with
 the browser build of Tailwind CSS 4.3.3, embedded in the executable and served at
-`/assets/tailwindcss-browser-4.3.3.js`, so the pages load nothing from other sites.
+`/assets/tailwindcss-browser-4.3.3.js`, and the signing forms choose the certificate type with
+the scripts `/assets/webui/picker.js` and `/assets/webui/sign.js`, so the pages load nothing from
+other sites.
 
 The files are read on each request, so a CRL written by `crl create` is served at once; a file that
 does not exist is `404 Not Found`. No other file is served. Each
 request is logged to the standard error.
 
 `/help/` shows the clients of the [signing API](signing-api.md) how to request a certificate with
-`openssl`, `curl` and `jq`, or with the signing form: `help/index.md`, embedded in the
+`request-cert`, step by step with `openssl`, `curl` and `jq`, or with the signing form:
+`help/index.md`, embedded in the
 executable, as a page drawn by the `render` package of
 [serve-markdown](https://github.com/skoszewski/serve-markdown), with an outline of its headings;
 the index page and the signing forms link to it. The page's browser files are those of the

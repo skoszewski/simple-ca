@@ -228,6 +228,7 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeM
 		}
 	})
 	mux.Handle("GET "+tailwindPath, tailwindHandler)
+	mux.Handle("GET /assets/webui/{file}", webuiScriptHandler)
 	serve := func(w http.ResponseWriter, r *http.Request, dir, name string) {
 		f, ok := servedFiles[name]
 		if !ok {

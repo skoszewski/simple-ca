@@ -647,7 +647,9 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 		certType = tok.Types[0]
 	}
 	if !slices.Contains(tok.Types, certType) {
-		return nil, nil, "", apiErr(http.StatusForbidden, "the token does not allow the type '%s'", certType)
+		return nil, nil, "", apiErr(http.StatusForbidden,
+			"the token does not allow the type '%s'; choose a type it allows, %s, or the default, its first type",
+			certType, strings.Join(tok.Types, ", "))
 	}
 	cfg, err := loadRootConfig(caDir)
 	if err != nil {
@@ -780,10 +782,32 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, truste
 	}
 	page := struct {
 		Title, Script, Action, CSR, Type, Error, Unavailable, Help string
-		Types                                                      []string
-	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: path, Types: slices.Sorted(maps.Keys(types))}
+		Types                                                      []struct{ Name, Label string }
+	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: path}
 	if helpSite != nil {
 		page.Help = helpPath
+	}
+
+	// Each type is offered with what its certificates are for: its extended key usages, else its
+	// key usages.
+	usageWords := map[string]string{"serverAuth": "TLS server", "clientAuth": "TLS client",
+		"emailProtection": "e-mail", "codeSigning": "code signing"}
+	for _, name := range slices.Sorted(maps.Keys(types)) {
+		def := types[name]
+		var words []string
+		for _, usage := range def.extKeyUsage {
+			words = append(words, cmp.Or(usageWords[usage], usage))
+		}
+		description := "no key usages"
+		switch {
+		case len(words) > 1:
+			description = strings.Join(words[:len(words)-1], ", ") + " and " + words[len(words)-1]
+		case len(words) == 1:
+			description = words[0]
+		case len(def.keyUsage) > 0:
+			description = "key usages " + strings.Join(def.keyUsage, ", ")
+		}
+		page.Types = append(page.Types, struct{ Name, Label string }{name, name + ": " + description})
 	}
 
 	// A CA without its key or its tokens shows why it signs no requests, in place of the form.

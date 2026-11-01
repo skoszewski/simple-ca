@@ -1,6 +1,6 @@
-// The parts token webui and cert webui share. The page draws one CA from the API, sending the
-// key, which the tab keeps, as its bearer token; the CA on the page is in the address as ?ca=. The
-// script of the page, loaded after this one, defines showCA, which draws the CA.
+// The parts token webui and cert webui share, after picker.js. The page draws one CA from the API,
+// sending the key, which the tab keeps, as its bearer token; the CA on the page is in the address
+// as ?ca=. The script of the page, loaded after this one, defines showCA, which draws the CA.
 const keyName = "simple-ca-webui-key";
 const params = new URLSearchParams(location.search);
 if (params.has("key")) {
@@ -10,14 +10,6 @@ if (params.has("key")) {
 let caID = params.get("ca") || "";
 let info = null;
 const $ = (id) => document.getElementById(id);
-
-// element returns a new element with the properties given and the children appended.
-function element(tag, props = {}, ...children) {
-  const node = document.createElement(tag);
-  Object.assign(node, props);
-  node.append(...children.filter((child) => child !== null));
-  return node;
-}
 
 // api sends a request of the API and returns its answer; a missing or wrong key asks for one.
 async function api(method, path, body) {
@@ -90,60 +82,6 @@ for (const dialog of document.querySelectorAll("dialog:not(#login)")) {
     }
   });
 }
-
-// picker returns a dropdown chooser, labelled by the element labelledBy, of the choices, each a
-// value and its label, with value chosen; a hidden input named name holds the value chosen, and
-// onchange is called with a value chosen anew. The chooser is a details element with id, when
-// given.
-function picker({ name, id = "", labelledBy, choices, value, onchange = () => {} }) {
-  const input = element("input", { type: "hidden", name, value });
-  const current = element("span", { className: "truncate" });
-  const list = element("ul", { role: "listbox",
-    className: "absolute right-0 left-0 z-10 mt-1 max-h-80 overflow-y-auto rounded-lg border border-line bg-card py-1 text-sm shadow-lg" });
-  const chooser = element("details", { id, className: "relative min-w-0" },
-    element("summary", { className: "flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-field-line bg-field px-3 py-2 text-sm hover:border-action [&::-webkit-details-marker]:hidden" },
-      current, element("span", { className: "shrink-0 text-muted", ariaHidden: "true",
-        innerHTML: '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' })),
-    list);
-  chooser.dataset.picker = "";
-  chooser.querySelector("summary").setAttribute("aria-labelledby", labelledBy);
-  list.setAttribute("aria-labelledby", labelledBy);
-  const show = (chosen) => {
-    input.value = chosen;
-    current.textContent = (choices.find(([v]) => v === chosen) || ["", ""])[1];
-    list.replaceChildren(...choices.map(([v, label]) => element("li", { role: "option", ariaSelected: String(v === chosen) },
-      element("button", { type: "button", className: "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-subtle" +
-        (v === chosen ? " font-semibold" : ""), onclick: () => {
-        chooser.open = false;
-        chooser.querySelector("summary").focus();
-        if (v !== input.value) {
-          show(v);
-          onchange(v);
-        }
-      } },
-        element("span", { className: "w-3.5 shrink-0 text-link", textContent: v === chosen ? "✓" : "" }),
-        element("span", { className: "truncate", textContent: label })))));
-  };
-  show(value);
-  return element("div", { className: "min-w-0" }, input, chooser);
-}
-
-// An open chooser closes on a click outside it, and on Escape, which leaves its dialog open.
-document.addEventListener("click", (event) => {
-  for (const chooser of document.querySelectorAll("details[data-picker][open]")) {
-    if (!chooser.contains(event.target)) {
-      chooser.open = false;
-    }
-  }
-});
-document.addEventListener("keydown", (event) => {
-  const chooser = document.querySelector("details[data-picker][open]");
-  if (event.key === "Escape" && chooser) {
-    event.preventDefault();
-    chooser.open = false;
-    chooser.querySelector("summary").focus();
-  }
-});
 
 // load reads the CAs and shows the one in the address, the root CA for one that is not there.
 async function load() {

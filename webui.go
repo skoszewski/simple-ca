@@ -40,11 +40,23 @@ import (
 
 // ---- token webui and cert webui ---------------------------------------------
 
-// webuiScripts are the scripts of the pages, served at their paths: webui.js, which both pages
-// load, then tokens.js or certs.js.
+// webuiScripts are the scripts of the pages, served at their paths: picker.js and webui.js, which
+// both pages load, then tokens.js or certs.js; the signing form of serve loads picker.js and
+// sign.js.
 //
 //go:embed assets/webui/*.js
 var webuiScripts embed.FS
+
+// webuiScriptHandler serves the script of webuiScripts named by the path value file.
+var webuiScriptHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	file := r.PathValue("file")
+	if !strings.HasSuffix(file, ".js") {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeFileFS(w, r, webuiScripts, "assets/webui/"+file)
+})
 
 // webuiServer serves token webui, or cert webui with certs, for the root CA in rootDir and its
 // issuing CAs: the page at /, and its API below /api/, for the requests carrying key as their
@@ -132,15 +144,7 @@ func (s *webuiServer) mux() *http.ServeMux {
 		}
 	})
 	mux.Handle("GET "+tailwindPath, tailwindHandler)
-	mux.HandleFunc("GET /assets/webui/{file}", func(w http.ResponseWriter, r *http.Request) {
-		file := r.PathValue("file")
-		if !strings.HasSuffix(file, ".js") {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Cache-Control", "no-cache")
-		http.ServeFileFS(w, r, webuiScripts, "assets/webui/"+file)
-	})
+	mux.Handle("GET /assets/webui/{file}", webuiScriptHandler)
 	mux.HandleFunc("/api/", s.api)
 	return mux
 }

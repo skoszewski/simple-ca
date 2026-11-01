@@ -1929,6 +1929,10 @@ func TestAPISign(t *testing.T) {
 			t.Fatalf("%s: status %d %v, want %d", c.name, status, resp, c.want)
 		}
 	}
+	if _, resp := post("/issuing-ca/api/sign", serverOnly, "application/json", request(alice, "user")); resp["error"] !=
+		"the token does not allow the type 'user'; choose a type it allows, server, or the default, its first type" {
+		t.Errorf("type not allowed: %v, want the types the token allows", resp)
+	}
 	if entries, err := readIndex(issuingDir); err != nil || len(entries) != 2 {
 		t.Fatalf("index.txt %+v, %v, want the two certificates issued", entries, err)
 	}
@@ -1940,8 +1944,11 @@ func TestAPISign(t *testing.T) {
 	formPage, _ := io.ReadAll(form.Body)
 	form.Body.Close()
 	if form.StatusCode != http.StatusOK || !strings.Contains(string(formPage), `action="/issuing-ca/sign"`) ||
-		!strings.Contains(string(formPage), `type="password"`) {
-		t.Fatalf("GET /issuing-ca/sign: %d\n%s\nwant the form", form.StatusCode, formPage)
+		!strings.Contains(string(formPage), `type="password"`) ||
+		!strings.Contains(string(formPage), `<option value="">Default: the token's first type</option>`) ||
+		!strings.Contains(string(formPage), `<option value="server">server: TLS server and TLS client</option>`) ||
+		!strings.Contains(string(formPage), `<option value="none">none: no key usages</option>`) {
+		t.Fatalf("GET /issuing-ca/sign: %d\n%s\nwant the form, its types described", form.StatusCode, formPage)
 	}
 	signed, err := http.PostForm(server.URL+"/issuing-ca/sign", url.Values{"csr": {web}, "token": {token}})
 	if err != nil {
@@ -2334,7 +2341,8 @@ func TestHelpPage(t *testing.T) {
 		t.Errorf("/help/: status %d, want the page shell:\n%s", status, page)
 	}
 	if status, body := get(with, "/help/_/content?path=%2Fhelp%2F"); status != http.StatusOK ||
-		!strings.Contains(body, `"title":"Requesting a certificate"`) || !strings.Contains(body, "## Send the request") {
+		!strings.Contains(body, `"title":"Requesting a certificate"`) || !strings.Contains(body, "## With request-cert") ||
+		!strings.Contains(body, "### Send the request") {
 		t.Errorf("/help/ content: status %d, want the help:\n%s", status, body)
 	}
 	for _, path := range []string{"/", "/sign"} {

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.6
+
+fix: the /help/ page of serve shows how to request a certificate with request-cert first, and the signing form chooses the certificate type with the dropdown of the web pages.
+
+- `/help/` shows `request-cert` first: where to get it, the command, the files it writes and its
+  options; the commands of `openssl`, `curl` and `jq` follow, for certificates with IP addresses
+  or a request made elsewhere.
+- The signing form of `serve` chooses the certificate type with the dropdown of `token webui` and
+  `cert webui`, in place of the browser's own; `serve` serves its scripts below `/assets/webui/`.
+  Each type is shown with what its certificates are for, such as `server: TLS server and TLS
+  client` or `none: no key usages`, and the empty choice reads "Default: the token's first type".
+- A request of a type the token does not allow is refused with the types the token allows, and
+  the advice to choose one of them or the default, its first type.
+
 ## 1.5.5
 
 fix: the releases carry request-cert beside simple-ca, and simple-ca-trust for macOS and Windows.
