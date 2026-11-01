@@ -138,7 +138,26 @@ func TestAddListRemove(t *testing.T) {
 		t.Errorf("add from a directory without ca_bundle.pem: %v, want an error naming it", err)
 	}
 
-	for _, args := range [][]string{{"add", "--user"}, {"add", caDir}, {"list", "extra"}, {"trust"}} {
+	// --file names the root CA certificate or a bundle directly.
+	rootFile := filepath.Join(t.TempDir(), "root.crt")
+	if err := os.WriteFile(rootFile, root.Raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"add", "--file", rootFile}); err != nil {
+		t.Fatalf("add --file of the DER root CA: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 1 || filepath.Base(left[0]) != fileName(root) {
+		t.Errorf("add --file of the root CA wrote %v, want %s alone", left, fileName(root))
+	}
+	if err := run([]string{"remove", "--file", filepath.Join(caDir, "ca_bundle.pem")}); err != nil {
+		t.Fatalf("remove --file of the bundle: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+		t.Errorf("remove --file left %v", left)
+	}
+
+	for _, args := range [][]string{{"add", "--user"}, {"add", caDir}, {"list", "extra"}, {"trust"},
+		{"add", "--ca-dir", caDir, "--file", rootFile}} {
 		if err := run(args); err != errUsage {
 			t.Errorf("run %v: %v, want the usage", args, err)
 		}

@@ -12,26 +12,30 @@ platform's own toolset:
 | Linux | `cmd/simple-ca-trust/` | Go | the system trust anchors |
 
 ```sh
-simple-ca-trust add    [--user | --machine] [--ca-dir DIR]
-simple-ca-trust remove [--user | --machine] [--ca-dir DIR]
+simple-ca-trust add    [--user | --machine] [--ca-dir DIR | --file FILE]
+simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE]
 simple-ca-trust list   [--user | --machine]
 simple-ca-trust --version
 ```
 
-## The CA directory
+## The CA directory or file
 
 `--ca-dir` is the directory of the root CA or of one of its issuing CAs, as for `simple-ca`; it
 defaults to `$SIMPLE_CA_DIR`, else the working directory. The CAs are read from `ca_bundle.pem`
 of the root CA, the root CA and all its issuing CAs: in the directory itself, or in its parent
 when its `ca_cert.pem` is that of an issuing CA.
 
-On a machine without the CA, the directory holds a copy of `ca_bundle.pem`, which `serve`
-publishes at `/ca_bundle.pem`; compare the SHA-256 fingerprint of its root CA with the one
-`simple-ca ca show` prints on the CA's machine before trusting it.
+`--file` names the certificates directly instead: the root CA certificate, such as
+`ca_cert.pem` of the root CA, or a CA bundle such as `ca_bundle.pem`, PEM or DER, under any
+name. It cannot be given with `--ca-dir`.
 
-`ca_bundle.pem` must hold exactly one root CA, a CA certificate signed by its own key; every
-other certificate in it must be a CA certificate the root CA signed. A bundle that does not is
-refused before anything is changed.
+On a machine without the CA, use a copy of `ca_bundle.pem` or of the root CA's `ca_cert.pem`,
+which `serve` publishes at `/ca_bundle.pem` and `/ca_cert.pem`; compare the SHA-256 fingerprint
+of its root CA with the one `simple-ca ca show` prints on the CA's machine before trusting it.
+
+The certificates must hold exactly one root CA, a CA certificate signed by its own key; every
+other certificate among them must be a CA certificate the root CA signed. Certificates that do
+not are refused before anything is changed.
 
 ## The commands
 

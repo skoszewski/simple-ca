@@ -28,11 +28,12 @@ The issuing CAs are added with the root CA on every platform. Windows and macOS 
 intermediate CAs, which are trusted only through the root CA; Linux has no store for
 intermediate CAs, so there they are trust anchors of their own, like the root CA.
 
-## simple-ca-trust reads a local CA directory only
+## simple-ca-trust reads a local CA directory or file only
 
 `simple-ca-trust` finds its CAs as every `simple-ca` command does, from `--ca-dir`,
-`$SIMPLE_CA_DIR` or the working directory, and reads `ca_bundle.pem` of the root CA; a machine
-without the CA uses a directory holding a copy of it. It downloads nothing: a root CA fetched
+`$SIMPLE_CA_DIR` or the working directory, and reads `ca_bundle.pem` of the root CA, or takes
+the root CA certificate or a bundle named with `--file`, as a machine without the CA has it. It
+downloads nothing: a root CA fetched
 over the network can be replaced on the way, and adding a replaced root CA to the trust store is
 the compromise the store exists to prevent, so the guide tells to compare the fingerprint of a
 copied root CA with the one `simple-ca ca show` prints.

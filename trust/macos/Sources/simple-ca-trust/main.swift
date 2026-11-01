@@ -44,15 +44,16 @@ struct CA {
 
 let usageText = """
     Usage:
-      simple-ca-trust add [--user | --machine] [--ca-dir DIR]
-      simple-ca-trust remove [--user | --machine] [--ca-dir DIR]
+      simple-ca-trust add [--user | --machine] [--ca-dir DIR | --file FILE]
+      simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE]
       simple-ca-trust list [--user | --machine]
       simple-ca-trust --version
 
     Adds the root CA and the issuing CAs of the CA in --ca-dir, read from ca_bundle.pem of its
     root CA, to a keychain and trusts the root CA, removes them, or lists the CAs it added.
     --ca-dir is the directory of the root CA or of one of its issuing CAs, or a directory holding
-    a copy of ca_bundle.pem; it defaults to SIMPLE_CA_DIR, else the working directory. --user,
+    a copy of ca_bundle.pem; it defaults to SIMPLE_CA_DIR, else the working directory. --file
+    names the root CA certificate or a CA bundle, PEM or DER, instead. --user,
     the default, is the login keychain and the user's trust settings, and asks for the user's
     password; --machine is the System keychain and the trust settings of all users, and needs
     root.
@@ -225,6 +226,7 @@ func run(_ arguments: [String]) throws {
 
     var machine = false
     var caDir = ""
+    var file = ""
     var rest = Array(arguments.dropFirst())
     while let option = rest.first, option.hasPrefix("-") {
         rest.removeFirst()
@@ -233,14 +235,20 @@ func run(_ arguments: [String]) throws {
             machine = true
         case "--user", "-user":
             machine = false
-        case "--ca-dir", "-ca-dir":
+        case "--ca-dir", "-ca-dir", "--file", "-file":
             guard let value = rest.first else {
-                throw Failure(message: "simple-ca-trust \(command): \(option) needs a directory", usage: true)
+                throw Failure(message: "simple-ca-trust \(command): \(option) needs a value", usage: true)
             }
-            caDir = value
+            if option.hasSuffix("ca-dir") {
+                caDir = value
+            } else {
+                file = value
+            }
             rest.removeFirst()
         case let option where option.hasPrefix("--ca-dir=") || option.hasPrefix("-ca-dir="):
             caDir = String(option.drop(while: { $0 != "=" }).dropFirst())
+        case let option where option.hasPrefix("--file=") || option.hasPrefix("-file="):
+            file = String(option.drop(while: { $0 != "=" }).dropFirst())
         case "-h", "-help", "--help":
             print(usageText, terminator: "")
             return
@@ -250,6 +258,9 @@ func run(_ arguments: [String]) throws {
     }
     if !rest.isEmpty {
         throw Failure(message: "simple-ca-trust \(command): wrong number of arguments", usage: true)
+    }
+    if !caDir.isEmpty && !file.isEmpty {
+        throw Failure(message: "simple-ca-trust \(command): --ca-dir and --file cannot be given together", usage: true)
     }
     let domain: SecTrustSettingsDomain = machine ? .admin : .user
     let store = try keychain(machine: machine)
@@ -277,18 +288,21 @@ func run(_ arguments: [String]) throws {
         return
     }
 
-    if caDir.isEmpty {
-        caDir = ProcessInfo.processInfo.environment["SIMPLE_CA_DIR"] ?? ""
-    }
-    var dir = URL(fileURLWithPath: caDir.isEmpty ? FileManager.default.currentDirectoryPath : caDir).standardizedFileURL
+    if file.isEmpty {
+        if caDir.isEmpty {
+            caDir = ProcessInfo.processInfo.environment["SIMPLE_CA_DIR"] ?? ""
+        }
+        var dir = URL(fileURLWithPath: caDir.isEmpty ? FileManager.default.currentDirectoryPath : caDir).standardizedFileURL
 
-    // The directory of an issuing CA, whose certificate is not self-signed, is in that of its root CA.
-    if let certificate = try certificates(atPath: dir.appendingPathComponent("ca_cert.pem").path)?.first,
-        !isSelfSigned(certificate)
-    {
-        dir = dir.deletingLastPathComponent()
+        // The directory of an issuing CA, whose certificate is not self-signed, is in that of its root CA.
+        if let certificate = try certificates(atPath: dir.appendingPathComponent("ca_cert.pem").path)?.first,
+            !isSelfSigned(certificate)
+        {
+            dir = dir.deletingLastPathComponent()
+        }
+        file = dir.appendingPathComponent("ca_bundle.pem").path
     }
-    let cas = try loadCAs(dir.appendingPathComponent("ca_bundle.pem").path)
+    let cas = try loadCAs(file)
     if machine && getuid() != 0 {
         throw Failure(message: "changing the System keychain and the trust settings of all users needs root; run it with sudo")
     }

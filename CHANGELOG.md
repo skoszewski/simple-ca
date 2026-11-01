@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.4
+
+gap: simple-ca-trust add and remove take the root CA certificate or a CA bundle with --file, instead of --ca-dir.
+
+- `simple-ca-trust add --file FILE` and `remove --file FILE` take the root CA certificate or a CA
+  bundle, PEM or DER, under any name, instead of `ca_bundle.pem` of the CA in `--ca-dir`; the
+  two options cannot be given together.
+
 ## 1.5.3
 
 fix: build.mjs trust writes the project file of the Windows simple-ca-trust, which builds again, running on the installed .NET runtime or self-contained with --self-contained.
