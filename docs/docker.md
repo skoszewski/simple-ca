@@ -9,8 +9,14 @@ arguments it runs them as a command. `VERSION` sets the version `--version` prin
 downloads the browser files of the `/help/` and `/docs/` pages from the serve-markdown release
 `go.mod` names (see [Development](development.md)).
 
+`./build.mjs docker` builds it with `docker buildx build`, as `simple-ca:X.Y.Z`, the version of
+the newest `CHANGELOG.md` entry, and `simple-ca:latest`, with `VERSION` set to `vX.Y.Z`;
+`--registry REGISTRY` puts both below the registry, as `REGISTRY/simple-ca:X.Y.Z`, and a platform
+such as `linux/arm64` builds for it. The image is loaded into the local images; it is not
+pushed.
+
 ```sh
-docker build --build-arg VERSION=v1.3.0 -t simple-ca .
+./build.mjs docker
 docker volume create simple-ca
 docker run --rm -v simple-ca:/data simple-ca ca create \
   --ca-url http://pki.example.com:8080 "My Root CA"

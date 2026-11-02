@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.8
+
+fix: build.mjs docker builds the image of simple-ca as simple-ca:X.Y.Z and simple-ca:latest, below the registry --registry names.
+
+- `./build.mjs docker [--registry REGISTRY] [<goos>/<goarch>]` builds the `Dockerfile` with
+  `docker buildx build`, tagged with the version of the newest `CHANGELOG.md` entry and `latest`,
+  below `REGISTRY` when it is given, with that version as `VERSION`, and loads the image into the
+  local images.
+
 ## 1.5.7
 
 fix: the index page of serve lists the CAs, with the details of each in a dialog opened by its Info button.

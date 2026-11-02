@@ -16,6 +16,10 @@
 // simple-ca-trust.exe running on the installed .NET runtime, or carrying the runtime with
 // --self-contained; its version is dev, or the InformationalVersion environment variable.
 //
+// The docker action builds the image of the Dockerfile with docker buildx, for the platform named
+// or the host's, as simple-ca:<version>, the version of the newest CHANGELOG.md entry, and
+// simple-ca:latest, below the registry --registry names, and loads it into the local images.
+//
 // The assets action downloads the browser files of serve-markdown's page, for the version of
 // serve-markdown in go.mod, from its GitHub release into assets/markdown, which serve embeds
 // for its /help/ and /docs/ pages. build, test and check download them first when assets/markdown holds
@@ -27,10 +31,25 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]";
+const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]\n" +
+  "       ./build.mjs docker [--registry REGISTRY] [<goos>/<goarch>]";
 const root = dirname(fileURLToPath(import.meta.url));
-const selfContained = process.argv.includes("--self-contained");
-const [action = "build", platform = ""] = process.argv.slice(2).filter((arg) => arg !== "--self-contained");
+let selfContained = false;
+let registry = null;
+const positional = [];
+for (let i = 2; i < process.argv.length; i++) {
+  const arg = process.argv[i];
+  if (arg === "--self-contained") {
+    selfContained = true;
+  } else if (arg === "--registry") {
+    registry = process.argv[++i] ?? "";
+  } else if (arg.startsWith("--registry=")) {
+    registry = arg.slice("--registry=".length);
+  } else {
+    positional.push(arg);
+  }
+}
+const [action = "build", platform = ""] = positional;
 const markdownAssets = join(root, "assets", "markdown");
 const versionFile = join(markdownAssets, ".version");
 const requiredTag = readFileSync(join(root, "go.mod"), "utf8")
@@ -91,7 +110,8 @@ async function fetchMarkdownAssets() {
 
 const env = { ...process.env, CGO_ENABLED: "0" };
 
-if (!["build", "trust", "test", "check", "clean", "assets"].includes(action) || (selfContained && action !== "trust")) {
+if (!["build", "trust", "test", "check", "clean", "assets", "docker"].includes(action) ||
+  (selfContained && action !== "trust") || (registry !== null && (action !== "docker" || registry === ""))) {
   console.error(usage);
   process.exit(2);
 }
@@ -192,6 +212,20 @@ switch (action) {
     } else {
       console.error(`note: simple-ca-trust has no version for ${goos}; skipped`);
     }
+    break;
+  }
+  case "docker": {
+    // The image is tagged with the version of the newest CHANGELOG.md entry, the one a release
+    // takes, and as latest, below the registry when one is named.
+    const version = readFileSync(join(root, "CHANGELOG.md"), "utf8").match(/^## (\S+)/m)?.[1];
+    if (!version) {
+      console.error("CHANGELOG.md has no \"## x.y.z\" entry");
+      process.exit(1);
+    }
+    const image = registry === null ? "simple-ca" : `${registry.replace(/\/+$/, "")}/simple-ca`;
+    run("docker", ["buildx", "build", "--load", "--build-arg", `VERSION=v${version}`,
+      ...(platform === "" ? [] : ["--platform", platform]),
+      "-t", `${image}:${version}`, "-t", `${image}:latest`, "."]);
     break;
   }
   case "test":

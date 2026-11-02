@@ -17,6 +17,8 @@
 ./build.mjs check              # check formatting, vet and run the tests
 ./build.mjs clean              # remove the built executables
 ./build.mjs assets             # download the browser files of the /help/ and /docs/ pages
+./build.mjs docker [--registry REGISTRY] [<goos>/<goarch>]
+                               # build the image simple-ca:<version> and simple-ca:latest
 ```
 
 The `/help/` page, `help/index.md`, and the `/docs/` pages of `serve --docs`, the files of
