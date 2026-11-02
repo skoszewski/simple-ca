@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.11
+
+fix: the container image runs as the user and group 1000, the first user of Ubuntu, and /data belongs to them.
+
+- The image runs as uid and gid 1000, on `gcr.io/distroless/static-debian13`, instead of
+  `nonroot`, 65532, of its `:nonroot` tag, and its `/data` belongs to 1000:1000, so a host
+  directory of the first user of an Ubuntu host is writable at `/data` without `--user`.
+
 ## 1.5.10
 
 fix: the /help/ and /docs/ pages of serve are drawn by serve-markdown 3.5.2, which fixes a rendering bug.

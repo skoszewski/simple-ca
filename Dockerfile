@@ -1,5 +1,6 @@
-# simple-ca in a container: the static executable on distroless, run as the user nonroot (uid
-# 65532), with the CA directory /data on a volume. Without arguments it runs serve on port 8080;
+# simple-ca in a container: the static executable on distroless, run as the user and group 1000,
+# the first user of Ubuntu, with the CA directory /data on a volume. Without arguments it runs
+# serve on port 8080;
 # with arguments it runs them as a command, such as "ca create NAME". The Go client of the signing
 # API, request-cert, is installed beside it.
 
@@ -23,11 +24,12 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${VERSION}" 
     && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${VERSION}" -o /out/request-cert ./cmd/request-cert \
     && mkdir /out/data
 
-FROM gcr.io/distroless/static-debian13:nonroot
+FROM gcr.io/distroless/static-debian13
 COPY --from=build /out/simple-ca /usr/local/bin/simple-ca
 COPY --from=build /out/request-cert /usr/local/bin/request-cert
-# A new named volume takes the owner of /data, so nonroot can write the CA to it.
-COPY --from=build --chown=65532:65532 /out/data /data
+# A new named volume takes the owner of /data, so the user 1000 can write the CA to it.
+COPY --from=build --chown=1000:1000 /out/data /data
+USER 1000:1000
 ENV SIMPLE_CA_DIR=/data
 VOLUME /data
 EXPOSE 8080

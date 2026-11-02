@@ -1,7 +1,7 @@
 # Docker
 
 The `Dockerfile` builds an image of `simple-ca`: the static executable on
-`gcr.io/distroless/static-debian13:nonroot`, run as the user `nonroot` (uid 65532), with
+`gcr.io/distroless/static-debian13`, run as the user and group 1000, the first user of Ubuntu, with
 `request-cert`, the Go [client of the signing API](examples.md), beside it. The CA
 directory is `/data`, a volume, and `SIMPLE_CA_DIR` points at it, so every command works with the
 CA there. Without arguments the container runs `serve` on all interfaces, port 8080; with
@@ -24,8 +24,9 @@ docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data simple-ca
 docker exec simple-ca simple-ca cert list --ca-dir /data/servers
 ```
 
-A new named volume is writable by `nonroot`. A host directory mounted at `/data` must be writable
-by uid 65532, or the container is run with `--user` of the owner of the directory. `serve` writes
+A new named volume is writable by the user 1000. A host directory mounted at `/data` must be
+writable by uid 1000, as a directory of the first user of an Ubuntu host is, or the container is
+run with `--user` of the owner of the directory. `serve` writes
 `acme.json` and `tokens-db.json` to the CA directories, so `/data` is mounted read-write. With
 `--tls-cert` and `--tls-key`, the certificate and the key are files of the volume or of another
 mount:
