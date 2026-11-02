@@ -8,7 +8,7 @@
     {{template "theme"}}
   </head>
   <body class="min-h-screen bg-page text-ink">
-    <div class="mx-auto max-w-3xl px-4 py-10 sm:py-16">
+    <div class="mx-auto max-w-5xl px-4 py-10 sm:py-16">
       <div class="overflow-hidden rounded-2xl border border-line bg-card shadow-lg">
         <div class="bg-head px-6 py-4 text-head-ink">
           <h1 class="text-xl font-semibold">{{.Title}}</h1>
@@ -34,56 +34,105 @@
             <a class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover" href="/ca_bundle.pem">CA bundle (PEM)</a>
           </div>
         </div>
-        <main class="divide-y divide-line">
-          {{- range .CAs}}
-          <section{{if .ID}} id="{{.ID}}"{{end}} class="space-y-2 px-6 py-5">
-            <div class="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 class="text-lg font-semibold">{{.Subject}}</h2>
-              <span class="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium text-subtle-ink">{{.Role}}</span>
-            </div>
-            <dl class="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
-              <dt class="text-muted">Issuer</dt>
-              <dd>{{.Issuer}}</dd>
-              <dt class="text-muted">Serial number</dt>
-              <dd class="font-mono text-xs break-all sm:text-sm">{{.Serial}}</dd>
-              <dt class="text-muted">Valid from</dt>
-              <dd>{{.NotBefore}}</dd>
-              <dt class="text-muted">Valid until</dt>
-              <dd>{{.NotAfter}}
-                <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium {{if eq .Expiry "expired"}}bg-bad text-bad-ink{{else if .ExpiresSoon}}bg-warn text-warn-ink{{else}}bg-good text-good-ink{{end}}">{{.Expiry}}</span>
-              </dd>
-              <dt class="text-muted">Key</dt>
-              <dd>{{.Key}}</dd>
-              <dt class="text-muted">SHA-256</dt>
-              <dd class="grid grid-cols-1 font-mono text-xs sm:grid-cols-[repeat(2,max-content)]">
-                {{- range $i, $group := .Fingerprint}}<span class="whitespace-nowrap">{{$group}}{{if lt $i 3}}:{{end}}</span>{{end -}}
-              </dd>
-              <dt class="text-muted">CRL</dt>
-              <dd>{{if .CRL}}{{.CRL}}{{else}}none yet{{end}}</dd>
-              {{- if .ACME}}
-              <dt class="text-muted">ACME directory</dt>
-              <dd class="font-mono text-xs break-all sm:text-sm">{{.ACME}}</dd>
+        <main class="overflow-x-auto px-6 py-5">
+          <table class="w-full text-left text-sm">
+            <thead class="text-muted">
+              <tr>
+                <th class="py-1 pr-3 font-medium">CA</th>
+                <th class="py-1 pr-3 font-medium">Role</th>
+                <th class="py-1 pr-3 font-medium">Valid until</th>
+                <th class="py-1"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-line">
+              {{- range $i, $ca := .CAs}}
+              <tr{{if .ID}} id="{{.ID}}"{{end}}>
+                <td class="py-2 pr-3 font-medium whitespace-nowrap">
+                  <span tabindex="0" data-subject="subject-{{$i}}" aria-describedby="subject-{{$i}}" class="cursor-help underline decoration-muted decoration-dotted underline-offset-4">{{.Name}}</span>
+                  <div id="subject-{{$i}}" role="tooltip" class="fixed z-20 hidden rounded-lg border border-line bg-card px-3 py-2 text-xs font-normal shadow-lg">
+                    <dl class="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5">
+                      {{- range .SubjectAttributes}}
+                      <dt class="text-muted">{{index . 0}}</dt>
+                      <dd>{{index . 1}}</dd>
+                      {{- end}}
+                    </dl>
+                  </div>
+                </td>
+                <td class="py-2 pr-3"><span class="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-subtle-ink">{{.Role}}</span></td>
+                <td class="py-2 pr-3 whitespace-nowrap">{{.NotAfter}}
+                  <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium {{if eq .Expiry "expired"}}bg-bad text-bad-ink{{else if .ExpiresSoon}}bg-warn text-warn-ink{{else}}bg-good text-good-ink{{end}}">{{.Expiry}}</span>
+                </td>
+                <td class="py-2 text-right">
+                  <div class="flex justify-end gap-2">
+                    {{- if .API}}
+                    <a class="rounded-lg bg-action px-2.5 py-1 text-xs font-medium whitespace-nowrap text-action-ink hover:bg-action-hover" href="{{.Path}}sign">Sign a request</a>
+                    {{- end}}
+                    <button type="button" data-info="info-{{$i}}" class="rounded-lg border border-field-line px-2.5 py-1 text-xs font-medium hover:bg-subtle">Info</button>
+                  </div>
+                </td>
+              </tr>
               {{- end}}
-              {{- if .API}}
-              <dt class="text-muted">Signing API</dt>
-              <dd class="font-mono text-xs break-all sm:text-sm">{{.API}}</dd>
-              {{- end}}
-            </dl>
-            <div class="flex flex-wrap gap-2 pt-1">
-              <a class="rounded-lg bg-solid px-3 py-1.5 text-sm font-medium text-solid-ink hover:bg-solid-hover" href="{{.Path}}ca_cert.crt">Certificate (DER)</a>
-              <a class="rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" href="{{.Path}}ca_cert.pem">Certificate (PEM)</a>
-              {{- if .CRL}}
-              <a class="rounded-lg bg-solid px-3 py-1.5 text-sm font-medium text-solid-ink hover:bg-solid-hover" href="{{.Path}}crl.crl">CRL (DER)</a>
-              <a class="rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" href="{{.Path}}crl.pem">CRL (PEM)</a>
-              {{- end}}
-              {{- if .API}}
-              <a class="rounded-lg bg-action px-3 py-1.5 text-sm font-medium text-action-ink hover:bg-action-hover" href="{{.Path}}sign">Sign a request</a>
-              {{- end}}
-            </div>
-          </section>
-          {{- end}}
+            </tbody>
+          </table>
         </main>
       </div>
     </div>
+
+    {{- range $i, $ca := .CAs}}
+    <dialog id="info-{{$i}}" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+      <form method="dialog" class="space-y-4 px-6 py-5">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 class="text-lg font-semibold">{{.Name}}</h2>
+          <span class="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium text-subtle-ink">{{.Role}}</span>
+        </div>
+        <dl class="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[9rem_1fr]">
+          <dt class="text-muted">Subject</dt>
+          <dd>{{.Subject}}</dd>
+          <dt class="text-muted">Issuer</dt>
+          <dd>{{.Issuer}}</dd>
+          <dt class="text-muted">Serial number</dt>
+          <dd class="font-mono text-xs break-all sm:text-sm">{{.Serial}}</dd>
+          <dt class="text-muted">Valid from</dt>
+          <dd>{{.NotBefore}}</dd>
+          <dt class="text-muted">Valid until</dt>
+          <dd>{{.NotAfter}}
+            <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium {{if eq .Expiry "expired"}}bg-bad text-bad-ink{{else if .ExpiresSoon}}bg-warn text-warn-ink{{else}}bg-good text-good-ink{{end}}">{{.Expiry}}</span>
+          </dd>
+          <dt class="text-muted">Key</dt>
+          <dd>{{.Key}}</dd>
+          <dt class="text-muted">SHA-256</dt>
+          <dd class="grid grid-cols-1 font-mono text-xs sm:grid-cols-[repeat(2,max-content)]">
+            {{- range $i, $group := .Fingerprint}}<span class="whitespace-nowrap">{{$group}}{{if lt $i 3}}:{{end}}</span>{{end -}}
+          </dd>
+          <dt class="text-muted">CRL</dt>
+          <dd>{{if .CRL}}{{.CRL}}{{else}}none yet{{end}}</dd>
+          {{- if .ACME}}
+          <dt class="text-muted">ACME directory</dt>
+          <dd class="font-mono text-xs break-all sm:text-sm">{{.ACME}}</dd>
+          {{- end}}
+          {{- if .API}}
+          <dt class="text-muted">Signing API</dt>
+          <dd class="font-mono text-xs break-all sm:text-sm">{{.API}}</dd>
+          {{- end}}
+        </dl>
+        <div class="flex flex-wrap gap-2 pt-1">
+          <a class="rounded-lg bg-solid px-3 py-1.5 text-sm font-medium text-solid-ink hover:bg-solid-hover" href="{{.Path}}ca_cert.crt">Certificate (DER)</a>
+          <a class="rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" href="{{.Path}}ca_cert.pem">Certificate (PEM)</a>
+          {{- if .CRL}}
+          <a class="rounded-lg bg-solid px-3 py-1.5 text-sm font-medium text-solid-ink hover:bg-solid-hover" href="{{.Path}}crl.crl">CRL (DER)</a>
+          <a class="rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" href="{{.Path}}crl.pem">CRL (PEM)</a>
+          {{- end}}
+          {{- if .API}}
+          <a class="rounded-lg bg-action px-3 py-1.5 text-sm font-medium text-action-ink hover:bg-action-hover" href="{{.Path}}sign">Sign a request</a>
+          {{- end}}
+        </div>
+        <div class="flex justify-end">
+          <button value="close" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Close</button>
+        </div>
+      </form>
+    </dialog>
+    {{- end}}
+
+    <script src="/assets/webui/index.js"></script>
   </body>
 </html>

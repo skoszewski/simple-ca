@@ -30,7 +30,7 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/ca_bundle.pem` | `ca_bundle.pem` | `application/x-pem-file` |
 | `/ca_bundle.p7b` | the certificates of `ca_bundle.pem`, as PKCS#7 | `application/x-pkcs7-certificates` |
 | `/NAME/...` | the same four files of the issuing CA `NAME` | |
-| `/NAME`, `/NAME/` | a redirect (`302 Found`) to `/#NAME`, the issuing CA `NAME` on the index page | |
+| `/NAME`, `/NAME/` | a redirect (`302 Found`) to `/#NAME`, the index page with the dialog of the issuing CA `NAME` | |
 | `/acme/directory` | the ACME directory of the root CA, see [ACME](acme.md) | `application/json` |
 | `/NAME/acme/directory` | the ACME directory of the issuing CA `NAME` | `application/json` |
 | `/api/sign` | the [signing API](signing-api.md) of the root CA, `POST` | `application/json` |
@@ -43,15 +43,21 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/docs` | with `--docs`, a redirect (`307 Temporary Redirect`) to `/docs/` | |
 
 The index page lists the root CA and all its issuing CAs, also when `--ca-dir` is an issuing CA,
-each with its subject, issuer, serial number, validity period, days left before it expires,
-marked when fewer than 30 are left, key and SHA-256 fingerprint, and its current CRL, with its
-number, the count of revoked certificates and its next update, marked when overdue. The CA bundle
-is offered at the top of the page, above the CAs, as P7B, which Windows opens and imports with
-all its certificates, and as PEM; each CA links to its certificate and CRL, in DER and PEM. The
+each with its name, the CN of its subject, or the whole subject without one, whose popup lists
+the attributes of the subject, its role, Root CA or Subordinate CA, and its expiry, with the days
+left, marked when fewer than 30 are left, and a link to its signing form when it signs requests.
+The Info button of a CA opens a dialog of its subject, issuer, serial number, validity period, key
+and SHA-256 fingerprint, its current CRL, with
+its number, the count of revoked certificates and its next update, marked when overdue, the URLs
+of its ACME directory and signing API, and links to its certificate and CRL, in DER and PEM;
+`/#NAME` opens the dialog of the issuing CA `NAME`. The CA bundle is offered at the top of the
+page, above the CAs, as P7B, which Windows opens and imports with all its certificates, and as
+PEM. The
 page and the signing forms follow the light or dark theme of the browser. They are styled with
 the browser build of Tailwind CSS 4.3.3, embedded in the executable and served at
-`/assets/tailwindcss-browser-4.3.3.js`, and the signing forms choose the certificate type with
-the scripts `/assets/webui/picker.js` and `/assets/webui/sign.js`, so the pages load nothing from
+`/assets/tailwindcss-browser-4.3.3.js`; the index page opens its dialogs with the script
+`/assets/webui/index.js`, and the signing forms choose the certificate type with the scripts
+`/assets/webui/picker.js` and `/assets/webui/sign.js`, so the pages load nothing from
 other sites.
 
 The files are read on each request, so a CRL written by `crl create` is served at once; a file that

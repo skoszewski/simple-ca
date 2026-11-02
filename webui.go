@@ -42,7 +42,7 @@ import (
 
 // webuiScripts are the scripts of the pages, served at their paths: picker.js and webui.js, which
 // both pages load, then tokens.js or certs.js; the signing form of serve loads picker.js and
-// sign.js.
+// sign.js, and its index page index.js.
 //
 //go:embed assets/webui/*.js
 var webuiScripts embed.FS

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.7
+
+fix: the index page of serve lists the CAs, with the details of each in a dialog opened by its Info button.
+
+- The index page lists the CAs with their name, the CN of the subject, or the whole subject
+  without one, whose popup lists the attributes of the subject, their role, Root CA or
+  Subordinate CA, in place of root CA or issuing CA and its name, and expiry, an Info button and,
+  for a CA that signs requests, a link to its signing form; the Info button opens a dialog of the
+  details and the files of the CA, as the cert webui shows a certificate, and `/#NAME`, where
+  `/NAME` redirects, opens the dialog of the issuing CA `NAME`.
+
 ## 1.5.6
 
 fix: the /help/ page of serve shows how to request a certificate with request-cert first, and the signing form chooses the certificate type with the dropdown of the web pages.

@@ -1078,14 +1078,16 @@ func TestServe(t *testing.T) {
 	}
 	fingerprint := sha256.Sum256(issuing.Raw)
 	for _, s := range []string{"<title>Test CA - simple-ca</title>", `font-semibold">Test CA</h1>`, "served by simple-ca",
-		"/CN=Issuing CA", "issuing CA issuing-ca",
-		"issuing CA short-ca", "<dd>/CN=Test CA</dd>", serialHex(issuing.SerialNumber),
+		"<dd>/CN=Issuing CA</dd>", `underline-offset-4">Issuing CA</span>`, `<dt class="text-muted">CN</dt>`,
+		`font-semibold">Issuing CA</h2>`, `text-subtle-ink">Root CA</span>`, `text-subtle-ink">Subordinate CA</span>`,
+		"<dd>/CN=Test CA</dd>", serialHex(issuing.SerialNumber),
 		`<span class="whitespace-nowrap">` + colonHex(fingerprint[:8]) + `:</span><span class="whitespace-nowrap">` +
 			colonHex(fingerprint[8:16]) + `:</span><span class="whitespace-nowrap">` + colonHex(fingerprint[16:24]) +
 			`:</span><span class="whitespace-nowrap">` + colonHex(fingerprint[24:]) + `</span>`,
 		"RSA 4096 bits", issuing.NotBefore.UTC().Format(displayTimeFormat), "3650 days left",
-		`bg-amber-100 text-amber-800">10 days left`, `href="/ca_cert.crt"`, `href="/issuing-ca/ca_cert.pem"`,
-		"<dd>number 1, 0 revoked, next update ", `href="/issuing-ca/crl.crl"`, `<script src="` + tailwindPath + `">`} {
+		`bg-warn text-warn-ink">10 days left`, `href="/ca_cert.crt"`, `href="/issuing-ca/ca_cert.pem"`,
+		"<dd>number 1, 0 revoked, next update ", `href="/issuing-ca/crl.crl"`, `<script src="` + tailwindPath + `">`,
+		`<button type="button" data-info="info-1"`, `<dialog id="info-1"`, `<script src="/assets/webui/index.js">`} {
 		if !strings.Contains(string(page), s) {
 			t.Fatalf("the index page lacks %q:\n%s", s, page)
 		}
@@ -1093,8 +1095,8 @@ func TestServe(t *testing.T) {
 	if strings.Contains(string(page), "https://") {
 		t.Fatalf("the index page loads a resource from another site:\n%s", page)
 	}
-	if !strings.Contains(string(page), `<section id="issuing-ca" `) {
-		t.Fatalf("the index page has no section with the ID issuing-ca:\n%s", page)
+	if !strings.Contains(string(page), `<tr id="issuing-ca">`) {
+		t.Fatalf("the index page has no row with the ID issuing-ca:\n%s", page)
 	}
 
 	// /CA and /CA/ of an issuing CA redirect to its section of the index page.

@@ -23,6 +23,7 @@
 package main
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"crypto/x509"
 	"embed"
@@ -118,14 +119,17 @@ var templateFiles embed.FS
 // pageTemplates are templateFiles parsed, each named after its file.
 var pageTemplates = template.Must(template.ParseFS(templateFiles, "templates/*.html"))
 
-// indexCA is a CA of the index page: the fields of its certificate, its expiry as "expired" or the
-// days left, whether fewer than 30 days are left, its SHA-256 fingerprint in four groups of eight
-// bytes, its CRL, the URL path of its files, the URLs of its ACME directory and signing API, and
-// the ID of its section, the name of an issuing CA.
+// indexCA is a CA of the index page: its name, the CN of its subject or else the whole subject,
+// the attributes of its subject, each a type and a value, the fields of its certificate, its role,
+// Root CA or Subordinate CA, its expiry as "expired" or the days left, whether fewer than 30 days
+// are left, its SHA-256 fingerprint in four groups of eight bytes, its CRL, the URL path of its
+// files, the URLs of its ACME directory and signing API, and the ID of its row, the name of an
+// issuing CA.
 type indexCA struct {
-	Subject, Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME, API, ID string
-	ExpiresSoon                                                                               bool
-	Fingerprint                                                                               []string
+	Name, Subject, Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME, API, ID string
+	SubjectAttributes                                                                               [][2]string
+	ExpiresSoon                                                                                     bool
+	Fingerprint                                                                                     []string
 }
 
 // newServeMux returns the handler serving an index page at /, the files of servedFiles of the
@@ -167,8 +171,9 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeM
 			}
 			fingerprint := sha256.Sum256(cert.Raw)
 			ca := indexCA{
+				Name:      cmp.Or(cert.Subject.CommonName, nameString(cert.Subject)),
 				Subject:   nameString(cert.Subject),
-				Role:      "root CA",
+				Role:      "Root CA",
 				Issuer:    nameString(cert.Issuer),
 				Serial:    serialHex(cert.SerialNumber),
 				NotBefore: cert.NotBefore.UTC().Format(displayTimeFormat),
@@ -178,6 +183,10 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeM
 				Fingerprint: []string{colonHex(fingerprint[:8]), colonHex(fingerprint[8:16]),
 					colonHex(fingerprint[16:24]), colonHex(fingerprint[24:])},
 				Path: "/",
+			}
+			for _, attr := range cert.Subject.Names {
+				ca.SubjectAttributes = append(ca.SubjectAttributes,
+					[2]string{cmp.Or(nameAttributes[attr.Type.String()], attr.Type.String()), fmt.Sprint(attr.Value)})
 			}
 			if left := time.Until(cert.NotAfter); left > 0 {
 				days := int(math.Ceil(left.Hours() / 24))
@@ -190,7 +199,7 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeM
 			if name == "" {
 				title = cert.Subject.CommonName
 			} else {
-				ca.Role, ca.Path, ca.ID = "issuing CA "+name, "/"+name+"/", name
+				ca.Role, ca.Path, ca.ID = "Subordinate CA", "/"+name+"/", name
 			}
 			if len(cfg.ACME.Domains) > 0 && fileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.ACME = origin + ca.Path + "acme/directory"
