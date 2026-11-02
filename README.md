@@ -8,6 +8,11 @@ single executable using Go's native cryptography, and runs no other program. `si
 publishes the CA certificates and CRLs over HTTP, and is an ACME server and a certificate signing
 API for the CAs.
 
+![The index page of simple-ca serve, listing a root CA and its servers subordinate CA](demo_ca.png)
+
+The index page of `simple-ca serve` for a root CA and one subordinate CA, `servers`, which signs
+requests.
+
 ## Installation
 
 Download the archive for your platform from the

@@ -77,4 +77,8 @@ machine; each next one needs a new entry, with a new version.
 
 It refuses to commit changes for a released entry, and to publish an entry whose tag is on
 GitHub; the next change needs a new entry. Only a tag is built: pushing `dev` or `main` runs no
-workflow.
+workflow. An entry `x.y.z-N`, `N` from 2, is a later release of the same code with changes to the
+documentation or the packaging alone: `./release.mjs --push` fast-forwards `main` to `dev` and
+pushes both without a tag, so nothing is built and no GitHub release is made, and the entry goes
+into the release notes of the next tagged release. The workflow also skips a tag `vx.y.z-N` made
+by hand.

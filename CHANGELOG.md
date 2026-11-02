@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.9-2
+
+update: the README shows the index page of simple-ca serve, and a documentation or packaging release is pushed to main without a tag, which nothing builds.
+
+- `README.md` opens with `demo_ca.png`, the index page of `serve` for a root CA and one
+  subordinate CA.
+- `./release.mjs --push` of a version `X.Y.Z-N`, a later release of the same code with changes to
+  the documentation or the packaging alone, moves `main` to `dev` and pushes them without a tag,
+  so nothing is built; the entry goes into the notes of the next tagged release. The release
+  workflow also skips such a tag made by hand; a prerelease such as `vX.Y.Z-rc.1` is still built.
+
 ## 1.5.9
 
 fix: build.mjs docker pushes the image it builds with --push.

@@ -2,7 +2,8 @@
 
 // Releases the newest CHANGELOG.md entry: commits everything on dev with the entry's summary line,
 // and with --push tags dev vX.Y.Z with the entries since the last tag as the release notes, moves
-// main to it, and pushes dev, main and the tag together.
+// main to it, and pushes dev, main and the tag together. A release X.Y.Z-N of the documentation or
+// the packaging alone is pushed without a tag.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -23,7 +24,9 @@ released, and the next change needs a new entry. With --push, the newest entry i
 is not yet, dev is tagged v and the version of the heading, x.y.z or a semver prerelease such as
 x.y.z-rc.1, main is moved to it, and dev, main and the tag are pushed in one atomic push; the tag
 builds the release. The tag's message, and so the GitHub release notes, are the entries since the
-last tagged one.`;
+last tagged one. A version x.y.z-N, N a number, is a release of the documentation or the packaging
+alone: --push moves main to dev and pushes them without a tag, so nothing is built, and the entry
+goes into the notes of the next tagged release.`;
 
 const { values } = parseArgs({
   options: {
@@ -77,6 +80,9 @@ if (!new RegExp(`^${number}\\.${number}\\.${number}(-${identifier}(\\.${identifi
   fail(`${CHANGELOG}: "${version}" is not a version such as 3.2.0 or 3.2.0-rc.1`);
 }
 const tag = `v${version}`;
+// A version x.y.z-N, N a number, is a later release of the same code with changes to the
+// documentation or the packaging alone; it is not tagged, so nothing builds it.
+const untagged = /-[0-9]+$/.test(version);
 const [above, line, below] = lines.slice(headings[0] + 1, headings[0] + 4);
 const summary = above?.trim() === '' && below?.trim() === '' && line?.trim() && !line.startsWith('-') && !line.startsWith('#') ? line.trim() : undefined;
 if (!summary) fail(`put a summary line between blank lines right after the newest heading of ${CHANGELOG}`);
@@ -99,6 +105,11 @@ if (!committed) {
   run('git', 'commit', '-m', summary);
 }
 if (!values.push) process.exit(0);
+if (untagged) {
+  run('git', 'fetch', '.', 'dev:main');
+  run('git', 'push', '--atomic', 'origin', 'dev', 'main');
+  process.exit(0);
+}
 
 // The notes, the tag's message kept with its Markdown headings, are the body of the newest entry
 // followed by the entries released since the last tagged one, each under its own heading.

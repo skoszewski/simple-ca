@@ -1,6 +1,8 @@
 # A semver tag with a leading v on a commit on main, naming the newest CHANGELOG.md entry, is
 # checked for formatting and by go vet, built for every platform it is published for, and published
 # as a release, with the tag's message as its notes and as a prerelease for a prerelease version.
+# A tag vX.Y.Z-N, a later release of the same code with changes to the documentation or the
+# packaging alone, is not built.
 # simple-ca and request-cert are given the tag as their version and published together in a
 # tar.gz, or a zip for Windows, named after the version, without the v, and the platform.
 # simple-ca embeds the browser files of serve-markdown's page for its /help/ page, which build.mjs
@@ -15,6 +17,7 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-*"
+      - "!v[0-9]+.[0-9]+.[0-9]+-[0-9]+"
 
 permissions:
   contents: read
