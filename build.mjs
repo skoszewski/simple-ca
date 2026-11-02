@@ -18,7 +18,7 @@
 //
 // The docker action builds the image of the Dockerfile with docker buildx, for the platform named
 // or the host's, as simple-ca:<version>, the version of the newest CHANGELOG.md entry, and
-// simple-ca:latest, below the registry --registry names, and loads it into the local images.
+// simple-ca:latest, below the registry --registry names, and pushes it with --push.
 //
 // The assets action downloads the browser files of serve-markdown's page, for the version of
 // serve-markdown in go.mod, from its GitHub release into assets/markdown, which serve embeds
@@ -32,15 +32,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]\n" +
-  "       ./build.mjs docker [--registry REGISTRY] [<goos>/<goarch>]";
+  "       ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]";
 const root = dirname(fileURLToPath(import.meta.url));
 let selfContained = false;
+let push = false;
 let registry = null;
 const positional = [];
 for (let i = 2; i < process.argv.length; i++) {
   const arg = process.argv[i];
   if (arg === "--self-contained") {
     selfContained = true;
+  } else if (arg === "--push") {
+    push = true;
   } else if (arg === "--registry") {
     registry = process.argv[++i] ?? "";
   } else if (arg.startsWith("--registry=")) {
@@ -111,7 +114,8 @@ async function fetchMarkdownAssets() {
 const env = { ...process.env, CGO_ENABLED: "0" };
 
 if (!["build", "trust", "test", "check", "clean", "assets", "docker"].includes(action) ||
-  (selfContained && action !== "trust") || (registry !== null && (action !== "docker" || registry === ""))) {
+  (selfContained && action !== "trust") || (push && action !== "docker") ||
+  (registry !== null && (action !== "docker" || registry === ""))) {
   console.error(usage);
   process.exit(2);
 }
@@ -223,7 +227,7 @@ switch (action) {
       process.exit(1);
     }
     const image = registry === null ? "simple-ca" : `${registry.replace(/\/+$/, "")}/simple-ca`;
-    run("docker", ["buildx", "build", "--load", "--build-arg", `VERSION=v${version}`,
+    run("docker", ["buildx", "build", ...(push ? ["--push"] : []), "--build-arg", `VERSION=v${version}`,
       ...(platform === "" ? [] : ["--platform", platform]),
       "-t", `${image}:${version}`, "-t", `${image}:latest`, "."]);
     break;

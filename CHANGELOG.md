@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.9
+
+fix: build.mjs docker pushes the image it builds with --push.
+
+- `./build.mjs docker` runs `docker buildx build` without `--load`, and `--push` pushes
+  `simple-ca:X.Y.Z` and `simple-ca:latest`, below the registry `--registry` names.
+
 ## 1.5.8
 
 fix: build.mjs docker builds the image of simple-ca as simple-ca:X.Y.Z and simple-ca:latest, below the registry --registry names.
