@@ -182,11 +182,8 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeM
 				Key:       keyDescription(cert),
 				Fingerprint: []string{colonHex(fingerprint[:8]), colonHex(fingerprint[8:16]),
 					colonHex(fingerprint[16:24]), colonHex(fingerprint[24:])},
-				Path: "/",
-			}
-			for _, attr := range cert.Subject.Names {
-				ca.SubjectAttributes = append(ca.SubjectAttributes,
-					[2]string{cmp.Or(nameAttributes[attr.Type.String()], attr.Type.String()), fmt.Sprint(attr.Value)})
+				Path:              "/",
+				SubjectAttributes: subjectAttributes(cert.Subject),
 			}
 			if left := time.Until(cert.NotAfter); left > 0 {
 				days := int(math.Ceil(left.Hours() / 24))

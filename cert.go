@@ -77,6 +77,16 @@ func nameString(name pkix.Name) string {
 	return b.String()
 }
 
+// subjectAttributes returns the attributes of name, each its type, as nameString writes it, and
+// its value.
+func subjectAttributes(name pkix.Name) [][2]string {
+	var attributes [][2]string
+	for _, attr := range name.Names {
+		attributes = append(attributes, [2]string{cmp.Or(nameAttributes[attr.Type.String()], attr.Type.String()), fmt.Sprint(attr.Value)})
+	}
+	return attributes
+}
+
 // parseIP returns s as an IPv4 or IPv6 address without a zone.
 func parseIP(s string) (netip.Addr, bool) {
 	addr, err := netip.ParseAddr(s)

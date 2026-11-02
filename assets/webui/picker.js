@@ -1,5 +1,6 @@
-// The parts the pages of token webui and cert webui and the signing form of serve share: element,
-// which makes elements, and picker, the dropdown chooser.
+// The parts the pages of token webui and cert webui and the index page and the signing form of
+// serve share: element, which makes elements, picker, the dropdown chooser, and withPopup, which
+// shows a popup by an element.
 
 // element returns a new element with the properties given and the children appended.
 function element(tag, props = {}, ...children) {
@@ -45,6 +46,30 @@ function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}
   show(value);
   return element("div", { className: "min-w-0" }, input, chooser);
 }
+
+// withPopup shows popup, a fixed element, below target while the pointer is over target or target
+// has the focus, and returns target.
+function withPopup(target, popup) {
+  const show = () => {
+    const box = target.getBoundingClientRect();
+    popup.style.left = `${box.left}px`;
+    popup.style.top = `${box.bottom + 4}px`;
+    popup.classList.remove("hidden");
+  };
+  const hide = () => popup.classList.add("hidden");
+  target.addEventListener("mouseenter", show);
+  target.addEventListener("mouseleave", hide);
+  target.addEventListener("focus", show);
+  target.addEventListener("blur", hide);
+  return target;
+}
+
+// A popup placed by the page's position is hidden once the page scrolls.
+addEventListener("scroll", () => {
+  for (const popup of document.querySelectorAll('[role="tooltip"]')) {
+    popup.classList.add("hidden");
+  }
+});
 
 // An open chooser closes on a click outside it, and on Escape, which leaves its dialog open.
 document.addEventListener("click", (event) => {

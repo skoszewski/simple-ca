@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.12
+
+fix: token webui and cert webui show a CA by the CN of its subject, with a popup of its attributes, and the token page shows no stray null.
+
+- The pages of `token webui` and `cert webui` show a CA by the CN of its subject, or the whole
+  subject without one, whose popup lists the attributes of the subject, as the index page of
+  `serve` does; `/api/cas` gives each CA its `name` and `subject_attributes`.
+- The token page of a CA without tokens no longer shows the word `null` above its Create button.
+
 ## 1.5.11
 
 fix: the container image runs as the user and group 1000, the first user of Ubuntu, and /data belongs to them.

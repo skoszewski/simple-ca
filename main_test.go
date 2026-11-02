@@ -2458,8 +2458,9 @@ func TestTokenWebUI(t *testing.T) {
 		status, answer := call("the-key", "GET", "/api/cas", nil)
 		cas, _ := answer["cas"].([]any)
 		if status != http.StatusOK || answer["title"] != "Test CA" || len(cas) != 2 ||
-			cas[1].(map[string]any)["label"] != "issuing CA issuing-ca: Issuing CA" {
-			t.Fatalf("GET /api/cas: %d %v, want the root and the issuing CA", status, answer)
+			cas[1].(map[string]any)["label"] != "issuing CA issuing-ca: Issuing CA" || cas[1].(map[string]any)["name"] != "Issuing CA" ||
+			fmt.Sprint(cas[1].(map[string]any)["subject_attributes"]) != "[[CN Issuing CA]]" {
+			t.Fatalf("GET /api/cas: %d %v, want the root and the issuing CA, with their names and subject attributes", status, answer)
 		}
 	}
 

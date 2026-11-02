@@ -67,14 +67,17 @@ type webuiServer struct {
 	certs   bool
 }
 
-// webuiCA is a CA of the API: its ID, empty for the root CA, its role, its subject, its label in
-// the selector, and whether its key is here to sign tokens.
+// webuiCA is a CA of the API: its ID, empty for the root CA, its role, its name, the CN of its
+// subject or else the whole subject, its subject and the attributes of it, each a type and a
+// value, its label in the selector, and whether its key is here to sign tokens.
 type webuiCA struct {
-	ID      string `json:"id"`
-	Role    string `json:"role"`
-	Subject string `json:"subject"`
-	Label   string `json:"label"`
-	HasKey  bool   `json:"has_key"`
+	ID                string      `json:"id"`
+	Role              string      `json:"role"`
+	Name              string      `json:"name"`
+	Subject           string      `json:"subject"`
+	SubjectAttributes [][2]string `json:"subject_attributes"`
+	Label             string      `json:"label"`
+	HasKey            bool        `json:"has_key"`
 }
 
 // webuiDefaults are the values the form creating a token starts with, from tokens of
@@ -309,7 +312,8 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 			log.Printf("webui: %v", err)
 			continue
 		}
-		ca := webuiCA{ID: id, Role: "root CA", Subject: nameString(cert.Subject),
+		ca := webuiCA{ID: id, Role: "root CA", Name: cmp.Or(cert.Subject.CommonName, nameString(cert.Subject)),
+			Subject: nameString(cert.Subject), SubjectAttributes: subjectAttributes(cert.Subject),
 			Label: "root CA: " + cert.Subject.CommonName, HasKey: fileExists(filepath.Join(dir, "ca_key.pem"))}
 		if id != "" {
 			ca.Role, ca.Label = "issuing CA "+id, "issuing CA "+id+": "+cert.Subject.CommonName

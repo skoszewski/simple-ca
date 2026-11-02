@@ -52,7 +52,7 @@ async function showCA() {
           : button("Revoke", () => change("revoke", t.name,
             `Revoke the token ${t.name}? Its JWT is refused from then on; the token is kept, to be renewed.`, "Revoke")))));
   });
-  $("ca-section").replaceChildren(
+  $("ca-section").replaceChildren(...[
     heading(ca),
     tokens.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No tokens." }) :
       table(["Name", "Expires", "Types", "Names in certificates", "IP addresses in certificates", "Used from", "Certs", ""], rows),
@@ -61,7 +61,8 @@ async function showCA() {
       textContent: "Remove expired and revoked tokens",
       onclick: () => change("purge", "", "Remove every expired and revoked token of this CA for good? They cannot be renewed then.", "Remove") })),
     ca.has_key ? element("div", {}, button("Create a token", openCreate, true))
-      : element("p", { className: "text-sm text-muted", textContent: "The key of this CA is not here, so its tokens cannot be created here." }));
+      : element("p", { className: "text-sm text-muted", textContent: "The key of this CA is not here, so its tokens cannot be created here." }),
+  ].filter((child) => child !== null));
 }
 
 // change renews, revokes or purges the token name, or every ended token for purge without a name,
@@ -90,7 +91,7 @@ async function change(what, name, question, action) {
 function openCreate() {
   const fields = $("create-form").elements;
   const ca = info.cas.find((ca) => ca.id === caID);
-  $("create-title").textContent = "Create a token of " + ca.subject;
+  $("create-title").textContent = "Create a token of " + ca.name;
   $("create-error").classList.add("hidden");
   fields.name.value = "";
   fields.valid.value = info.defaults.valid;

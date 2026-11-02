@@ -115,7 +115,7 @@ The API answers with JSON, and takes the key as the bearer token of every reques
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /api/cas` | | `title`, the root CA's CN; `cas`, each with `id`, `role`, `subject`, `label` and `has_key`; `types`; `defaults`, from `tokens` of `simple-ca.json` |
+| `GET /api/cas` | | `title`, the root CA's CN; `cas`, each with `id`, `role`, `name`, the CN of its subject or else the whole subject, `subject`, `subject_attributes`, each a type and a value, `label` and `has_key`; `types`; `defaults`, from `tokens` of `simple-ca.json` |
 | `GET /api/tokens?ca=CA` | | `tokens`, each with `name`, `expires`, `revoked`, `expired`, `types`, `domains`, `ips`, `clients` and `certs` |
 | `POST /api/tokens` | `ca`, `name`, `valid`, `types`, `domains`, `ips`, `clients`, `localhost` | `201 Created`, `name` and `token`, the JWT |
 | `POST /api/tokens/renew` | `ca`, `name` | `name` and `token`, the new JWT |

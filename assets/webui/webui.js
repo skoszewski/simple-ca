@@ -122,9 +122,18 @@ const button = (label, onclick, primary = false) => element("button", { type: "b
 const badge = (text) => element("span", { className: "rounded-full bg-bad px-2 py-0.5 text-xs font-medium text-bad-ink", textContent: text });
 const cell = (content, extra = "") => element("td", { className: "py-1.5 pr-3 " + extra }, content);
 const time = (value) => new Date(value).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
-const heading = (ca) => element("div", { className: "flex flex-wrap items-baseline justify-between gap-2" },
-  element("h2", { className: "text-lg font-semibold", textContent: ca.subject }),
-  element("span", { className: "rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium text-subtle-ink", textContent: ca.role }));
+const heading = (ca) => {
+  const popup = element("div", { role: "tooltip",
+    className: "fixed z-20 hidden rounded-lg border border-line bg-card px-3 py-2 text-xs font-normal shadow-lg" },
+    element("dl", { className: "grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5" },
+      ...ca.subject_attributes.flatMap(([type, value]) => [
+        element("dt", { className: "text-muted", textContent: type }), element("dd", { textContent: value })])));
+  const name = withPopup(element("span", { tabIndex: 0, textContent: ca.name,
+    className: "cursor-help underline decoration-muted decoration-dotted underline-offset-4" }), popup);
+  return element("div", { className: "flex flex-wrap items-baseline justify-between gap-2" },
+    element("h2", { className: "text-lg font-semibold" }, name, popup),
+    element("span", { className: "rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium text-subtle-ink", textContent: ca.role }));
+};
 const table = (headings, rows) => element("div", { className: "overflow-x-auto" }, element("table", { className: "w-full text-left text-sm" },
   element("thead", { className: "text-muted" }, element("tr", {}, ...headings.map((h) =>
     element("th", { className: "py-1 pr-3 font-medium", textContent: h })))),

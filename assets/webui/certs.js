@@ -105,7 +105,7 @@ function openCert(sign) {
   const fields = form.elements;
   const ca = info.cas.find((ca) => ca.id === caID);
   form.reset();
-  $("cert-title").textContent = (sign ? "Sign a request with " : "Create a certificate of ") + ca.subject;
+  $("cert-title").textContent = (sign ? "Sign a request with " : "Create a certificate of ") + ca.name;
   $("cert-submit").textContent = sign ? "Sign" : "Create";
   $("cert-error").classList.add("hidden");
   for (const node of form.querySelectorAll("[data-create]")) node.classList.toggle("hidden", sign);
