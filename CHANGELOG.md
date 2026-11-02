@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.13
+
+fix: the ACME guide shows how to get, renew and revoke a certificate of serve with lego, and systemd units renew it daily.
+
+- `docs/acme.md` goes step by step through getting a certificate of an issuing CA with lego 5:
+  the CAs and `acme.domains`, `serve` over HTTPS with a certificate of a CA the clients trust or
+  of its own CA, whose root CA certificate lego is given with `LEGO_CA_CERTIFICATES`, the
+  `http-01` and `dns-01` challenges, the files lego writes, renewal, and revocation with the CRL
+  that publishes it.
+- `examples/simple-ca-lego.sh` gets or renews the certificate of its host with lego, from the
+  settings of the environment, and `systemd/simple-ca-lego.service` and
+  `systemd/simple-ca-lego.timer` run it daily, with the settings of `/etc/simple-ca-lego.env`;
+  `docs/acme.md` describes their installation.
+
 ## 1.5.12
 
 fix: token webui and cert webui show a CA by the CN of its subject, with a popup of its attributes, and the token page shows no stray null.

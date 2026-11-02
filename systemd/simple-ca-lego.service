@@ -1,0 +1,24 @@
+[Unit]
+Description=lego certificate of this host from the ACME server of simple-ca serve
+Documentation=https://github.com/skoszewski/simple-ca
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/simple-ca-lego.env
+StateDirectory=lego
+StateDirectoryMode=0700
+ExecStart=/usr/local/bin/simple-ca-lego
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes

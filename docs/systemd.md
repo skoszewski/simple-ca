@@ -13,6 +13,10 @@
 `systemd/simple-ca-mini.service` runs the `serve` command of [Simple CA Mini](simple-ca-mini.md)
 instead; its installation is in [simple-ca-mini.md](simple-ca-mini.md#systemd).
 
+`systemd/simple-ca-lego.service` and `systemd/simple-ca-lego.timer` are for a client of the ACME
+server instead: they get and renew the certificate of its host daily with lego and
+`examples/simple-ca-lego.sh`; their installation is in [ACME](acme.md#renewing-with-systemd).
+
 ```sh
 sudo install -m 755 simple-ca /usr/local/bin/simple-ca
 sudo useradd --system --home-dir /etc/simple-ca --no-create-home \
