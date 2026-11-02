@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.14
+
+gap: token webui and cert webui serve their pages over HTTPS with --tls-cert and --tls-key.
+
+- `token webui` and `cert webui` take `--tls-cert` and `--tls-key`, as `serve` does, and serve
+  the page and its API over HTTPS with them, without the warning about plain HTTP; the two are
+  given together.
+
 ## 1.5.13
 
 fix: the ACME guide shows how to get, renew and revoke a certificate of serve with lego, and systemd units renew it daily.

@@ -23,6 +23,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -161,8 +162,13 @@ func runWebUI(args []string, command string, port int, certs bool, summary strin
 	caDir := fs.String("ca-dir", "", "`directory` of the root CA or of one of its issuing CAs")
 	address := fs.String("address", "127.0.0.1", "`address` of the interface to listen on")
 	fs.IntVar(&port, "port", port, "TCP `port` to listen on")
+	tlsCert := fs.String("tls-cert", "", "serve HTTPS with the certificate chain in this PEM `file`")
+	tlsKey := fs.String("tls-key", "", "private key of --tls-cert, a PEM `file`")
 	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
 		return err
+	}
+	if (*tlsCert == "") != (*tlsKey == "") {
+		return errors.New("--tls-cert and --tls-key must be given together")
 	}
 	rootDir, _, err := locateCA(resolveCADir(*caDir))
 	if err != nil {
@@ -173,8 +179,8 @@ func runWebUI(args []string, command string, port int, certs bool, summary strin
 	if certs {
 		what = "certificates"
 	}
-	return runHTTPServer(ui.mux(), *address, port, "", "", func(origin string) {
-		if ip, err := netip.ParseAddr(*address); err != nil || !ip.IsLoopback() {
+	return runHTTPServer(ui.mux(), *address, port, *tlsCert, *tlsKey, func(origin string) {
+		if ip, err := netip.ParseAddr(*address); *tlsCert == "" && (err != nil || !ip.IsLoopback()) {
 			fmt.Fprintln(os.Stderr, "warning: the page is served over plain HTTP beyond this machine; "+
 				"its key can be read on the network")
 		}

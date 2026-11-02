@@ -105,9 +105,11 @@ simple-ca token webui --ca-dir /etc/simple-ca
 the TCP port, 8081 by default. At the start it prints the URL of the page with a random key as
 its `?key=` query; the key is valid until `token webui` stops. The page reads the key from that
 URL, or asks for it, keeps it for the browser tab, and draws the tokens from the API of
-`token webui`, sending the key in the `Authorization` header. It is served over plain HTTP, so on
-any address but a loopback one the key can be read on the network, which it warns of. Each
-request is logged to the standard error, as `serve` logs them.
+`token webui`, sending the key in the `Authorization` header. `--tls-cert` and `--tls-key`, as
+for `serve`, serve the page over HTTPS with the certificate chain and the key of those PEM files;
+without them it is served over plain HTTP, so on any address but a loopback one the key can be
+read on the network, which it warns of. Each request is logged to the standard error, as `serve`
+logs them.
 
 The API answers with JSON, and takes the key as the bearer token of every request,
 `Authorization: Bearer KEY`; a request without it, or with another key, is `401 Unauthorized`.

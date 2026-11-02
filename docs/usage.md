@@ -18,6 +18,7 @@ simple-ca cert revoke  [--ca-dir DIR] [--reason REASON] CERT_PATH
 simple-ca cert list    [--ca-dir DIR] [--valid] [--revoked] [--expired]
 simple-ca cert show    CERT_FILE
 simple-ca cert webui   [--ca-dir DIR] [--address ADDRESS] [--port PORT]
+                       [--tls-cert FILE --tls-key FILE]
 
 simple-ca crl create   [--ca-dir DIR] [--days N] [--all]
 
@@ -28,6 +29,7 @@ simple-ca token renew  [--ca-dir DIR] [--valid DURATION] NAME
 simple-ca token revoke [--ca-dir DIR] NAME
 simple-ca token purge  [--ca-dir DIR] [NAME]
 simple-ca token webui  [--ca-dir DIR] [--address ADDRESS] [--port PORT]
+                       [--tls-cert FILE --tls-key FILE]
 
 simple-ca serve        [--ca-dir DIR] [--address ADDRESS] [--port PORT]
                        [--tls-cert FILE --tls-key FILE]
@@ -290,8 +292,8 @@ simple-ca cert webui --ca-dir /etc/simple-ca
 the TCP port, 8082 by default. Like [token webui](signing-api.md#token-webui), it prints the URL
 of the page with a random key as its `?key=` query, valid until it stops; the page reads the key
 from that URL, or asks for it, and draws the certificates from its API, below `/api/`, sending
-the key in the `Authorization` header. Each request is logged to the standard error, as `serve`
-logs them.
+the key in the `Authorization` header. `--tls-cert` and `--tls-key` serve it over HTTPS, as they
+do `token webui`. Each request is logged to the standard error, as `serve` logs them.
 
 | Request | Body | Answer |
 |---|---|---|
