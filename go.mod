@@ -3,7 +3,7 @@ module github.com/skoszewski/simple-ca
 go 1.27.0
 
 require (
-	github.com/skoszewski/serve-markdown/v3 v3.5.0
+	github.com/skoszewski/serve-markdown/v3 v3.5.2
 	software.sslmate.com/src/go-pkcs12 v0.7.4
 )
 

@@ -1,5 +1,5 @@
-github.com/skoszewski/serve-markdown/v3 v3.5.0 h1:nDXRVsk0r+HwI/PcIN2C3H9zvP+5oorCZVp5dlpxk9U=
-github.com/skoszewski/serve-markdown/v3 v3.5.0/go.mod h1:3XTWtQ8P/giKLGSD4CI/1MR+5xKdTiqmKMHfNU0Cb5k=
+github.com/skoszewski/serve-markdown/v3 v3.5.2 h1:V3xkrn0GigJBDQIuS+xsk4AV24DlpPrh7U2LYsAGxC8=
+github.com/skoszewski/serve-markdown/v3 v3.5.2/go.mod h1:3XTWtQ8P/giKLGSD4CI/1MR+5xKdTiqmKMHfNU0Cb5k=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
 go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
 golang.org/x/crypto v0.58.0 h1:COkYLr4k7nDI4r6QtMML2AfzeIswWHAJthLS6K/M/54=

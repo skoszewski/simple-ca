@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.10
+
+fix: the /help/ and /docs/ pages of serve are drawn by serve-markdown 3.5.2, which fixes a rendering bug.
+
+- `serve` draws its `/help/` and `/docs/` pages with the `render` package and the browser files
+  of serve-markdown 3.5.2, in place of 3.5.0, which fixes a bug in their rendering.
+
 ## 1.5.9-2
 
 update: the README shows the index page of simple-ca serve, and a documentation or packaging release is pushed to main without a tag, which nothing builds.
