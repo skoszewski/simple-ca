@@ -90,8 +90,9 @@ type tokensConfig struct {
 // oidcConfig holds the OIDC sign-in of serve, off without an issuer: the provider, generic,
 // keycloak or entra, whose defaults fill the label and the claims left out; the issuer and the
 // client ID of the public client the pages sign in with; the scopes they ask for, openid, profile
-// and email by default; the label of the sign-in button; and the claims naming the user, the first
-// of them present, and holding the groups and the roles, each a dotted path into the ID token.
+// and email by default; the label of the sign-in button; the claims naming the user, the first of
+// them present, and holding the groups and the roles, each a dotted path into the ID token; and
+// whether a sign-in may take the active token of its user again in place of replacing it.
 type oidcConfig struct {
 	Provider    string     `json:"provider,omitempty"`
 	Issuer      string     `json:"issuer,omitempty"`
@@ -101,6 +102,7 @@ type oidcConfig struct {
 	UserClaim   claimPaths `json:"user_claim,omitempty"`
 	GroupsClaim claimPaths `json:"groups_claim,omitempty"`
 	RolesClaim  claimPaths `json:"roles_claim,omitempty"`
+	ReuseToken  bool       `json:"reuse_token,omitempty"`
 }
 
 // claimPaths are the dotted paths of claims of an ID token, given as one string or a list.

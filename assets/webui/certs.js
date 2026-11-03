@@ -3,7 +3,8 @@
 // as the commands write them; the page offers no file.
 let signing = false;
 
-// showCA draws the certificates of the CA on the page, and its CRL.
+// showCA draws the certificates of the CA on the page, with the search and the filter of their
+// list, and its CRL.
 async function showCA() {
   const ca = currentCA();
   let answer;
@@ -13,14 +14,14 @@ async function showCA() {
     failed(error);
     return;
   }
-  const rows = answer.certs.map((c) => element("tr", {},
+  const row = (c) => element("tr", {},
     cell(c.status === "valid" ? "valid" : badge(c.status), "whitespace-nowrap"),
     cell(element("span", {}, ...named(subjectName(c.subject), c.subject)), "whitespace-nowrap"),
     cell(time(c.expires), "whitespace-nowrap"),
     cell(c.revoked ? time(c.revoked) + (c.reason ? ", " + c.reason : "") : "-", "whitespace-nowrap"),
     element("td", { className: "py-1.5 text-right" }, element("div", { className: "flex justify-end gap-2" },
       button("Show", () => show(c)),
-      c.status === "revoked" ? null : button("Revoke", () => revoke(c))))));
+      c.status === "revoked" ? null : button("Revoke", () => revoke(c)))));
   const crl = answer.crl
     ? element("span", {}, `CRL number ${answer.crl.number}, next update ${time(answer.crl.next_update)}`,
       answer.crl.overdue ? " " : "", answer.crl.overdue ? badge("overdue") : null)
@@ -28,7 +29,10 @@ async function showCA() {
   $("ca-section").replaceChildren(
     heading(ca),
     answer.certs.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No certificates." }) :
-      table(["Status", "Subject", "Expires", "Revoked", ""], rows),
+      searchable({ items: answer.certs, row, noun: "certificates", headings: ["Status", "Subject", "Expires", "Revoked", ""],
+        text: (c) => [c.status, oneLine(c.subject), ...c.subject.map(([, value]) => value), c.serial, c.reason || ""],
+        filters: [{ name: "status", label: "Status", match: (c, value) => c.status === value,
+          choices: [["", "all"], ["valid", "valid"], ["expired", "expired"], ["revoked", "revoked"]] }] }),
     element("div", { className: "flex flex-wrap items-center gap-3 text-sm" }, element("span", { className: "text-muted" }, crl),
       ca.has_key ? element("button", { type: "button", onclick: writeCRL, textContent: "Write the CRL",
         className: "rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" }) : null),

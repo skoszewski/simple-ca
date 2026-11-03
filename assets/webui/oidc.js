@@ -106,16 +106,37 @@ async function oidcCallback() {
     fail("The ID token does not answer this sign-in; start it again.");
     return;
   }
-  const exchanged = await fetch("/api/oidc-token", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id_token: tokens.id_token }) });
-  const answer = await exchanged.json().catch(() => ({}));
-  if (!exchanged.ok) {
-    fail(answer.error || exchanged.statusText);
-    return;
-  }
-  sessionStorage.setItem(oidcResultKey, JSON.stringify(answer));
-  location.replace(flow.back);
+  // An active token of the user is replaced, or with reuse_token taken again, only once the user
+  // says so; Cancel goes back with nothing changed.
+  const exchange = async (choice) => {
+    const exchanged = await fetch("/api/oidc-token", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_token: tokens.id_token, ...choice }) });
+    const answer = await exchanged.json().catch(() => ({}));
+    if (exchanged.status === 409 && answer.active) {
+      const a = answer.active;
+      message.textContent = `You have an active token ${a.name}` + (a.ca ? ` of the issuing CA ${a.ca}` : "")
+        + `, issued ${oidcTime(a.issued)} and valid until ${oidcTime(a.expires)}. Replacing it stops it working `
+        + "wherever it is used, in scripts and other browsers.";
+      document.getElementById("oidc-reuse").classList.toggle("hidden", !settings.reuse_token);
+      document.getElementById("oidc-question").classList.replace("hidden", "flex");
+      return;
+    }
+    document.getElementById("oidc-question").classList.replace("flex", "hidden");
+    if (!exchanged.ok) {
+      fail(answer.error || exchanged.statusText);
+      return;
+    }
+    sessionStorage.setItem(oidcResultKey, JSON.stringify(answer));
+    location.replace(flow.back);
+  };
+  document.getElementById("oidc-replace").addEventListener("click", () => exchange({ replace: true }));
+  document.getElementById("oidc-reuse").addEventListener("click", () => exchange({ reuse: true }));
+  document.getElementById("oidc-cancel").addEventListener("click", () => location.replace(flow.back));
+  await exchange({});
 }
+
+// oidcTime returns a time of the API as the pages show it.
+const oidcTime = (value) => new Date(value).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
 
 if (document.getElementById("oidc-callback")) {
   oidcCallback();

@@ -453,30 +453,48 @@ func prepareToken(caDir, name string, valid time.Duration, scopes, certTypes, do
 		Clients: clientPrefixes, Issued: now, Expires: now.Add(valid)}, caKey, nil
 }
 
+// active reports whether the token is accepted at the time now: neither revoked, pending nor
+// expired.
+func (t *apiToken) active(now time.Time) bool {
+	return !t.revoked() && !t.pending() && now.Before(t.Expires)
+}
+
+// ownedBy reports whether the token was made for the OIDC user owner.
+func (t *apiToken) ownedBy(owner *tokenOIDC) bool {
+	return t.OIDC != nil && t.OIDC.Issuer == owner.Issuer && t.OIDC.Subject == owner.Subject
+}
+
 // oidcToken stores tok, made by prepareToken for the OIDC user of its OIDC, as the token name of
-// tokens-db.json of caDir, in place of the token the user had there, and returns its JWT, signed
-// with caKey. The error has the status 409 when the name belongs to a token not made for that
-// user.
-func oidcToken(caDir, name string, tok *apiToken, caKey *rsa.PrivateKey) (string, error) {
+// tokens-db.json of caDir, and returns its JWT, signed with caKey, and the token. An active token
+// of the user there is replaced with replace, or kept with reuse, which returns its JWT again;
+// without either, the error has the status 409, as it has when the name belongs to a token not
+// made for that user.
+func oidcToken(caDir, name string, tok *apiToken, caKey *rsa.PrivateKey, replace, reuse bool) (string, *apiToken, error) {
 	unlock, err := lockTokens(caDir)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer unlock()
 	db, err := loadTokens(caDir)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	if old, ok := db.Tokens[name]; ok && (old.OIDC == nil || old.OIDC.Issuer != tok.OIDC.Issuer ||
-		old.OIDC.Subject != tok.OIDC.Subject) {
-		return "", apiErr(http.StatusConflict, "the token '%s' exists and is not the token of this user", name)
+	old, ok := db.Tokens[name]
+	switch {
+	case ok && !old.ownedBy(tok.OIDC):
+		return "", nil, apiErr(http.StatusConflict, "the token '%s' exists and is not the token of this user", name)
+	case ok && old.active(time.Now()) && reuse:
+		jwt, err := signToken(caKey, name, old)
+		return jwt, old, err
+	case ok && old.active(time.Now()) && !replace:
+		return "", nil, apiErr(http.StatusConflict, "the token '%s' of this user is active; replace it or use it", name)
 	}
 	jwt, err := signToken(caKey, name, tok)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	db.Tokens[name] = tok
-	return jwt, db.save(caDir)
+	return jwt, tok, db.save(caDir)
 }
 
 // signToken returns the JWT of the token name, its claims signed with caKey.

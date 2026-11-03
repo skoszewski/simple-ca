@@ -11,7 +11,13 @@ function showToken(answer) {
   }
 }
 
-// showCA draws the tokens of the CA on the page.
+// tokenStatus returns the status of the token t: revoked, expired, pending while it waits for its
+// setup code, or active.
+const tokenStatus = (t) => t.revoked ? "revoked" : t.expired ? "expired" : t.pending ? "pending" : "active";
+// allowsScope reports whether the scopes give the scope, named or by *.
+const allowsScope = (scopes, scope) => scopes.includes(scope) || scopes.includes("*");
+
+// showCA draws the tokens of the CA on the page, with the search and the filters of their list.
 async function showCA() {
   const ca = currentCA();
   let tokens;
@@ -21,7 +27,7 @@ async function showCA() {
     failed(error);
     return;
   }
-  const rows = tokens.map((t) => {
+  const row = (t) => {
     const ended = t.revoked || t.expired;
     const managed = t.scopes.every((scope) => info.scopes.includes(scope));
     const expiry = t.revoked ? badge("revoked")
@@ -44,11 +50,22 @@ async function showCA() {
           : button("Revoke", () => change("revoke", t.name, t.pending
             ? `Revoke the token ${t.name}? Its setup code is refused from then on; the token is kept, to be renewed.`
             : `Revoke the token ${t.name}? Its JWT is refused from then on; the token is kept, to be renewed.`, "Revoke")))));
-  });
+  };
   $("ca-section").replaceChildren(...[
     heading(ca),
     tokens.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No tokens." }) :
-      table(["Name", "Expires", "Scopes", "Types", "Names in certificates", "IP addresses in certificates", "Used from", "Certs", ""], rows),
+      searchable({ items: tokens, row, noun: "tokens",
+        headings: ["Name", "Expires", "Scopes", "Types", "Names in certificates", "IP addresses in certificates", "Used from", "Certs", ""],
+        text: (t) => [t.name, t.oidc ? t.oidc.user : "", tokenStatus(t), ...t.scopes, ...(t.types || []), ...(t.domains || []),
+          ...(t.ips || []).map(address), ...(t.clients || []).map(address), ...t.certs],
+        filters: [
+          { name: "status", label: "Status", match: (t, value) => tokenStatus(t) === value,
+            choices: [["", "all"], ["active", "active"], ["pending", "waiting for a setup code"], ["expired", "expired"], ["revoked", "revoked"]] },
+          { name: "scope", label: "Scope", match: (t, value) => allowsScope(t.scopes, value),
+            choices: [["", "all"], ...["sign", "tokens", "certs"].map((s) => [s, s])] },
+          { name: "kind", label: "Made by", match: (t, value) => (value === "oidc") === Boolean(t.oidc),
+            choices: [["", "all"], ["oidc", "OIDC sign-in"], ["other", "other"]] },
+        ] }),
     tokens.length === 0 ? null : element("div", {}, element("button", { type: "button",
       className: "rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle",
       textContent: "Remove expired and revoked tokens",

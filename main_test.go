@@ -3478,8 +3478,8 @@ func TestOIDC(t *testing.T) {
 		t.Errorf("GET /api/oidc: %d %v, want the settings of the Entra ID sign-in", status, answer)
 	}
 
-	// A user of a rule gets the token of its profile, which opens the token page, and once a token,
-	// an ID token is refused; signing in again replaces the token.
+	// A user of a rule gets the token of its profile, which opens the token page, and once a token
+	// is given, its ID token is refused.
 	alice := idToken("k1", key1, user("alice@example.com", nil))
 	status, answer = signIn(alice)
 	if status != http.StatusOK || answer["ca"] != "" || answer["name"] != "alice-example-com" ||
@@ -3495,11 +3495,60 @@ func TestOIDC(t *testing.T) {
 	if status, _ := signIn(alice); status != http.StatusUnauthorized {
 		t.Errorf("a used ID token: %d, want 401", status)
 	}
-	if status, _ = signIn(idToken("k1", key1, user("alice@example.com", nil))); status != http.StatusOK {
-		t.Fatalf("second sign-in of alice: %d, want 200", status)
+
+	// A sign-in with an active token of the user names it and replaces nothing, and the same ID
+	// token then replaces it; reusing it needs reuse_token.
+	again := idToken("k1", key1, user("alice@example.com", nil))
+	status, answer = signIn(again)
+	if active, _ := answer["active"].(map[string]any); status != http.StatusConflict || active["name"] != "alice-example-com" ||
+		active["ca"] != "" || active["expires"] == nil {
+		t.Errorf("second sign-in of alice: %d %v, want 409 naming the active token", status, answer)
 	}
+	if status, _ := do("GET", "/tokens/api/cas", first, nil); status != http.StatusOK {
+		t.Errorf("the token of the first sign-in after a sign-in not replacing it: %d, want 200", status)
+	}
+	signInWith := func(raw string, choice map[string]any) (int, map[string]any) {
+		t.Helper()
+		body := map[string]any{"id_token": raw}
+		maps.Copy(body, choice)
+		return do("POST", "/api/oidc-token", "", body)
+	}
+	if status, _ := signInWith(again, map[string]any{"reuse": true}); status != http.StatusBadRequest {
+		t.Errorf("reusing the token without reuse_token: %d, want 400", status)
+	}
+	if status, _ := signInWith(again, map[string]any{"replace": true, "reuse": true}); status != http.StatusBadRequest {
+		t.Errorf("replace and reuse together: %d, want 400", status)
+	}
+	status, answer = signInWith(again, map[string]any{"replace": true})
+	if status != http.StatusOK {
+		t.Fatalf("second sign-in of alice replacing the token: %d %v, want 200", status, answer)
+	}
+	second := fmt.Sprint(answer["token"])
 	if status, _ := do("GET", "/tokens/api/cas", first, nil); status != http.StatusUnauthorized {
-		t.Errorf("the token of the first sign-in: %d, want 401", status)
+		t.Errorf("the replaced token of the first sign-in: %d, want 401", status)
+	}
+	if status, _ := signInWith(again, map[string]any{"replace": true}); status != http.StatusUnauthorized {
+		t.Errorf("the ID token of the replacing sign-in again: %d, want 401", status)
+	}
+	write(configFile, `{"oidc": {"provider": "entra", "issuer": "`+idp.URL+`", "client_id": "simple-ca", "reuse_token": true}}`)
+	if status, answer := do("GET", "/api/oidc", "", nil); status != http.StatusOK || answer["reuse_token"] != true {
+		t.Errorf("GET /api/oidc with reuse_token: %d %v, want reuse_token true", status, answer)
+	}
+	status, answer = signInWith(idToken("k1", key1, user("alice@example.com", nil)), map[string]any{"reuse": true})
+	if status != http.StatusOK || answer["token"] != second {
+		t.Errorf("third sign-in of alice reusing the token: %d %v, want the token of the second sign-in", status, answer)
+	}
+	if status, _ := do("GET", "/tokens/api/cas", second, nil); status != http.StatusOK {
+		t.Errorf("the reused token: %d, want 200", status)
+	}
+	write(configFile, `{"oidc": {"provider": "entra", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
+
+	// A revoked token of the user is replaced without asking.
+	if err := revokeToken(rootDir, "alice-example-com"); err != nil {
+		t.Fatal(err)
+	}
+	if status, answer := signIn(idToken("k1", key1, user("alice@example.com", nil))); status != http.StatusOK {
+		t.Errorf("sign-in of alice with the token revoked: %d %v, want 200", status, answer)
 	}
 	db, _ := loadTokens(rootDir)
 	if tok := db.Tokens["alice-example-com"]; tok.OIDC == nil || tok.Expires.Sub(tok.Issued) != 8*time.Hour {

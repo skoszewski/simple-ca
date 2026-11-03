@@ -81,6 +81,15 @@ in RFC 3339, never text laid out for reading, such as the lines of `cert show` o
 `token describe`. The pages and the commands lay the data out each for itself, so a client reads
 a field without parsing, and a change of the wording or the layout of one changes no API.
 
+## The lists of the pages are searched in the browser
+
+The token and certificate pages search and filter their lists in the browser, over the list the
+API answers with for a CA, and the API takes no search. A CA holds hundreds or a few thousand
+tokens and certificates, which one answer carries, and the data is already structured. So the
+search answers each keystroke without a request, and matches the fields as the page shows them,
+such as the addresses of prefixes. The search and the filters are kept in the address of the
+page, as the CA is, so a reload or a link shows the same list.
+
 ## The OIDC sign-in is a public client in the browser that gets a stored token
 
 The pages run the authorization code flow with PKCE themselves and redeem the code from the
@@ -90,15 +99,22 @@ single-page application redirect URI only, and Keycloak for a public client with
 `serve` in its Web origins. One redirect URI, `/oidc-callback`, serves every page, which keeps the
 registration at the provider to one entry.
 
-The ID token is exchanged once for a token of `tokens-db.json`, made anew on each sign-in, and is
-not accepted as a bearer token. The pages, the signing API and the scripts then see one kind of
-token, with its scopes, CA and clients. A token is listed, renewed and revoked as any other, and
-lives as long as its profile says, not as long as the ID token. The sign-in is another way to
-hand out a token, next to a setup code, and `/token-setup` shows the token for scripts. Since a
-sign-in makes the token again, access is taken away in `oidc-users.json` or at the provider, not
-by revoking the token. The nonce of an ID token is accepted once, so an ID token read on its way
-makes no second token. The name of a token made by the sign-in belongs to its OIDC user, and a
-token of that name that is not the user's is never replaced.
+The ID token is exchanged once for a token of `tokens-db.json`, and is not accepted as a bearer
+token. The pages, the signing API and the scripts then see one kind of token, with its scopes, CA
+and clients. A token is listed, renewed and revoked as any other, and lives as long as its
+profile says, not as long as the ID token. The sign-in is another way to hand out a token, next
+to a setup code, and `/token-setup` shows the token for scripts. Since a sign-in makes the token
+again, access is taken away in `oidc-users.json` or at the provider, not by revoking the token.
+The nonce of an ID token gives one token, so an ID token read on its way makes no second token.
+The name of a token made by the sign-in belongs to its OIDC user, and a token of that name that
+is not the user's is never replaced.
+
+A user has one token per CA, so the sign-ins of a user do not pile up tokens in
+`tokens-db.json`. A new sign-in replaces that token, which a user may not know is used elsewhere,
+in a script or another browser. So a sign-in with an active token stops and asks, and the ID
+token is used up only once a token is given, so the answer goes back with the same ID token.
+Giving the active token again, unchanged, lets browsers share it, but hands one JWT to every
+sign-in of the user while it is valid; it is therefore offered only with `oidc.reuse_token`.
 
 A user gets the profile of the first rule matching the user or a group, in the order of the
 file, so the file reads top down. A role whose value names a profile gives it without a rule.

@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.8.1
+
+gap: the token and certificate lists have a search and filters, and an OIDC sign-in asks before it replaces the active token of its user, which with oidc.reuse_token it can take again instead.
+
+- The token list has a search over the name, OIDC user, status, scopes, types, domains, IP
+  addresses, clients and certificate serials of a token. Its filters pick the status (active,
+  waiting for a setup code, expired or revoked), a scope, and whether the OIDC sign-in made the
+  token.
+- The certificate list has a search over the subject, serial number, status and revocation
+  reason, and a filter of the status: valid, expired or revoked.
+- A search shows the items holding every word of it, in any letter case, with a count of those
+  shown. The search and the filters are kept in the address of the page, so a reload or a link
+  keeps them.
+- The links between the token and the certificate page keep the CA shown, in place of opening
+  the other page at the root CA.
+
+- A sign-in with an active token stops on `/oidc-callback`. It names the token, with its issue
+  time and expiry, and offers Replace it or Cancel. Replacing the token stops it working in
+  scripts and other browsers. An expired or revoked token is replaced without asking.
+- `POST /api/oidc-token` then answers `409 Conflict` with `active`, the CA, name, issue time and
+  expiry of the token. It makes nothing and leaves the ID token unused, so the same ID token is
+  sent again with `"replace": true`.
+- With `"reuse_token": true` in the `oidc` section of `simple-ca.json`, the question also offers
+  Use the current token. That answers with the active token unchanged, for `"reuse": true`.
+  `GET /api/oidc` reports `reuse_token`.
+
 ## 1.8.0
 
 feat: serve hands out tokens to the users of an OIDC provider, generic, Keycloak or Entra ID, who sign in on the token and certificate pages, the signing forms and /token-setup and get the token profile oidc-users.json gives their user, group or role.

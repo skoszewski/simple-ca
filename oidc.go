@@ -194,7 +194,7 @@ func (c *oidcClient) key(oc oidcConfig, kid string) (crypto.PublicKey, error) {
 // checkIDToken returns the claims of the ID token raw of the provider of oc, and an error of status
 // 401 when it is malformed, signed by no key of the provider or with an algorithm of none of
 // oidcAlgorithms, issued by another issuer or for another client, expired, issued in the future,
-// without a nonce, or with the nonce of an ID token accepted before.
+// without a nonce, or with a nonce used before; useNonce uses the nonce once a token is given.
 func (c *oidcClient) checkIDToken(oc oidcConfig, raw string) (map[string]any, error) {
 	invalid := func(reason string) error { return apiErr(http.StatusUnauthorized, "invalid ID token: %s", reason) }
 	parts := strings.Split(raw, ".")
@@ -265,8 +265,21 @@ func (c *oidcClient) checkIDToken(oc oidcConfig, raw string) (map[string]any, er
 	if _, used := c.nonces[nonce]; used {
 		return nil, invalid("it has been used")
 	}
-	c.nonces[nonce] = exp
 	return claims, nil
+}
+
+// useNonce uses the nonce of the claims of an ID token checkIDToken accepted, kept until the ID
+// token expires, and reports whether it was not used before.
+func (c *oidcClient) useNonce(claims map[string]any) bool {
+	nonce, _ := claims["nonce"].(string)
+	exp, _ := claims["exp"].(float64)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, used := c.nonces[nonce]; used {
+		return false
+	}
+	c.nonces[nonce] = time.Unix(int64(exp), 0)
+	return true
 }
 
 // claimValues returns the strings of the claims at paths, dotted paths into claims, each a string
@@ -399,8 +412,8 @@ func (c *oidcClient) configured(w http.ResponseWriter) (oidcConfig, bool) {
 }
 
 // apiSettings answers GET /api/oidc with what the pages sign in with: the provider, the label of
-// the button, the client ID, the scopes, the endpoints of the provider and the path of the redirect
-// URI.
+// the button, the client ID, the scopes, the endpoints of the provider, the path of the redirect
+// URI, and whether a sign-in may take the active token of its user again.
 func (c *oidcClient) apiSettings(w http.ResponseWriter, r *http.Request) {
 	oc, ok := c.configured(w)
 	if !ok {
@@ -416,14 +429,18 @@ func (c *oidcClient) apiSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	webuiReply(w, http.StatusOK, map[string]any{"provider": oc.Provider, "label": oc.Label, "client_id": oc.ClientID,
 		"scopes": oc.Scopes, "authorization_endpoint": d.AuthorizationEndpoint, "token_endpoint": d.TokenEndpoint,
-		"redirect_path": oidcCallbackPath})
+		"redirect_path": oidcCallbackPath, "reuse_token": oc.ReuseToken})
 }
 
 // apiToken answers POST /api/oidc-token, a JSON body {"id_token": "..."} of at most acmeMaxBody
 // bytes from a client behind the trusted proxies, with the CA ID, the name, the JWT and the scopes
-// of the token the ID token's user gets by oidc-users.json, made anew on each sign-in. The error
-// has the status 401 for an ID token checkIDToken refuses, 403 for a user without a profile or a
-// client the token of the profile is not used from, and 409 for a name of another token.
+// of the token the ID token's user gets by oidc-users.json. An active token of the user is not
+// replaced without "replace": true, and is given again with "reuse": true where reuse_token
+// allows it; without either, the answer is 409 with the CA ID, the name, the issue time and the
+// expiry of the active token, and the ID token can be sent again. The error has the status 400
+// for reuse it does not allow, 401 for an ID token checkIDToken refuses, 403 for a user without a
+// profile or a client the token of the profile is not used from, and 409 for a name of another
+// token.
 func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request, trusted []netip.Prefix) {
 	oc, ok := c.configured(w)
 	if !ok {
@@ -431,6 +448,8 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request, trusted []
 	}
 	var req struct {
 		IDToken string `json:"id_token"`
+		Replace bool   `json:"replace"`
+		Reuse   bool   `json:"reuse"`
 	}
 	dec := json.NewDecoder(io.LimitReader(r.Body, acmeMaxBody))
 	dec.DisallowUnknownFields()
@@ -440,6 +459,14 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request, trusted []
 	}
 	if err := dec.Decode(&req); err != nil || strings.TrimSpace(req.IDToken) == "" {
 		webuiFail(w, http.StatusBadRequest, "the body is not a JSON object with the ID token")
+		return
+	}
+	switch {
+	case req.Replace && req.Reuse:
+		webuiFail(w, http.StatusBadRequest, "replace and reuse exclude each other")
+		return
+	case req.Reuse && !oc.ReuseToken:
+		webuiFail(w, http.StatusBadRequest, "reusing the active token is off: oidc.reuse_token is not set")
 		return
 	}
 	client := clientAddr(r, trusted)
@@ -501,13 +528,34 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request, trusted []
 	sub, _ := claims["sub"].(string)
 	tok.OIDC = &tokenOIDC{Issuer: oc.Issuer, Subject: sub, User: user}
 	dir := filepath.Join(c.rootDir, profile.CA)
-	jwt, err := oidcToken(dir, name, tok, caKey)
+
+	// An active token of the user is named in the answer, and the ID token stays unused, so the
+	// sign-in can be sent again to replace or reuse it.
+	db, err := loadTokens(dir)
 	if err != nil {
 		fail(err)
 		return
 	}
-	log.Printf("token %s of %s made for OIDC user %s from %s", name, dir, user, client)
-	webuiReply(w, http.StatusOK, map[string]any{"ca": profile.CA, "name": name, "token": jwt, "scopes": tok.scopes()})
+	if old, ok := db.Tokens[name]; ok && old.ownedBy(tok.OIDC) && old.active(time.Now()) && !req.Replace && !req.Reuse {
+		webuiReply(w, http.StatusConflict, map[string]any{"error": "the token " + name + " of this user is active",
+			"active": map[string]any{"ca": profile.CA, "name": name, "issued": old.Issued, "expires": old.Expires}})
+		return
+	}
+	if !c.useNonce(claims) {
+		fail(apiErr(http.StatusUnauthorized, "invalid ID token: it has been used"))
+		return
+	}
+	jwt, given, err := oidcToken(dir, name, tok, caKey, req.Replace, req.Reuse)
+	if err != nil {
+		fail(err)
+		return
+	}
+	verb := "made"
+	if given != tok {
+		verb = "given again"
+	}
+	log.Printf("token %s of %s %s for OIDC user %s from %s", name, dir, verb, user, client)
+	webuiReply(w, http.StatusOK, map[string]any{"ca": profile.CA, "name": name, "token": jwt, "scopes": given.scopes()})
 }
 
 // callbackPage serves the page the provider sends the browser back to, which redeems the code and

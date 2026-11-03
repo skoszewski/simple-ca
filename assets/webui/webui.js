@@ -173,11 +173,14 @@ function choose(id) {
   showCA();
 }
 
-// currentCA puts the CA on the page in the address and the chooser, gives the page the colours of
-// its theme, and returns it.
+// currentCA puts the CA on the page in the address, the chooser and the links to the token and
+// certificate pages, gives the page the colours of its theme, and returns it.
 function currentCA() {
   params.set("ca", caID);
   history.replaceState(null, "", base + "/?" + params);
+  const query = new URLSearchParams({ ca: caID });
+  $("tokens-link").href = "/tokens/?" + query;
+  $("certs-link").href = "/certificates/?" + query;
   $("ca-picker").replaceChildren(picker({ name: "ca", id: "ca-chooser", labelledBy: "ca-label",
     choices: info.cas.map((ca) => [ca.id, caRole(ca) + ": " + subjectName(ca.subject)]), value: caID, onchange: choose }));
   const ca = info.cas.find((ca) => ca.id === caID);
@@ -208,11 +211,64 @@ const heading = (ca) => {
     element("h2", { className: "text-lg font-semibold" }, ...named(subjectName(ca.subject), ca.subject)),
     element("span", { className: "rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium text-subtle-ink", textContent: caRole(ca) }));
 };
-const table = (headings, rows) => element("div", { className: "overflow-x-auto" }, element("table", { className: "w-full text-left text-sm" },
-  element("thead", { className: "text-muted" }, element("tr", {}, ...headings.map((h) =>
-    element("th", { className: "py-1 pr-3 font-medium", textContent: h })))),
-  element("tbody", { className: "divide-y divide-line" }, ...rows)));
 const list = (text) => text.split(/[\s,]+/).filter(Boolean);
+
+// searchable returns the table of items, each drawn as a row by row under headings, with a search
+// field above it and a picker for each of filters, each a name, a label, its choices of a value and
+// a label, the first one taking every item, and match(item, value). The search matches an item
+// whose text, given by text(item), holds every word of it, in any letter case. The search and the
+// filters are kept in the address, so the list keeps them when it is drawn again, and the table
+// is drawn again as they change; a count tells how many items are shown.
+function searchable({ items, text, row, headings, filters, noun }) {
+  const words = () => (params.get("q") || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const body = element("tbody", { className: "divide-y divide-line" });
+  const count = element("p", { className: "text-sm text-muted" });
+  const keep = (name, value) => {
+    if (value) {
+      params.set(name, value);
+    } else {
+      params.delete(name);
+    }
+    history.replaceState(null, "", base + "/?" + params);
+  };
+  const draw = () => {
+    const wanted = words();
+    const shown = items.filter((item) => {
+      const haystack = text(item).join(" ").toLowerCase();
+      return wanted.every((word) => haystack.includes(word))
+        && filters.every(({ name, match }) => !params.get(name) || match(item, params.get(name)));
+    });
+    body.replaceChildren(...shown.map(row));
+    count.textContent = shown.length === items.length ? `${items.length} ${noun}`
+      : `${shown.length} of ${items.length} ${noun}` + (shown.length === 0 ? "; none matches the search and the filters" : "");
+  };
+  const search = element("input", { type: "search", value: params.get("q") || "", placeholder: "Search",
+    autocorrect: "off", autocapitalize: "off", spellcheck: false, ariaLabel: "Search " + noun,
+    className: "w-full rounded-lg border border-field-line bg-field px-3 py-2 text-sm sm:max-w-sm",
+    oninput: () => {
+      keep("q", search.value.trim());
+      draw();
+    } });
+  const pickers = filters.map(({ name, label, choices }) => {
+    if (!choices.some(([value]) => value === (params.get(name) || ""))) {
+      keep(name, "");
+    }
+    return element("div", { className: "flex min-w-48 items-center gap-2" },
+      element("span", { id: "filter-" + name, className: "text-sm font-medium", textContent: label }),
+      element("div", { className: "min-w-0 flex-1" }, picker({ name: "filter-" + name, labelledBy: "filter-" + name, choices,
+        value: params.get(name) || "", onchange: (value) => {
+          keep(name, value);
+          draw();
+        } })));
+  });
+  draw();
+  return element("div", { className: "space-y-3" },
+    element("div", { className: "flex flex-wrap items-center gap-3" }, search, ...pickers),
+    element("div", { className: "overflow-x-auto" }, element("table", { className: "w-full text-left text-sm" },
+      element("thead", { className: "text-muted" }, element("tr", {}, ...headings.map((h) =>
+        element("th", { className: "py-1 pr-3 font-medium", textContent: h })))), body)),
+    count);
+}
 
 // The sign-in with the OIDC provider, when it is on, is offered in the dialog asking for the token.
 oidcButton($("login-oidc"), null, askToken);

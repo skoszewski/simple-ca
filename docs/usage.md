@@ -272,6 +272,10 @@ starting with the root CA:
 
 - its certificates, with their status, subject, expiry and revocation, and its current CRL, with
   its number and next update, marked when overdue;
+- **Search** and **Status**: the list shows the certificates holding every word of the search,
+  in any letter case, in their subject, serial number, status or revocation reason, and of the
+  status chosen: valid, expired or revoked. A count tells how many are shown. The search and the
+  status are kept in the address, as `?q=` and `?status=`, so a reload or a link keeps them;
 - **Show**: the fields of a certificate, as `cert show` writes them, in a dialog naming the file
   they are read from: a certificate file of the CA directory, `NAME_cert.pem`, or for the root CA
   the `ca_cert.pem` of an issuing CA. A certificate whose file a later certificate of the same name

@@ -16,6 +16,11 @@
         </div>
         <div id="oidc-callback" class="space-y-4 px-6 py-5">
           <p id="oidc-message" class="text-sm">Getting your token...</p>
+          <div id="oidc-question" class="hidden flex-wrap items-center justify-end gap-2">
+            <button id="oidc-cancel" type="button" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Cancel</button>
+            <button id="oidc-reuse" type="button" class="hidden rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Use the current token</button>
+            <button id="oidc-replace" type="button" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Replace it</button>
+          </div>
           <a id="oidc-back" class="hidden text-sm text-link hover:underline" href="/">Back</a>
         </div>
       </div>

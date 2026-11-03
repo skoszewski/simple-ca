@@ -33,10 +33,22 @@ no client secret.
 
 The token is a token of `tokens-db.json` like any other. `token list`, `token describe` and the
 token page show the OIDC user it was made for, and it is renewed, revoked and removed as any
-token. Each sign-in makes the user's token anew, with a new JWT, so the token of an earlier
-sign-in is refused from then on. A revoked token is made again at the next sign-in, so to take a
-user's access away, take the user out of `oidc-users.json`, or the role or the group out of the
-provider.
+token. A user has one token in the CA of the user's profile. A sign-in makes a new one, with a
+new JWT, which refuses the JWT the user had.
+
+When the user's token is still active, neither expired nor revoked, the sign-in stops on
+`/oidc-callback` and asks first. It names the token, when it was issued and until when it is
+valid, since replacing it stops it working wherever it is used, in scripts and in other
+browsers. The choices are:
+
+- **Replace it** - makes the new token;
+- **Use the current token** - with `reuse_token` set, gives the active token again, unchanged,
+  so another browser shares it;
+- **Cancel** - goes back to the page with nothing changed.
+
+An expired or revoked token is replaced without asking. A revoked token is made again at the
+next sign-in, so to take a user's access away, take the user out of `oidc-users.json`, or the
+role or the group out of the provider.
 
 The sign-in needs a secure context in the browser, for the PKCE challenge: the pages over HTTPS,
 or on `localhost` or `127.0.0.1`. Entra ID accepts a redirect URI over plain HTTP only for
@@ -69,6 +81,8 @@ The `oidc` section of [simple-ca.json](configuration.md) turns the sign-in on:
   user.
 - `groups_claim` and `roles_claim` - the claims holding the groups and the roles of the user, one
   or a list.
+- `reuse_token` - `true` offers "Use the current token" when a user signs in with an active
+  token, which gives that token again in place of a new one; off by default.
 
 A claim is a dotted path into the ID token, such as `realm_access.roles`, and the segment
 `CLIENT_ID` stands for the client ID. A claim is a string or a list of strings.
@@ -82,7 +96,7 @@ A claim is a dotted path into the ID token, such as `realm_access.roles`, and th
 `serve` accepts an ID token signed with RS256, ES256, ES384, ES512 or EdDSA by a key of the JWKS
 of the provider. Its `iss` must be the issuer and its `aud` must hold the client ID. Its `azp`,
 when present, must be the client ID too. It must have a subject and must not have expired. Its
-`nonce` is accepted once. The JWKS is fetched again for a key it does not have, at most once a
+`nonce` gives one token: an ID token that has given a token is refused after that. The JWKS is fetched again for a key it does not have, at most once a
 minute.
 
 ## oidc-users.json
@@ -151,19 +165,35 @@ sign-in is off, and `502 Bad Gateway` when the discovery document of the provide
  "scopes": ["openid", "profile", "email"],
  "authorization_endpoint": "https://sso.example.com/realms/lab/protocol/openid-connect/auth",
  "token_endpoint": "https://sso.example.com/realms/lab/protocol/openid-connect/token",
- "redirect_path": "/oidc-callback"}
+ "redirect_path": "/oidc-callback", "reuse_token": false}
 ```
 
 `POST /api/oidc-token` takes a JSON body of at most 64 KiB, `{"id_token": "eyJ..."}`, and
 answers as [/api/token-setup](signing-api.md#setup-code-exchange) does:
-`{"ca": "servers", "name": "alice-example-com", "token": "eyJ...", "scopes": ["sign"]}`. An error
-is `{"error": "..."}` with the status:
+`{"ca": "servers", "name": "alice-example-com", "token": "eyJ...", "scopes": ["sign"]}`.
 
+When the user has an active token there, the answer is `409 Conflict` naming it, and nothing is
+made:
+
+```json
+{"error": "the token alice-example-com of this user is active",
+ "active": {"ca": "servers", "name": "alice-example-com",
+            "issued": "2026-11-03T21:10:00Z", "expires": "2026-11-04T05:10:00Z"}}
+```
+
+The ID token is not used up by that answer, so the same body can be sent again with one of:
+
+- `"replace": true`, which makes the new token;
+- `"reuse": true`, which, with `reuse_token`, answers with the active token instead.
+
+Any other error is `{"error": "..."}` with the status:
+
+- `400 Bad Request` - `reuse` without `reuse_token`, or `replace` and `reuse` together;
 - `401 Unauthorized` - an ID token `serve` does not accept, or one used before;
 - `403 Forbidden` - a user without a user claim or a profile, or a client the token of the
   profile is not accepted from;
 - `404 Not Found` - the sign-in is off;
-- `409 Conflict` - the name of the token belongs to another token;
+- `409 Conflict` without `active` - the name of the token belongs to another token;
 - `415 Unsupported Media Type` - a body that is not `application/json`.
 
 Every token made is logged with the OIDC user and the client.

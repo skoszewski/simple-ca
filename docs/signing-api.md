@@ -173,7 +173,13 @@ attributes of the token, as `token describe` prints them. A root CA token sees e
 only its own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
 root CA. On it you can:
 
-- list the tokens, as `token list` does;
+- list the tokens, as `token list` does, and find them with the search and the filters. The search
+  shows the tokens holding every word of it, in any letter case, in their name, OIDC user,
+  status, scopes, types, domains, IP addresses, clients or certificate serials. The filters pick
+  the status (active, waiting for a setup code, expired or revoked), a scope, the token having it
+  by name or by `*`, and whether the OIDC sign-in made it. A count tells how many are shown, and
+  the search and the filters are kept in the address, as `?q=`, `?status=`, `?scope=` and
+  `?kind=`, so a reload or a link keeps them;
 - renew a token, as `token renew` does, confirming first, with a setup code in place of its JWT
   when "One-time setup code" is checked in the question;
 - revoke a token, or remove a revoked or expired one, or all of them, as `token purge` does,
