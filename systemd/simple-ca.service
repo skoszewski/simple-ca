@@ -1,5 +1,5 @@
 [Unit]
-Description=simple-ca HTTP server of the CA certificates and CRLs
+Description=simple-ca HTTP server of the CA certificates, CRLs and web pages
 Documentation=https://github.com/skoszewski/simple-ca
 Wants=network-online.target
 After=network-online.target
@@ -8,7 +8,7 @@ After=network-online.target
 Type=simple
 User=simple-ca
 Group=simple-ca
-ExecStart=/usr/local/bin/simple-ca serve --ca-dir /etc/simple-ca --address 0.0.0.0 --port 8080
+ExecStart=/usr/local/bin/simple-ca serve --ca-dir /etc/simple-ca --address 0.0.0.0 --port 8080 --webui
 Restart=on-failure
 RestartSec=5
 

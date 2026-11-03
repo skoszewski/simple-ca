@@ -1,0 +1,12 @@
+services:
+  simple-ca:
+    image: simple-ca:latest
+    restart: unless-stopped
+    command: ["serve", "--address", "0.0.0.0", "--port", "8080", "--webui"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - simple-ca:/data
+
+volumes:
+  simple-ca:

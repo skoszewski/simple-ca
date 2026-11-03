@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: simple-ca
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-ca
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: simple-ca
+  template:
+    metadata:
+      labels:
+        app: simple-ca
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: init
+          image: simple-ca-init:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SIMPLE_CA_ROOT_NAME
+              value: My Root CA
+            - name: SIMPLE_CA_ISSUING_CA
+              value: servers
+            - name: SIMPLE_CA_ISSUING_NAME
+              value: My Servers CA
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: simple-ca
+          image: simple-ca:latest
+          imagePullPolicy: IfNotPresent
+          args: ["serve", "--address", "0.0.0.0", "--port", "8080", "--webui"]
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: simple-ca
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-ca
+spec:
+  selector:
+    app: simple-ca
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -136,9 +136,9 @@ simple-ca serve --ca-dir /etc/simple-ca --webui
 
 Tokens are accepted only from the clients they allow (`--host` and `--network` of
 `token create`); behind a trusted proxy of `serve`, the client is the address in the
-`X-Forwarded-For` header. Use `--tls-cert` and `--tls-key`: without them the page uses plain
-HTTP, and on any address but a loopback one the tokens can be read on the network, which `serve`
-warns about at start. Every change is logged with the name of the token that made it.
+`X-Forwarded-For` header. Over plain HTTP, the tokens cross the network in clear, which is usually
+acceptable on a lab network; `serve` mentions it at start for an address other than a loopback
+one. With `--tls-cert` and `--tls-key`, the page is served over HTTPS. Every change is logged with the name of the token that made it.
 
 The API of the page, below `/tokens/api/`, answers with JSON and takes the token as the bearer
 token of every request: `Authorization: Bearer TOKEN`.

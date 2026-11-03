@@ -50,3 +50,54 @@ working directory, so a host directory is mounted there, with `--user` of its ow
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" -w /work -e SIMPLE_CA_TOKEN \
   --entrypoint request-cert simple-ca https://pki.example.com:8080/servers/api/sign web.example.com
 ```
+
+## Docker Compose
+
+`examples/compose.yaml` runs the image of `./build.mjs docker` as the service `simple-ca`, with
+`serve --webui` on port 8080 and the CA directory in the named volume `simple-ca`. The other
+commands run in the same volume with `docker compose run`, whose arguments replace the command of
+the service:
+
+```sh
+./build.mjs docker
+docker compose -f examples/compose.yaml run --rm simple-ca ca create \
+  --ca-url http://pki.example.com:8080 "My Root CA"
+docker compose -f examples/compose.yaml run --rm simple-ca ca create --issuing-ca servers "My Servers CA"
+docker compose -f examples/compose.yaml run --rm simple-ca token create --scope tokens --scope certs admin
+docker compose -f examples/compose.yaml up -d
+```
+
+The index page is at `http://pki.example.com:8080/`, and the token and certificate pages ask for
+the token `admin`. For an image of a registry, `image` names it, such as
+`registry.example.com/simple-ca:latest` for `./build.mjs docker --registry registry.example.com
+--push`.
+
+## Kubernetes
+
+`kubernetes/kubernetes.yaml` runs the same image in Kubernetes: the claim `simple-ca` holds the CA
+directory, and the Deployment `simple-ca` runs `serve --webui` on it, behind the Service
+`simple-ca` on port 8080. Before `serve` starts, its init container creates what the CA
+directory lacks, so it does nothing on later starts:
+
+- the root CA `SIMPLE_CA_ROOT_NAME`;
+- the issuing CA `SIMPLE_CA_ISSUING_CA`, named `SIMPLE_CA_ISSUING_NAME`, when it is set.
+
+The init container runs the image `simple-ca-init`: `kubernetes/simple-ca-init.sh` with busybox and
+the `simple-ca` executable of the image `simple-ca`, which `IMAGE` names, `simple-ca:latest` by
+default:
+
+```sh
+./build.mjs docker
+docker buildx build -t simple-ca-init:latest kubernetes
+kubectl apply -f kubernetes/kubernetes.yaml
+kubectl port-forward service/simple-ca 8080:8080
+```
+
+With the port forwarded, the index page is at `http://127.0.0.1:8080/`. A token of the token and
+certificate pages is made when one is needed, in the running container:
+
+```sh
+kubectl exec deployment/simple-ca -- simple-ca token create --valid 8h --scope tokens --scope certs alice
+``` The nodes of the cluster must have both images; for images
+of a registry, `image` names them, and `--build-arg IMAGE=registry.example.com/simple-ca:latest`
+builds the init image on the image of the registry.

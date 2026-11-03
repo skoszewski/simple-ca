@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.6.1
+
+fix: the token and certificate pages link to the index page and to each other, simple-ca.service runs serve with --webui, and the guides show the pages over HTTP, with HTTPS as an option.
+
+- The token and certificate pages link to the index page, All CAs, and to each other, as the
+  index page links to them.
+- `systemd/simple-ca.service` runs `serve --webui`, so the token and certificate pages are on
+  port 8080 of the host.
+- `docs/systemd.md` shows the first token, with the scopes `tokens` and `certs`, and, for HTTPS,
+  the certificate of the host and a drop-in naming it in `SIMPLE_CA_TLS_CERT` and
+  `SIMPLE_CA_TLS_KEY`.
+- `docs/serve.md` and `docs/signing-api.md` describe plain HTTP as the normal case of the pages,
+  and HTTPS with `--tls-cert` and `--tls-key` as an option where the network is not trusted.
+- `examples/compose.yaml` runs `serve --webui` with Docker Compose, the CA directory in a named
+  volume; `docs/docker.md` shows how to create the CAs and the first token with it.
+- `kubernetes/kubernetes.yaml` runs `serve --webui` in Kubernetes on a persistent volume claim,
+  with an init container of the image `kubernetes/Dockerfile` builds, which creates the CAs the
+  claim lacks; `docs/docker.md` describes them, and making a token with `kubectl exec`.
+
 ## 1.6.0
 
 feat: serve --webui serves the token and certificate pages, which replace token webui and cert webui, tokens have the scopes sign, tokens and certs, and SIMPLE_CA_TLS_CERT and SIMPLE_CA_TLS_KEY name the HTTPS files.

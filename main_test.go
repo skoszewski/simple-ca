@@ -2371,8 +2371,8 @@ func TestHelpPage(t *testing.T) {
 	withWebUI := httptest.NewServer(newServeMux(caDir, nil, false, true))
 	defer withWebUI.Close()
 	for _, path := range []string{tokensPath, certsPath} {
-		if status, _ := get(withWebUI, path); status != http.StatusOK {
-			t.Errorf("%s with webui: status %d, want the page", path, status)
+		if status, body := get(withWebUI, path); status != http.StatusOK || !strings.Contains(body, `href="/">All CAs</a>`) {
+			t.Errorf("%s with webui: status %d, want the page linking to the index page", path, status)
 		}
 		if _, body := get(withWebUI, "/"); !strings.Contains(body, `href="`+path+`"`) {
 			t.Errorf("the index page does not link to %s with webui", path)

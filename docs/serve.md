@@ -11,9 +11,9 @@ it also shows the guides of `simple-ca`, the files of `docs/`, at `/docs/`.
 
 With `--webui`, it also serves the [token page](signing-api.md#token-page) at `/tokens/` and the
 [certificate page](usage.md#certificate-page) at `/certificates/`, linked from the index page.
-They ask for a token with the scope `tokens` or `certs`. Serve them over HTTPS: over plain HTTP
-on any address but a loopback one, the tokens can be read on the network, which `serve` warns
-about at start. The names `help`, `docs`, `tokens` and `certificates` cannot be issuing CA names,
+They ask for a token with the scope `tokens` or `certs`. Over plain HTTP, the tokens cross the
+network in clear, which `serve` mentions at start for an address other than a loopback one;
+`--tls-cert` and `--tls-key` serve the pages over HTTPS where that matters. The names `help`, `docs`, `tokens` and `certificates` cannot be issuing CA names,
 because the pages use those paths.
 
 Behind a reverse proxy, `--trusted-proxy` (an address or a prefix; it may be specified multiple
