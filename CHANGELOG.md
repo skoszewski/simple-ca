@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.5
+
+fix: Enter in a field of a question of the token and certificate pages answers it with its action, in place of Cancel.
+
+- Enter in "Code valid for" or "Code usable from" of the renew question, or in "Validity in
+  days" of the question writing the CRL, closed the question as Cancel did. It now renews the
+  token or writes the CRL; Cancel still closes it without doing so.
+
 ## 1.8.4
 
 fix: the dialogs of the pages of serve no longer close on a click beside them, which a text selection dragged out of a field was taken for.

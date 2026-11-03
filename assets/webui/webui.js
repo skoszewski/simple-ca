@@ -123,6 +123,8 @@ function confirmed(question, action, ...extra) {
     dialog.showModal();
   });
 }
+// Cancel closes the question without its action.
+$("confirm-cancel").addEventListener("click", () => $("confirm").close("cancel"));
 
 // load reads the CAs and shows the one in the address, or the first CA the token opens.
 async function load() {
