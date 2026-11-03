@@ -98,24 +98,27 @@ type themeConfig struct {
 	Dark  map[string]string `json:"dark,omitempty"`
 }
 
-// loadTheme reads theme.json of caDir, refusing unknown settings, and returns its colours as the
-// CSS of the pages, empty when the file does not exist.
-func loadTheme(caDir string) (template.CSS, error) {
+// loadTheme reads theme.json of caDir, refusing unknown settings, a role it does not know and a
+// value that is not a colour, and returns its colours, none when the file does not exist.
+func loadTheme(caDir string) (themeConfig, error) {
+	var theme themeConfig
 	path := filepath.Join(caDir, themeFile)
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
+		return theme, nil
 	}
 	if err != nil {
-		return "", err
+		return theme, err
 	}
-	var theme themeConfig
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&theme); err != nil {
-		return "", fmt.Errorf("could not read %s: %w", path, err)
+		return themeConfig{}, fmt.Errorf("could not read %s: %w", path, err)
 	}
-	return theme.css(path)
+	if _, err := theme.css(path); err != nil {
+		return themeConfig{}, err
+	}
+	return theme, nil
 }
 
 // themeRoles are the roles of the colours of the pages, as templates/theme.html names them.

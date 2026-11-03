@@ -29,6 +29,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -89,82 +90,104 @@ func colonHex(b []byte) string {
 	return strings.Join(parts, ":")
 }
 
-// keyDescription names the type and size of the public key of cert, such as "RSA 4096 bits".
-func keyDescription(cert *x509.Certificate) string {
-	switch k := cert.PublicKey.(type) {
-	case *rsa.PublicKey:
-		return fmt.Sprintf("RSA %d bits", k.N.BitLen())
-	case *ecdsa.PublicKey:
-		return fmt.Sprintf("ECDSA %s", k.Curve.Params().Name)
-	case ed25519.PublicKey:
-		return "Ed25519"
-	}
-	return fmt.Sprintf("%T", cert.PublicKey)
+// certKey is the public key of a certificate: its algorithm, with the size of an RSA key in bits
+// or the curve of an ECDSA key.
+type certKey struct {
+	Algorithm string `json:"algorithm"`
+	Bits      int    `json:"bits,omitempty"`
+	Curve     string `json:"curve,omitempty"`
 }
 
-// writeCertFields writes the fields of cert to w as tab-separated lines, its validity judged at
-// the time now; a field the certificate does not have is left out.
-func writeCertFields(w io.Writer, cert *x509.Certificate, now time.Time) {
-	fmt.Fprintf(w, "Subject:\t%s\n", nameString(cert.Subject))
-	fmt.Fprintf(w, "Issuer:\t%s\n", nameString(cert.Issuer))
-	fmt.Fprintf(w, "Serial:\t%s\n", serialHex(cert.SerialNumber))
-	fmt.Fprintf(w, "Valid from:\t%s\n", cert.NotBefore.UTC().Format(displayTimeFormat))
-	fmt.Fprintf(w, "Valid until:\t%s\n", cert.NotAfter.UTC().Format(displayTimeFormat))
-	validity := "valid"
+// keyOf returns the public key of cert.
+func keyOf(cert *x509.Certificate) certKey {
+	switch k := cert.PublicKey.(type) {
+	case *rsa.PublicKey:
+		return certKey{Algorithm: "RSA", Bits: k.N.BitLen()}
+	case *ecdsa.PublicKey:
+		return certKey{Algorithm: "ECDSA", Curve: k.Curve.Params().Name}
+	case ed25519.PublicKey:
+		return certKey{Algorithm: "Ed25519"}
+	}
+	return certKey{Algorithm: fmt.Sprintf("%T", cert.PublicKey)}
+}
+
+// String names the key, such as "RSA 4096 bits" or "ECDSA P-256".
+func (k certKey) String() string {
+	switch {
+	case k.Bits > 0:
+		return fmt.Sprintf("%s %d bits", k.Algorithm, k.Bits)
+	case k.Curve != "":
+		return k.Algorithm + " " + k.Curve
+	}
+	return k.Algorithm
+}
+
+// certInfo is the content of a certificate as cert show and the certificate page show it: the
+// subject and the issuer as their attributes, each a type and a value, the serial, the key IDs
+// and the fingerprint in upper-case hex, the validity, one of valid, not yet valid and expired, and
+// a path length for a CA, none when it is unlimited.
+type certInfo struct {
+	Subject               [][2]string `json:"subject"`
+	Issuer                [][2]string `json:"issuer"`
+	Serial                string      `json:"serial"`
+	NotBefore             time.Time   `json:"not_before"`
+	NotAfter              time.Time   `json:"not_after"`
+	Validity              string      `json:"validity"`
+	SignatureAlgorithm    string      `json:"signature_algorithm"`
+	Key                   certKey     `json:"key"`
+	CA                    bool        `json:"ca"`
+	PathLength            *int        `json:"path_length,omitempty"`
+	KeyUsage              []string    `json:"key_usage,omitempty"`
+	ExtKeyUsage           []string    `json:"ext_key_usage,omitempty"`
+	DNSNames              []string    `json:"dns_names,omitempty"`
+	IPAddresses           []string    `json:"ip_addresses,omitempty"`
+	EmailAddresses        []string    `json:"email_addresses,omitempty"`
+	URIs                  []string    `json:"uris,omitempty"`
+	RegisteredIDs         []string    `json:"registered_ids,omitempty"`
+	SubjectKeyID          string      `json:"subject_key_id,omitempty"`
+	AuthorityKeyID        string      `json:"authority_key_id,omitempty"`
+	CAIssuers             []string    `json:"ca_issuers,omitempty"`
+	OCSP                  []string    `json:"ocsp,omitempty"`
+	CRLDistributionPoints []string    `json:"crl_distribution_points,omitempty"`
+	SHA256Fingerprint     string      `json:"sha256_fingerprint"`
+}
+
+// certDetails returns the content of cert, its validity judged at the time now.
+func certDetails(cert *x509.Certificate, now time.Time) certInfo {
+	upperHex := func(b []byte) string { return strings.ToUpper(hex.EncodeToString(b)) }
+	c := certInfo{Subject: subjectAttributes(nameString(cert.Subject)), Issuer: subjectAttributes(nameString(cert.Issuer)),
+		Serial: serialHex(cert.SerialNumber), NotBefore: cert.NotBefore.UTC(), NotAfter: cert.NotAfter.UTC(), Validity: "valid",
+		SignatureAlgorithm: cert.SignatureAlgorithm.String(), Key: keyOf(cert), CA: cert.BasicConstraintsValid && cert.IsCA,
+		DNSNames: cert.DNSNames, EmailAddresses: cert.EmailAddresses, CAIssuers: cert.IssuingCertificateURL,
+		OCSP: cert.OCSPServer, CRLDistributionPoints: cert.CRLDistributionPoints}
 	if now.Before(cert.NotBefore) {
-		validity = "not yet valid"
+		c.Validity = "not yet valid"
 	} else if now.After(cert.NotAfter) {
-		validity = "expired"
+		c.Validity = "expired"
 	}
-	fmt.Fprintf(w, "Validity:\t%s\n", validity)
-	fmt.Fprintf(w, "Signature algorithm:\t%s\n", cert.SignatureAlgorithm)
-	fmt.Fprintf(w, "Key:\t%s\n", keyDescription(cert))
-
-	if cert.BasicConstraintsValid && cert.IsCA {
-		pathLen := "unlimited"
-		if cert.MaxPathLen > 0 || cert.MaxPathLenZero {
-			pathLen = fmt.Sprint(cert.MaxPathLen)
-		}
-		fmt.Fprintf(w, "CA:\tyes, path length %s\n", pathLen)
-	} else {
-		fmt.Fprintf(w, "CA:\tno\n")
+	if c.CA && (cert.MaxPathLen > 0 || cert.MaxPathLenZero) {
+		c.PathLength = &cert.MaxPathLen
 	}
-
-	var usages []string
 	for _, u := range keyUsageNames {
 		if cert.KeyUsage&u.usage != 0 {
-			usages = append(usages, u.name)
+			c.KeyUsage = append(c.KeyUsage, u.name)
 		}
 	}
-	if len(usages) > 0 {
-		fmt.Fprintf(w, "Key usage:\t%s\n", strings.Join(usages, ", "))
-	}
-	var extUsages []string
 	for _, u := range cert.ExtKeyUsage {
 		name, ok := extKeyUsageNames[u]
 		if !ok {
 			name = fmt.Sprintf("unknown (%d)", u)
 		}
-		extUsages = append(extUsages, name)
+		c.ExtKeyUsage = append(c.ExtKeyUsage, name)
 	}
 	for _, oid := range cert.UnknownExtKeyUsage {
-		extUsages = append(extUsages, oid.String())
-	}
-	if len(extUsages) > 0 {
-		fmt.Fprintf(w, "Extended key usage:\t%s\n", strings.Join(extUsages, ", "))
-	}
-
-	for _, name := range cert.DNSNames {
-		fmt.Fprintf(w, "DNS name:\t%s\n", name)
+		c.ExtKeyUsage = append(c.ExtKeyUsage, oid.String())
 	}
 	for _, ip := range cert.IPAddresses {
-		fmt.Fprintf(w, "IP address:\t%s\n", ip)
-	}
-	for _, email := range cert.EmailAddresses {
-		fmt.Fprintf(w, "Email address:\t%s\n", email)
+		c.IPAddresses = append(c.IPAddresses, ip.String())
 	}
 	for _, uri := range cert.URIs {
-		fmt.Fprintf(w, "URI:\t%s\n", uri)
+		c.URIs = append(c.URIs, uri.String())
 	}
 	// The registeredID names of the subjectAltName extension.
 	for _, ext := range cert.Extensions {
@@ -178,28 +201,59 @@ func writeCertFields(w io.Writer, cert *x509.Certificate, now time.Time) {
 		for _, n := range names {
 			var oid x509.OID
 			if n.Class == asn1.ClassContextSpecific && n.Tag == 8 && oid.UnmarshalBinary(n.Bytes) == nil {
-				fmt.Fprintf(w, "Registered ID:\t%s\n", oid)
+				c.RegisteredIDs = append(c.RegisteredIDs, oid.String())
 			}
 		}
 	}
-
-	if len(cert.SubjectKeyId) > 0 {
-		fmt.Fprintf(w, "Subject key ID:\t%s\n", colonHex(cert.SubjectKeyId))
-	}
-	if len(cert.AuthorityKeyId) > 0 {
-		fmt.Fprintf(w, "Authority key ID:\t%s\n", colonHex(cert.AuthorityKeyId))
-	}
-	for _, u := range cert.IssuingCertificateURL {
-		fmt.Fprintf(w, "AIA CA issuers:\t%s\n", u)
-	}
-	for _, u := range cert.OCSPServer {
-		fmt.Fprintf(w, "AIA OCSP:\t%s\n", u)
-	}
-	for _, u := range cert.CRLDistributionPoints {
-		fmt.Fprintf(w, "CRL distribution point:\t%s\n", u)
-	}
 	fingerprint := sha256.Sum256(cert.Raw)
-	fmt.Fprintf(w, "SHA-256 fingerprint:\t%s\n", colonHex(fingerprint[:]))
+	c.SubjectKeyID, c.AuthorityKeyID, c.SHA256Fingerprint = upperHex(cert.SubjectKeyId), upperHex(cert.AuthorityKeyId),
+		upperHex(fingerprint[:])
+	return c
+}
+
+// writeCertFields writes the fields of cert to w as tab-separated lines, its validity judged at
+// the time now; a field the certificate does not have is left out.
+func writeCertFields(w io.Writer, cert *x509.Certificate, now time.Time) {
+	c := certDetails(cert, now)
+	colons := func(h string) string {
+		b, _ := hex.DecodeString(h)
+		return colonHex(b)
+	}
+	fmt.Fprintf(w, "Subject:\t%s\n", nameString(cert.Subject))
+	fmt.Fprintf(w, "Issuer:\t%s\n", nameString(cert.Issuer))
+	fmt.Fprintf(w, "Serial:\t%s\n", c.Serial)
+	fmt.Fprintf(w, "Valid from:\t%s\n", c.NotBefore.Format(displayTimeFormat))
+	fmt.Fprintf(w, "Valid until:\t%s\n", c.NotAfter.Format(displayTimeFormat))
+	fmt.Fprintf(w, "Validity:\t%s\n", c.Validity)
+	fmt.Fprintf(w, "Signature algorithm:\t%s\n", c.SignatureAlgorithm)
+	fmt.Fprintf(w, "Key:\t%s\n", c.Key)
+	switch {
+	case c.CA && c.PathLength != nil:
+		fmt.Fprintf(w, "CA:\tyes, path length %d\n", *c.PathLength)
+	case c.CA:
+		fmt.Fprintf(w, "CA:\tyes, path length unlimited\n")
+	default:
+		fmt.Fprintf(w, "CA:\tno\n")
+	}
+	if len(c.KeyUsage) > 0 {
+		fmt.Fprintf(w, "Key usage:\t%s\n", strings.Join(c.KeyUsage, ", "))
+	}
+	if len(c.ExtKeyUsage) > 0 {
+		fmt.Fprintf(w, "Extended key usage:\t%s\n", strings.Join(c.ExtKeyUsage, ", "))
+	}
+	for _, field := range []struct {
+		label  string
+		values []string
+	}{{"DNS name", c.DNSNames}, {"IP address", c.IPAddresses}, {"Email address", c.EmailAddresses}, {"URI", c.URIs},
+		{"Registered ID", c.RegisteredIDs}, {"Subject key ID", []string{colons(c.SubjectKeyID)}},
+		{"Authority key ID", []string{colons(c.AuthorityKeyID)}}, {"AIA CA issuers", c.CAIssuers}, {"AIA OCSP", c.OCSP},
+		{"CRL distribution point", c.CRLDistributionPoints}, {"SHA-256 fingerprint", []string{colons(c.SHA256Fingerprint)}}} {
+		for _, value := range field.values {
+			if value != "" {
+				fmt.Fprintf(w, "%s:\t%s\n", field.label, value)
+			}
+		}
+	}
 }
 
 // showCert writes the fields of every certificate in the PEM or DER file at path to w.

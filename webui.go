@@ -82,16 +82,14 @@ type webuiServer struct {
 	userToken  *apiToken
 }
 
-// webuiCA is a CA of the API: its ID, empty for the root CA, its role, its subject, its label in
-// the selector, whether its key is here to sign tokens, and the CSS of the colours of its
-// theme.json, which the page takes while it shows the CA.
+// webuiCA is a CA of the API: its ID, empty for the root CA, the attributes of its subject, each a
+// type and a value, whether its key is here to sign tokens, and the colours of its theme.json,
+// which the page takes while it shows the CA.
 type webuiCA struct {
-	ID   string `json:"id"`
-	Role string `json:"role"`
-	subjectView
-	Label  string `json:"label"`
-	HasKey bool   `json:"has_key"`
-	Theme  string `json:"theme"`
+	ID      string      `json:"id"`
+	Subject [][2]string `json:"subject"`
+	HasKey  bool        `json:"has_key"`
+	Theme   themeConfig `json:"theme"`
 }
 
 // webuiDefaults are the values the form creating a token starts with, from tokens of
@@ -108,11 +106,13 @@ type webuiDefaults struct {
 	OTCValid  string   `json:"otc_valid"`
 }
 
-// webuiToken is a token of the API: its name, its expiry, the expiry of its setup code when it is
-// pending, whether it was revoked or expired, whether it waits for its setup code, its scopes, what
-// it allows, the clients it is accepted from, and the count of certificates issued with it.
+// webuiToken is a token of the API: its name, its issue time and its expiry, the expiry of its
+// setup code when it is pending, whether it was revoked or expired, whether it waits for its setup
+// code, its scopes, what it allows, the clients it is accepted from, and the serials of the
+// certificates issued with it.
 type webuiToken struct {
 	Name    string    `json:"name"`
+	Issued  time.Time `json:"issued"`
 	Expires time.Time `json:"expires"`
 	Revoked bool      `json:"revoked"`
 	Expired bool      `json:"expired"`
@@ -122,7 +122,15 @@ type webuiToken struct {
 	Domains []string  `json:"domains"`
 	IPs     []string  `json:"ips"`
 	Clients []string  `json:"clients"`
-	Certs   int       `json:"certs"`
+	Certs   []string  `json:"certs"`
+}
+
+// newWebuiToken returns the token name of tokens-db.json, t, as the API answers with it, expired
+// or not at the time now.
+func newWebuiToken(name string, t *apiToken, now time.Time) webuiToken {
+	return webuiToken{Name: name, Issued: t.Issued, Expires: t.Expires, Revoked: t.revoked(), Expired: !now.Before(t.Expires),
+		Pending: t.pending(), Scopes: t.scopes(), Types: t.Types, Domains: t.Domains, IPs: t.IPs, Clients: t.Clients,
+		Certs: append([]string{}, t.Certs...)}
 }
 
 // webuiRequest is the body of a request changing the tokens of the CA CA: the token Name, and,
@@ -438,17 +446,16 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 			log.Printf("webui: %v", err)
 			continue
 		}
-		ca := webuiCA{ID: id, Role: "root CA", subjectView: newSubjectView(nameString(cert.Subject)),
-			Label: "root CA: " + cert.Subject.CommonName, HasKey: fileExists(filepath.Join(dir, "ca_key.pem")),
-			Theme: string(pageTheme(dir))}
-		if id != "" {
-			ca.Role, ca.Label = "issuing CA "+id, "issuing CA "+id+": "+cert.Subject.CommonName
+		theme, err := loadTheme(dir)
+		if err != nil {
+			log.Printf("theme: %v", err)
 		}
-		cas = append(cas, ca)
+		cas = append(cas, webuiCA{ID: id, Subject: subjectAttributes(nameString(cert.Subject)),
+			HasKey: fileExists(filepath.Join(dir, "ca_key.pem")), Theme: theme})
 	}
 
 	answer := map[string]any{"title": rootCert.Subject.CommonName, "types": slices.Sorted(maps.Keys(types)), "cas": cas,
-		"user": s.user, "user_ca": s.userCA, "user_attributes": describeToken(s.user, s.userToken, true)}
+		"user": s.user, "user_ca": s.userCA, "user_token": newWebuiToken(s.user, s.userToken, time.Now())}
 	if s.certs {
 		// The certificate page tells the name rules of each type, the revocation reasons, and the
 		// validity of a certificate and of a CRL in days.
@@ -494,10 +501,7 @@ func (s *webuiServer) listTokens(w http.ResponseWriter, dir string) {
 	now := time.Now()
 	tokens := []webuiToken{}
 	for _, name := range slices.Sorted(maps.Keys(db.Tokens)) {
-		t := db.Tokens[name]
-		tokens = append(tokens, webuiToken{Name: name, Expires: t.Expires, Revoked: t.revoked(),
-			Expired: !now.Before(t.Expires), Pending: t.pending(), Scopes: t.scopes(), Types: t.Types, Domains: t.Domains, IPs: showPrefixes(t.IPs),
-			Clients: showPrefixes(t.Clients), Certs: len(t.Certs)})
+		tokens = append(tokens, newWebuiToken(name, db.Tokens[name], now))
 	}
 	webuiReply(w, http.StatusOK, map[string][]webuiToken{"tokens": tokens})
 }

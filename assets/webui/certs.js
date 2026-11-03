@@ -15,7 +15,7 @@ async function showCA() {
   }
   const rows = answer.certs.map((c) => element("tr", {},
     cell(c.status === "valid" ? "valid" : badge(c.status), "whitespace-nowrap"),
-    cell(element("span", {}, ...named(c.name, c.subject_attributes)), "whitespace-nowrap"),
+    cell(element("span", {}, ...named(subjectName(c.subject), c.subject)), "whitespace-nowrap"),
     cell(time(c.expires), "whitespace-nowrap"),
     cell(c.revoked ? time(c.revoked) + (c.reason ? ", " + c.reason : "") : "-", "whitespace-nowrap"),
     element("td", { className: "py-1.5 text-right" }, element("div", { className: "flex justify-end gap-2" },
@@ -46,9 +46,22 @@ async function show(c) {
     failed(error);
     return;
   }
-  $("show-title").textContent = c.name;
+  const d = answer.certificate;
+  const each = (label, values) => (values || []).map((value) => [label, value]);
+  const fields = [["Subject", oneLine(d.subject)], ["Issuer", oneLine(d.issuer)], ["Serial", d.serial],
+    ["Valid from", time(d.not_before)], ["Valid until", time(d.not_after)], ["Validity", d.validity],
+    ["Signature algorithm", d.signature_algorithm],
+    ["Key", d.key.algorithm + (d.key.bits ? ` ${d.key.bits} bits` : d.key.curve ? " " + d.key.curve : "")],
+    ["CA", d.ca ? "yes, path length " + (d.path_length ?? "unlimited") : "no"],
+    ["Key usage", (d.key_usage || []).join(", ")], ["Extended key usage", (d.ext_key_usage || []).join(", ")],
+    ...each("DNS name", d.dns_names), ...each("IP address", d.ip_addresses), ...each("Email address", d.email_addresses),
+    ...each("URI", d.uris), ...each("Registered ID", d.registered_ids), ["Subject key ID", colonHex(d.subject_key_id || "")],
+    ["Authority key ID", colonHex(d.authority_key_id || "")], ...each("AIA CA issuers", d.ca_issuers), ...each("AIA OCSP", d.ocsp),
+    ...each("CRL distribution point", d.crl_distribution_points), ["SHA-256 fingerprint", colonHex(d.sha256_fingerprint)]]
+    .filter(([, value]) => value);
+  $("show-title").textContent = subjectName(c.subject);
   $("show-file").textContent = "From " + answer.file + " in the CA directory.";
-  $("show-fields").replaceChildren(...answer.fields.flatMap(([name, value]) => [
+  $("show-fields").replaceChildren(...fields.flatMap(([name, value]) => [
     element("dt", { className: "font-medium text-muted", textContent: name }),
     element("dd", { className: "font-mono text-xs break-all sm:pt-0.5", textContent: value })]));
   $("show-dialog").showModal();
@@ -60,12 +73,12 @@ async function revoke(c) {
     choices: [["", "no reason"], ...info.reasons.map((r) => [r, r])], value: "" });
   const label = element("div", { className: "space-y-1 text-sm" },
     element("span", { id: "reason-label", className: "block font-medium", textContent: "Reason" }), reason);
-  if (!(await confirmed(`Revoke the certificate ${c.name}, serial ${c.serial}?`, "Revoke", label))) {
+  if (!(await confirmed(`Revoke the certificate ${subjectName(c.subject)}, serial ${c.serial}?`, "Revoke", label))) {
     return;
   }
   try {
     await api("POST", "/api/certs/revoke", { ca: caID, serial: c.serial, reason: reason.querySelector("input").value });
-    say(`Certificate ${c.name} revoked. Write the CRL to publish it.`);
+    say(`Certificate ${subjectName(c.subject)} revoked. Write the CRL to publish it.`);
   } catch (error) {
     failed(error);
   }
@@ -105,7 +118,7 @@ function openCert(sign) {
   const fields = form.elements;
   const ca = info.cas.find((ca) => ca.id === caID);
   form.reset();
-  $("cert-title").textContent = (sign ? "Sign a request with " : "Create a certificate of ") + ca.name;
+  $("cert-title").textContent = (sign ? "Sign a request with " : "Create a certificate of ") + subjectName(ca.subject);
   $("cert-submit").textContent = sign ? "Sign" : "Create";
   $("cert-error").classList.add("hidden");
   for (const node of form.querySelectorAll("[data-create]")) node.classList.toggle("hidden", sign);

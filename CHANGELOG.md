@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.7.1
+
+gap: the API of the token and certificate pages answers with structured data alone, which the pages lay out, the sign-in dialog has no theme button, and serve refuses an empty --address.
+
+- `GET /certificates/api/certs/show` answers with `certificate`, the content of the certificate
+  as fields, such as `not_after`, `key` and `ip_addresses`, in place of `fields`, the lines of
+  `cert show` as label and text pairs. Its subject and issuer are type and value pairs, and its
+  key IDs and fingerprint hex without colons.
+- `GET /tokens/api/cas` and `GET /certificates/api/cas` answer with `user_token`, the signed-in
+  token as a token of `GET /tokens/api/tokens`, in place of `user_attributes`, label and text
+  pairs. A token of `GET /tokens/api/tokens` has `issued`, `certs` lists the serials of its
+  certificates in place of their count, and `ips` and `clients` are the prefixes as stored.
+- A CA of `/api/cas` has `id`, `subject`, the type and value pairs of its subject, `has_key`, and
+  `theme`, the colours of its `theme.json`, in place of the CSS; `role`, `label` and `name` are
+  gone. A certificate of `GET /certificates/api/certs` has `subject` as type and value pairs, in
+  place of `name`, the one-line `subject` and `subject_attributes`.
+- The theme button is below the token and certificate pages alone, not in their sign-in dialog.
+- `serve --address ""` is a usage error, "--address must not be empty; 0.0.0.0 is all
+  interfaces", before `serve` looks for the CA.
+
 ## 1.7.0
 
 feat: token create --otc and token renew --otc hand out a one-time setup code, exchanged once at /api/token-setup or on the sign-in of the token and certificate pages for the token.

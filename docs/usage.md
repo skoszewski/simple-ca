@@ -306,8 +306,8 @@ simple-ca serve --ca-dir /etc/simple-ca --webui
 | Request | Body | Answer |
 |---|---|---|
 | `GET /certificates/api/cas` | | `title`, `user`, `user_ca`, `cas`, the CAs the token opens, `types`, `names`, the name rules of each type, `reasons` and `defaults`, `days` and `crl_days` |
-| `GET /certificates/api/certs?ca=CA` | | `certs`, each with `serial`, `name`, the CN of its subject or else the whole subject, `subject`, `subject_attributes`, `status`, `expires`, `revoked` and `reason`; `crl`, with `number`, `next_update` and `overdue`, or null |
-| `GET /certificates/api/certs/show?ca=CA&serial=SERIAL` | | `file`, the file holding the certificate, relative to the CA directory; `fields`, each a name and its value, as `cert show` writes them; `404 Not Found` when no file holds it |
+| `GET /certificates/api/certs?ca=CA` | | `certs`, each with `serial`, `subject`, the attributes of its subject as type and value pairs, `status`, `expires`, `revoked` and `reason`; `crl`, with `number`, `next_update` and `overdue`, or null |
+| `GET /certificates/api/certs/show?ca=CA&serial=SERIAL` | | `file`, the file holding the certificate, relative to the CA directory; `certificate`, its content, as `cert show` shows it: `subject` and `issuer`, as type and value pairs, `serial`, `not_before`, `not_after`, `validity` (`valid`, `not yet valid` or `expired`), `signature_algorithm`, `key` (`algorithm`, with `bits` or `curve`), `ca`, `path_length`, absent when unlimited, `key_usage`, `ext_key_usage`, `dns_names`, `ip_addresses`, `email_addresses`, `uris`, `registered_ids`, `subject_key_id`, `authority_key_id`, `ca_issuers`, `ocsp`, `crl_distribution_points` and `sha256_fingerprint`, the serial, the key IDs and the fingerprint in hex, a field the certificate does not have left out; `404 Not Found` when no file holds it |
 | `POST /certificates/api/certs` | `ca`, `type`, `subject`, `sans`, `days`, `ku`, `eku` | `201 Created`, `subject` |
 | `POST /certificates/api/certs/sign` | `ca`, `type`, `name`, `csr`, `days`, `ku`, `eku` | `201 Created`, `file`, the name of the certificate file |
 | `POST /certificates/api/certs/revoke` | `ca`, `serial`, `reason` | `serial` |

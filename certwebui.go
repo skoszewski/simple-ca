@@ -36,15 +36,16 @@ import (
 
 // ---- the certificate page of serve ------------------------------------------
 
-// webuiCert is a certificate of the API, as index.txt of its CA records it: its serial number, its
-// subject, its status, valid, revoked or expired, its expiry, and when and why it was revoked.
+// webuiCert is a certificate of the API, as index.txt of its CA records it: its serial number, the
+// attributes of its subject, each a type and a value, its status, valid, revoked or expired, its
+// expiry, and when and why it was revoked.
 type webuiCert struct {
-	Serial string `json:"serial"`
-	subjectView
-	Status  string     `json:"status"`
-	Expires time.Time  `json:"expires"`
-	Revoked *time.Time `json:"revoked"`
-	Reason  string     `json:"reason"`
+	Serial  string      `json:"serial"`
+	Subject [][2]string `json:"subject"`
+	Status  string      `json:"status"`
+	Expires time.Time   `json:"expires"`
+	Revoked *time.Time  `json:"revoked"`
+	Reason  string      `json:"reason"`
 }
 
 // webuiCRL is the current CRL of a CA: its number, its next update, and whether that has passed.
@@ -77,7 +78,7 @@ type webuiCertRequest struct {
 //
 //	GET  /api/certs?ca=ID     the certificates of a CA and its CRL
 //	GET  /api/certs/show?ca=ID&serial=HEX
-//	                          the fields of a certificate, as cert show writes them
+//	                          the content of a certificate, as cert show shows it
 //	POST /api/certs           creates a certificate, as cert create does
 //	POST /api/certs/sign      signs a certificate signing request, as cert sign does, and returns
 //	                          the name of the certificate file
@@ -218,7 +219,7 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 			webuiFail(w, http.StatusInternalServerError, "invalid expiry of serial "+e.serial)
 			return
 		}
-		c := webuiCert{Serial: e.serial, subjectView: newSubjectView(e.subject), Status: status, Expires: expires}
+		c := webuiCert{Serial: e.serial, Subject: subjectAttributes(e.subject), Status: status, Expires: expires}
 		if e.revoked != "" {
 			if t, err := parseIndexTime(e.revoked); err == nil {
 				c.Revoked = &t
@@ -240,7 +241,7 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 }
 
 // showCert answers with the file holding the certificate of the serial number serial, and the
-// fields of the certificate as cert show writes them, each a name and its value. The certificate
+// content of the certificate, as certDetails returns it. The certificate
 // is looked for in the certificate files of the CA in dir, and for the root CA also in the
 // certificates of its issuing CAs.
 func (s *webuiServer) showCert(w http.ResponseWriter, dir, serial string) {
@@ -262,15 +263,8 @@ func (s *webuiServer) showCert(w http.ResponseWriter, dir, serial string) {
 		if err != nil || serialHex(cert.SerialNumber) != serial {
 			continue
 		}
-		var text strings.Builder
-		writeCertFields(&text, cert, time.Now())
-		fields := [][2]string{}
-		for line := range strings.Lines(text.String()) {
-			name, value, _ := strings.Cut(strings.TrimSuffix(line, "\n"), "\t")
-			fields = append(fields, [2]string{name, value})
-		}
 		file, _ := filepath.Rel(dir, path)
-		webuiReply(w, http.StatusOK, map[string]any{"file": filepath.ToSlash(file), "fields": fields})
+		webuiReply(w, http.StatusOK, map[string]any{"file": filepath.ToSlash(file), "certificate": certDetails(cert, time.Now())})
 		return
 	}
 	webuiFail(w, http.StatusNotFound, "no certificate file of the CA directory holds the certificate "+serial+

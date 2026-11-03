@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1131,7 +1133,7 @@ func TestServe(t *testing.T) {
 		}
 	}
 	bundleAt := strings.Index(string(page), `href="/ca_bundle.pem"`)
-	if bundleAt < 0 || bundleAt > strings.Index(string(page), "<section") {
+	if bundleAt < 0 || bundleAt > strings.Index(string(page), "<main") {
 		t.Fatalf("the index page does not offer the CA bundle above the CAs:\n%s", page)
 	}
 	status, typ, script := get("GET", tailwindPath)
@@ -1733,7 +1735,8 @@ func TestTokens(t *testing.T) {
 		if err != nil {
 			t.Fatalf("loadTokens: %v", err)
 		}
-		db.Tokens["old"].Expires = time.Now().Add(-time.Minute)
+		expired := time.Now().Add(-time.Minute)
+		db.Tokens["old"].Issued, db.Tokens["old"].Expires = expired.Add(-time.Hour), expired
 		if err := db.save(caDir); err != nil {
 			t.Fatalf("save: %v", err)
 		}
@@ -1769,8 +1772,8 @@ func TestTokens(t *testing.T) {
 	if n, err := purgeTokens(caDir, 0); err != nil || n != 2 {
 		t.Fatalf("purgeTokens: %d, %v, want the expired token and the revoked ips removed", n, err)
 	}
-	if db, err := loadTokens(caDir); err != nil || len(db.Tokens) != 1 || db.Tokens["deploy"] == nil {
-		t.Fatalf("tokens after purging: %v, want deploy alone", err)
+	if db, err := loadTokens(caDir); err != nil || !slices.Equal(slices.Sorted(maps.Keys(db.Tokens)), []string{"all", "deploy"}) {
+		t.Fatalf("tokens after purging: %v, %v, want all and deploy, the tokens still accepted", slices.Sorted(maps.Keys(db.Tokens)), err)
 	}
 	if n, err := purgeTokens(t.TempDir(), 0); err != nil || n != 0 {
 		t.Fatalf("purgeTokens without tokens-db.json: %d, %v, want 0", n, err)
@@ -2526,9 +2529,9 @@ func TestTokenWebUI(t *testing.T) {
 		status, answer := call(key, "GET", "/api/cas", nil)
 		cas, _ := answer["cas"].([]any)
 		if status != http.StatusOK || answer["title"] != "Test CA" || len(cas) != 2 ||
-			cas[1].(map[string]any)["label"] != "issuing CA issuing-ca: Issuing CA" || cas[1].(map[string]any)["name"] != "Issuing CA" ||
-			fmt.Sprint(cas[1].(map[string]any)["subject_attributes"]) != "[[CN Issuing CA]]" {
-			t.Fatalf("GET /api/cas: %d %v, want the root and the issuing CA, with their names and subject attributes", status, answer)
+			cas[1].(map[string]any)["id"] != "issuing-ca" || fmt.Sprint(cas[1].(map[string]any)["subject"]) != "[[CN Issuing CA]]" ||
+			cas[1].(map[string]any)["label"] != nil || cas[1].(map[string]any)["role"] != nil {
+			t.Fatalf("GET /api/cas: %d %v, want the root and the issuing CA, with their IDs and subject attributes alone", status, answer)
 		}
 	}
 
@@ -2725,9 +2728,11 @@ func TestCertWebUI(t *testing.T) {
 
 	// A certificate is shown from its file, as cert show writes it; the root CA shows its issuing CAs.
 	status, answer = call(key, "GET", "/api/certs/show?ca=issuing-ca&serial="+serial.(string), nil)
-	fields, _ := answer["fields"].([]any)
-	if status != http.StatusOK || answer["file"] != "web_cert.pem" ||
-		!slices.ContainsFunc(fields, func(f any) bool { return fmt.Sprint(f) == "[IP address 192.0.2.10]" }) {
+	shown, _ := answer["certificate"].(map[string]any)
+	if status != http.StatusOK || answer["file"] != "web_cert.pem" || fmt.Sprint(shown["ip_addresses"]) != "[192.0.2.10]" ||
+		fmt.Sprint(shown["key"]) != "map[algorithm:RSA bits:4096]" || shown["validity"] != "valid" ||
+		fmt.Sprint(shown["subject"]) != "[[CN web.example.com]]" ||
+		!regexp.MustCompile(`^[0-9A-F]{64}$`).MatchString(fmt.Sprint(shown["sha256_fingerprint"])) {
 		t.Errorf("GET /api/certs/show: %d %v, want web_cert.pem with its IP address", status, answer)
 	}
 	if status, answer := call(key, "GET", "/api/certs/show?ca=issuing-ca&serial=00", nil); status != http.StatusNotFound || answer["error"] == nil {
@@ -2890,7 +2895,7 @@ func TestSetupCode(t *testing.T) {
 		}
 		return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
 	}
-	once, err := addToken(issuingDir, "once", time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, nil)
+	once, err := addToken(issuingDir, "once", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil, time.Hour, nil)
 	if err != nil {
 		t.Fatalf("addToken --otc: %v", err)
 	}
@@ -2962,6 +2967,379 @@ func TestSetupCode(t *testing.T) {
 	}
 }
 
+func TestTokenAccessAcrossCAs(t *testing.T) {
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	rootDir := t.TempDir()
+	if err := makeCA(rootDir, "Root CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	cas := []string{"", "servers", "clients", "devices"}
+	for _, id := range cas[1:] {
+		if err := makeCA(rootDir, "CA "+id, 3650, id, ""); err != nil {
+			t.Fatalf("makeCA %s: %v", id, err)
+		}
+	}
+	label := func(id string) string {
+		if id == "" {
+			return "root"
+		}
+		return id
+	}
+	path := func(id string) string {
+		if id == "" {
+			return ""
+		}
+		return "/" + id
+	}
+	caCerts := map[string]*x509.Certificate{}
+	for _, id := range cas {
+		cert, err := loadCert(filepath.Join(rootDir, id, "ca_cert.pem"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		caCerts[id] = cert
+	}
+
+	// Every CA has tokens of the same four names, so a name of one CA never opens another.
+	names := []string{"signer", "keeper", "operator", "master"}
+	scopesOf := map[string][]string{"signer": {"sign"}, "keeper": {"tokens"}, "operator": {"certs"}, "master": {"*"}}
+	has := func(name, scope string) bool { return allows(scopesOf[name], scope) }
+	jwts := map[string]map[string]string{}
+	for _, id := range cas {
+		jwts[id] = map[string]string{}
+		for _, name := range names {
+			var types, domains []string
+			if has(name, "sign") {
+				types, domains = []string{"server"}, []string{"example.com"}
+			}
+			jwt, err := makeToken(filepath.Join(rootDir, id), name, time.Hour, scopesOf[name], types, domains, nil, nil)
+			if err != nil {
+				t.Fatalf("makeToken %s of %s: %v", name, label(id), err)
+			}
+			jwts[id][name] = jwt
+		}
+	}
+
+	server := httptest.NewServer(newServeMux(rootDir, nil, false, true))
+	defer server.Close()
+	do := func(method, target, token, contentType, body string) (int, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(method, server.URL+target, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		if contentType != "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, target, err)
+		}
+		defer resp.Body.Close()
+		var answer map[string]any
+		json.NewDecoder(resp.Body).Decode(&answer)
+		return resp.StatusCode, answer
+	}
+	call := func(token, method, target string, body any) (int, map[string]any) {
+		t.Helper()
+		b := ""
+		if body != nil {
+			j, _ := json.Marshal(body)
+			b = string(j)
+		}
+		return do(method, target, token, "application/json", b)
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader,
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "web.example.com"}, DNSNames: []string{"web.example.com"}}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))
+	signBody := map[string]string{"csr": csr}
+	apiSignStatus := func(token, target string) int {
+		t.Helper()
+		status, answer := call(token, "POST", path(target)+"/api/sign", signBody)
+		if status == http.StatusOK {
+			block, _ := pem.Decode([]byte(fmt.Sprint(answer["certificate"])))
+			if block == nil {
+				t.Errorf("POST %s/api/sign: no certificate in %v", path(target), answer)
+				return status
+			}
+			if cert, err := x509.ParseCertificate(block.Bytes); err != nil || cert.CheckSignatureFrom(caCerts[target]) != nil {
+				t.Errorf("POST %s/api/sign: a certificate not signed by the CA %s: %v", path(target), label(target), err)
+			}
+		}
+		return status
+	}
+	formSignStatus := func(token, target string) int {
+		t.Helper()
+		resp, err := http.PostForm(server.URL+path(target)+"/sign", url.Values{"token": {token}, "csr": {csr}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK && resp.Header.Get("Content-Type") != "application/x-pem-file" {
+			t.Errorf("POST %s/sign: %s, want a certificate", path(target), resp.Header.Get("Content-Type"))
+		}
+		return resp.StatusCode
+	}
+
+	// The signing API and the signing form of a CA take a token of that CA with the scope sign
+	// alone; a token of another CA is unknown to them, whatever its name.
+	for _, owner := range cas {
+		for _, name := range names {
+			for _, target := range cas {
+				want := http.StatusUnauthorized
+				if owner == target {
+					want = http.StatusForbidden
+					if has(name, "sign") {
+						want = http.StatusOK
+					}
+				}
+				if status := apiSignStatus(jwts[owner][name], target); status != want {
+					t.Errorf("POST %s/api/sign with %s of %s: %d, want %d", path(target), name, label(owner), status, want)
+				}
+				if status := formSignStatus(jwts[owner][name], target); status != want {
+					t.Errorf("POST %s/sign with %s of %s: %d, want %d", path(target), name, label(owner), status, want)
+				}
+			}
+		}
+	}
+
+	// The token and certificate pages take a token of any CA with their scope: a root CA token
+	// opens every CA, and an issuing CA token its own CA alone.
+	for _, page := range []struct{ prefix, scope, list string }{{"/tokens", "tokens", "/api/tokens"}, {"/certificates", "certs", "/api/certs"}} {
+		for _, owner := range cas {
+			for _, name := range names {
+				token, who := jwts[owner][name], name+" of "+label(owner)
+				status, answer := call(token, "GET", page.prefix+"/api/cas", nil)
+				if !has(name, page.scope) {
+					if status != http.StatusForbidden || !strings.Contains(fmt.Sprint(answer["error"]), "scope "+page.scope) {
+						t.Errorf("GET %s/api/cas with %s: %d %v, want 403 naming the scope", page.prefix, who, status, answer)
+					}
+				} else {
+					var ids []string
+					list, _ := answer["cas"].([]any)
+					for _, ca := range list {
+						ids = append(ids, fmt.Sprint(ca.(map[string]any)["id"]))
+					}
+					want := []string{owner}
+					if owner == "" {
+						want = []string{"", "clients", "devices", "servers"}
+					}
+					if status != http.StatusOK || !slices.Equal(ids, want) || answer["user"] != name || answer["user_ca"] != owner {
+						t.Errorf("GET %s/api/cas with %s: %d %v, want the CAs %q", page.prefix, who, status, answer, want)
+					}
+				}
+				for _, target := range cas {
+					want := http.StatusForbidden
+					if has(name, page.scope) {
+						want = http.StatusNotFound
+						if owner == "" || owner == target {
+							want = http.StatusOK
+						}
+					}
+					if status, answer := call(token, "GET", page.prefix+page.list+"?ca="+target, nil); status != want {
+						t.Errorf("GET %s%s?ca=%s with %s: %d %v, want %d", page.prefix, page.list, target, who, status, answer, want)
+					}
+
+					// A change of a CA is refused alike; a token made on the token page is signed by the
+					// key of its CA, whichever CA the token of the request belongs to.
+					wantChange := want
+					if page.scope == "tokens" {
+						made := "made-" + name + "-of-" + label(owner) + "-in-" + label(target)
+						if want == http.StatusOK {
+							wantChange = http.StatusCreated
+						}
+						status, answer := call(token, "POST", "/tokens/api/tokens",
+							map[string]any{"ca": target, "name": made, "valid": "1h", "domains": []string{"example.com"}})
+						if status != wantChange {
+							t.Errorf("creating %s in %s with %s: %d %v, want %d", made, label(target), who, status, answer, wantChange)
+							continue
+						}
+						if status == http.StatusCreated {
+							for _, id := range cas {
+								if _, err := verifyJWT(caCerts[id], fmt.Sprint(answer["token"])); (err == nil) != (id == target) {
+									t.Errorf("the token %s verifies with the CA %s: %v, want it signed by %s alone", made, label(id), err == nil, label(target))
+								}
+							}
+						}
+					} else if status, answer := call(token, "POST", "/certificates/api/crl", map[string]any{"ca": target, "days": 7}); status != wantChange {
+						t.Errorf("POST /certificates/api/crl of %s with %s: %d %v, want %d", label(target), who, status, answer, wantChange)
+					}
+				}
+			}
+		}
+	}
+
+	// A root CA token manages the tokens of an issuing CA; an issuing CA token those of no other
+	// CA. A revoked token of one CA leaves the token of the same name of another CA working.
+	if status, answer := call(jwts["servers"]["keeper"], "POST", "/tokens/api/tokens/revoke",
+		map[string]any{"ca": "clients", "name": "signer"}); status != http.StatusNotFound {
+		t.Errorf("revoking signer of clients with keeper of servers: %d %v, want 404", status, answer)
+	}
+	if status, answer := call(jwts["servers"]["keeper"], "POST", "/tokens/api/tokens/purge", map[string]any{"ca": ""}); status != http.StatusNotFound {
+		t.Errorf("purging the tokens of the root CA with keeper of servers: %d %v, want 404", status, answer)
+	}
+	if status, answer := call(jwts[""]["keeper"], "POST", "/tokens/api/tokens/renew",
+		map[string]any{"ca": "servers", "name": "master"}); status != http.StatusForbidden {
+		t.Errorf("renewing master of servers with keeper of root: %d %v, want 403, a scope keeper lacks", status, answer)
+	}
+	if status, answer := call(jwts[""]["keeper"], "POST", "/tokens/api/tokens/revoke",
+		map[string]any{"ca": "servers", "name": "signer"}); status != http.StatusOK {
+		t.Fatalf("revoking signer of servers with keeper of root: %d %v, want 200", status, answer)
+	}
+	if status := apiSignStatus(jwts["servers"]["signer"], "servers"); status != http.StatusUnauthorized {
+		t.Errorf("POST /servers/api/sign with the revoked signer of servers: %d, want 401", status)
+	}
+	for _, id := range []string{"", "clients", "devices"} {
+		if status := apiSignStatus(jwts[id]["signer"], id); status != http.StatusOK {
+			t.Errorf("POST %s/api/sign with signer of %s after revoking signer of servers: %d, want 200", path(id), label(id), status)
+		}
+	}
+	if status, answer := call(jwts[""]["master"], "POST", "/tokens/api/tokens/renew",
+		map[string]any{"ca": "devices", "name": "keeper"}); status != http.StatusOK {
+		t.Fatalf("renewing keeper of devices with master of root: %d %v, want 200", status, answer)
+	} else {
+		if status, _ := call(jwts["devices"]["keeper"], "GET", "/tokens/api/cas", nil); status != http.StatusUnauthorized {
+			t.Errorf("GET /tokens/api/cas with the JWT of keeper of devices before its renewal: %d, want 401", status)
+		}
+		if status, answer := call(fmt.Sprint(answer["token"]), "GET", "/tokens/api/cas", nil); status != http.StatusOK || answer["user_ca"] != "devices" {
+			t.Errorf("GET /tokens/api/cas with the renewed keeper of devices: %d %v, want devices", status, answer)
+		}
+	}
+
+	// A setup code is exchanged for a token of its own CA, and the signing form of a CA takes the
+	// codes of that CA alone; the signing API and the pages take no code.
+	codes := map[string]string{}
+	for _, id := range cas[1:] {
+		code, err := addToken(filepath.Join(rootDir, id), "remote", time.Hour, nil, []string{"server"}, []string{"example.com"},
+			nil, nil, time.Hour, nil)
+		if err != nil {
+			t.Fatalf("addToken --otc in %s: %v", id, err)
+		}
+		codes[id] = code
+	}
+	status, answer := call("", "POST", "/api/token-setup", map[string]string{"code": codes["servers"]})
+	if status != http.StatusOK || answer["ca"] != "servers" || answer["name"] != "remote" {
+		t.Fatalf("exchanging the code of servers: %d %v, want remote of servers", status, answer)
+	}
+	for _, target := range cas {
+		want := http.StatusUnauthorized
+		if target == "servers" {
+			want = http.StatusOK
+		}
+		if status := apiSignStatus(fmt.Sprint(answer["token"]), target); status != want {
+			t.Errorf("POST %s/api/sign with remote of servers from its code: %d, want %d", path(target), status, want)
+		}
+	}
+	for _, target := range []string{"", "servers", "devices"} {
+		if status := formSignStatus(codes["clients"], target); status != http.StatusUnauthorized {
+			t.Errorf("POST %s/sign with the code of clients: %d, want 401", path(target), status)
+		}
+	}
+	if status := apiSignStatus(codes["clients"], "clients"); status != http.StatusUnauthorized {
+		t.Errorf("POST /clients/api/sign with the code of clients: %d, want 401", status)
+	}
+	for _, prefix := range []string{"/tokens", "/certificates"} {
+		if status, _ := call(codes["clients"], "GET", prefix+"/api/cas", nil); status != http.StatusUnauthorized {
+			t.Errorf("GET %s/api/cas with the code of clients: %d, want 401", prefix, status)
+		}
+	}
+	if status := formSignStatus(codes["clients"], "clients"); status != http.StatusOK {
+		t.Errorf("POST /clients/sign with the code of clients: %d, want 200", status)
+	}
+	if status, answer := call("", "POST", "/api/token-setup", map[string]string{"code": codes["clients"]}); status != http.StatusUnauthorized {
+		t.Errorf("exchanging the code of clients used on its signing form: %d %v, want 401", status, answer)
+	}
+
+	// A token used from a client it does not allow is refused by every path.
+	far, err := makeToken(filepath.Join(rootDir, "devices"), "far", time.Hour, []string{"*"}, []string{"server"},
+		[]string{"example.com"}, nil, []string{"10.0.0.0/8"})
+	if err != nil {
+		t.Fatalf("makeToken --network: %v", err)
+	}
+	if status := apiSignStatus(far, "devices"); status != http.StatusForbidden {
+		t.Errorf("POST /devices/api/sign from outside the networks of the token: %d, want 403", status)
+	}
+	if status := formSignStatus(far, "devices"); status != http.StatusForbidden {
+		t.Errorf("POST /devices/sign from outside the networks of the token: %d, want 403", status)
+	}
+	for _, prefix := range []string{"/tokens", "/certificates"} {
+		if status, _ := call(far, "GET", prefix+"/api/cas", nil); status != http.StatusForbidden {
+			t.Errorf("GET %s/api/cas from outside the networks of the token: %d, want 403", prefix, status)
+		}
+	}
+
+	// A JWT with a changed payload or header, or without a signature, is invalid everywhere.
+	parts := strings.Split(jwts["clients"]["signer"], ".")
+	var claims map[string]any
+	payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatal(err)
+	}
+	claims["scope"] = "*"
+	widened, _ := json.Marshal(claims)
+	none := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	for what, forged := range map[string]string{
+		"a widened scope":    parts[0] + "." + base64.RawURLEncoding.EncodeToString(widened) + "." + parts[2],
+		"the algorithm none": none + "." + parts[1] + ".",
+		"no signature":       parts[0] + "." + parts[1] + ".",
+	} {
+		if status := apiSignStatus(forged, "clients"); status != http.StatusUnauthorized {
+			t.Errorf("POST /clients/api/sign with %s: %d, want 401", what, status)
+		}
+		for _, prefix := range []string{"/tokens", "/certificates"} {
+			if status, _ := call(forged, "GET", prefix+"/api/cas", nil); status != http.StatusUnauthorized {
+				t.Errorf("GET %s/api/cas with %s: %d, want 401", prefix, what, status)
+			}
+		}
+	}
+
+	// An entry copied from the tokens of one CA into those of another does not make its JWT a
+	// token of the other CA: the JWT is still checked with the key of the CA.
+	serversDB, err := loadTokens(filepath.Join(rootDir, "servers"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientsDB, err := loadTokens(filepath.Join(rootDir, "clients"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientsDB.Tokens["master"] = serversDB.Tokens["master"]
+	if err := clientsDB.save(filepath.Join(rootDir, "clients")); err != nil {
+		t.Fatal(err)
+	}
+	if status := apiSignStatus(jwts["servers"]["master"], "clients"); status != http.StatusUnauthorized {
+		t.Errorf("POST /clients/api/sign with master of servers copied into clients: %d, want 401", status)
+	}
+	if status, answer := call(jwts["servers"]["master"], "GET", "/tokens/api/tokens?ca=clients", nil); status != http.StatusNotFound {
+		t.Errorf("GET /tokens/api/tokens?ca=clients with master of servers copied into clients: %d %v, want 404", status, answer)
+	}
+
+	// A CA outside the root CA directory, or one that does not exist, is not found.
+	for _, target := range []string{"/nowhere/api/sign", "/.servers/api/sign"} {
+		if status, _ := call(jwts[""]["master"], "POST", target, signBody); status != http.StatusNotFound {
+			t.Errorf("POST %s: %d, want 404", target, status)
+		}
+	}
+	for _, ca := range []string{"..", "../servers", "servers/../clients", "Servers", "nowhere"} {
+		for _, target := range []string{"/tokens/api/tokens", "/certificates/api/certs"} {
+			if status, _ := call(jwts[""]["master"], "GET", target+"?ca="+url.QueryEscape(ca), nil); status != http.StatusNotFound {
+				t.Errorf("GET %s?ca=%s with master of root: %d, want 404", target, ca, status)
+			}
+		}
+	}
+}
+
 func TestThemeConfig(t *testing.T) {
 	css, err := themeConfig{Light: map[string]string{"head": "#7c2d12", "action": "oklch(0.55 0.2 40)"},
 		Dark: map[string]string{"head": " darkred "}}.css("simple-ca.json")
@@ -2984,18 +3362,25 @@ func TestThemeConfig(t *testing.T) {
 
 	// theme.json of a CA directory holds the colours of that CA alone, none without it.
 	dir := t.TempDir()
-	if css, err := loadTheme(dir); err != nil || css != "" {
-		t.Errorf("loadTheme without theme.json: %q, %v, want none", css, err)
+	if theme, err := loadTheme(dir); err != nil || theme.Light != nil || theme.Dark != nil {
+		t.Errorf("loadTheme without theme.json: %+v, %v, want none", theme, err)
+	}
+	if css := pageTheme(dir); css != "" {
+		t.Errorf("pageTheme without theme.json: %q, want none", css)
 	}
 	for _, c := range []struct{ file, want string }{
 		{`{"light": {"head": "#7f1d1d"}}`, ":root { --head: #7f1d1d; }\n"},
 		{`{"theme": {"light": {"head": "#7f1d1d"}}}`, ""},
+		{`{"light": {"head": "not a colour"}}`, ""},
 	} {
 		if err := os.WriteFile(filepath.Join(dir, themeFile), []byte(c.file), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if css, err := loadTheme(dir); string(css) != c.want || (err == nil) != (c.want != "") {
-			t.Errorf("loadTheme of %s: %q, %v, want %q", c.file, css, err, c.want)
+		if theme, err := loadTheme(dir); (err == nil) != (c.want != "") || (err == nil && theme.Light["head"] != "#7f1d1d") {
+			t.Errorf("loadTheme of %s: %+v, %v, want the colours or an error", c.file, theme, err)
+		}
+		if css := pageTheme(dir); string(css) != c.want {
+			t.Errorf("pageTheme of %s: %q, want %q", c.file, css, c.want)
 		}
 	}
 }

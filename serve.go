@@ -126,10 +126,11 @@ var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json"
 // pageTheme returns the CSS of the colours of theme.json of the CA in caDir for its pages, empty
 // without the file, or when it does not read, which is logged.
 func pageTheme(caDir string) template.CSS {
-	css, err := loadTheme(caDir)
+	theme, err := loadTheme(caDir)
 	if err != nil {
 		log.Printf("theme: %v", err)
 	}
+	css, _ := theme.css(filepath.Join(caDir, themeFile))
 	return css
 }
 
@@ -193,7 +194,7 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http
 				NotBefore:   cert.NotBefore.UTC().Format(displayTimeFormat),
 				NotAfter:    cert.NotAfter.UTC().Format(displayTimeFormat),
 				Expiry:      "expired",
-				Key:         keyDescription(cert),
+				Key:         keyOf(cert).String(),
 				Fingerprint: []string{colonHex(fingerprint[:8]), colonHex(fingerprint[8:16]),
 					colonHex(fingerprint[16:24]), colonHex(fingerprint[24:])},
 				Path: "/",

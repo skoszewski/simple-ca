@@ -92,19 +92,29 @@ type subjectView struct {
 
 // newSubjectView returns the view of subject, a name in the one-line form nameString writes.
 func newSubjectView(subject string) subjectView {
-	view := subjectView{Name: subject, Subject: subject}
+	view := subjectView{Name: subject, Subject: subject, SubjectAttributes: subjectAttributes(subject)}
+	for _, a := range view.SubjectAttributes {
+		if a[0] == "CN" {
+			view.Name = a[1]
+			break
+		}
+	}
+	return view
+}
+
+// subjectAttributes returns the attributes of subject, a name in the one-line form nameString
+// writes, each a type and a value, in their order in the name.
+func subjectAttributes(subject string) [][2]string {
+	attributes := [][2]string{}
 	starts := nameStringRE.FindAllStringSubmatchIndex(subject, -1)
 	for i, m := range starts {
 		end := len(subject)
 		if i+1 < len(starts) {
 			end = starts[i+1][0]
 		}
-		view.SubjectAttributes = append(view.SubjectAttributes, [2]string{subject[m[2]:m[3]], subject[m[1]:end]})
-		if subject[m[2]:m[3]] == "CN" && view.Name == subject {
-			view.Name = subject[m[1]:end]
-		}
+		attributes = append(attributes, [2]string{subject[m[2]:m[3]], subject[m[1]:end]})
 	}
-	return view
+	return attributes
 }
 
 // parseIP returns s as an IPv4 or IPv6 address without a zone.

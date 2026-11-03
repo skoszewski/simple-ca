@@ -217,8 +217,8 @@ token of every request: `Authorization: Bearer TOKEN`.
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_attributes`, its attributes, each a label and a value; `cas`, the CAs the token opens, each with `id`, `role`, `name` (the CN of its subject, or else the whole subject), `subject`, `subject_attributes` (type and value pairs), `label` and `has_key`; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json` |
-| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `expires`, the expiry of its setup code when it is `pending`, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips`, `clients` and `certs` |
+| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json` |
+| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `issued`, `expires`, the expiry of its setup code when it is `pending`, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, and `certs`, the serials of the certificates issued with it |
 | `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/renew` | `ca`, `name`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `name` and `token`, the new JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/revoke` | `ca`, `name` | `name` |

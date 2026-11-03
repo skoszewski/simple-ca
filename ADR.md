@@ -73,3 +73,10 @@ copy of the file gives no code, and the code holds 80 random bits, typed by a pe
 groups of base32. The code works once and expires, by default after 15 minutes, and
 `--otc-network` keeps it to the network of its user. `/api/token-setup` needs no token, as its
 caller has none yet, and looks through every CA for the code, as its user may not know its CA.
+
+## The APIs answer with data, not text
+
+The JSON APIs of `serve` answer with structured data: names, lists, numbers, booleans and times
+in RFC 3339, never text laid out for reading, such as the lines of `cert show` or the labels of
+`token describe`. The pages and the commands lay the data out each for itself, so a client reads
+a field without parsing, and a change of the wording or the layout of one changes no API.

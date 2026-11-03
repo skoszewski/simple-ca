@@ -64,9 +64,9 @@ page, above the CAs, as P7B, which Windows opens and imports with all its certif
 PEM.
 
 Every page of `serve` follows the light or dark theme of the browser, or the one chosen with the
-theme button below the page, also in the sign-in dialog of the token and certificate pages. Its
-icon shows the choice, a screen for the theme of the system, a sun for light and a moon for
-dark; a click goes to the next, and the browser keeps the choice for all the pages. The
+theme button below the page. Its icon shows the choice, a screen for the theme of the system, a
+sun for light and a moon for dark; a click goes to the next, and the browser keeps the choice for
+all the pages. The
 pages are styled with the browser build of Tailwind CSS 4.3.3, embedded in the executable and
 served at `/assets/tailwindcss-browser-4.3.3.js`; `/assets/webui/theme.js` sets the theme, the
 index page opens its dialogs with the script `/assets/webui/index.js`, and the signing forms

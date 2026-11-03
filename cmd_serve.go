@@ -58,6 +58,11 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *address == "" {
+		fmt.Fprintf(fs.Output(), "%s: --address must not be empty; 0.0.0.0 is all interfaces\n", fs.Name())
+		fs.Usage()
+		return errUsage
+	}
 	if *tlsCert, *tlsKey, err = resolveTLS(*tlsCert, *tlsKey); err != nil {
 		return err
 	}

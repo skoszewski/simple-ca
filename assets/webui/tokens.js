@@ -33,9 +33,9 @@ async function showCA() {
       cell(t.scopes.join(", ")),
       cell((t.types || []).join(", ") || "-"),
       cell((t.domains || []).join(", ") || "-"),
-      cell((t.ips || []).join(", ") || "-"),
-      cell((t.clients || []).join(", ") || "any"),
-      cell(String(t.certs)),
+      cell((t.ips || []).map(address).join(", ") || "-"),
+      cell((t.clients || []).map(address).join(", ") || "any"),
+      cell(String(t.certs.length)),
       element("td", { className: "py-1.5 text-right" }, !managed ? null : element("div", { className: "flex justify-end gap-2" },
         t.pending ? null : button("Renew", () => renew(t.name, ended)),
         ended
@@ -112,7 +112,7 @@ const scopeHints = { sign: "request certificates", tokens: "this page", certs: "
 function openCreate() {
   const fields = $("create-form").elements;
   const ca = info.cas.find((ca) => ca.id === caID);
-  $("create-title").textContent = "Create a token of " + ca.name;
+  $("create-title").textContent = "Create a token of " + subjectName(ca.subject);
   $("create-error").classList.add("hidden");
   fields.name.value = "";
   fields.valid.value = info.defaults.valid;
