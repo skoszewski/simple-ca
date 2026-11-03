@@ -3081,7 +3081,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 		t.Helper()
 		status, answer := call(token, "POST", path(target)+"/api/sign", signBody)
 		if status == http.StatusOK {
-			block, _ := pem.Decode([]byte(fmt.Sprint(answer["certificate"])))
+			block, _ := pem.Decode(fmt.Append(nil, answer["certificate"]))
 			if block == nil {
 				t.Errorf("POST %s/api/sign: no certificate in %v", path(target), answer)
 				return status

@@ -285,7 +285,7 @@ func (t themeConfig) css(path string) (template.CSS, error) {
 		if len(set.colors) == 0 {
 			continue
 		}
-		b.WriteString(set.selector + " {")
+		fmt.Fprintf(&b, "%s {", set.selector)
 		for _, role := range slices.Sorted(maps.Keys(set.colors)) {
 			color := strings.TrimSpace(set.colors[role])
 			switch {

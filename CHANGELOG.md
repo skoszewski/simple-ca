@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.3
+
+fix: the theme CSS is written without a temporary string, and a test decodes the signed certificate without one.
+
+- The CSS of the colours of `theme.json` writes each selector straight into its buffer, as it
+  writes each colour; the CSS is unchanged.
+- The cross-CA token test reads the certificate the signing API answers with by `fmt.Append`.
+
 ## 1.8.2
 
 gap: serve holds back a client whose tokens, setup codes or ID tokens are refused repeatedly, the Status and Scope filters of the token and certificate lists take several values, and the labels of the pages are short.
