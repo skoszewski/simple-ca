@@ -7,6 +7,7 @@ menu:
       - serve: docs/serve.md
       - ACME: docs/acme.md
       - Signing API: docs/signing-api.md
+      - OIDC sign-in: docs/oidc.md
       - Signing API clients: docs/examples.md
       - systemd: docs/systemd.md
       - Docker: docs/docker.md

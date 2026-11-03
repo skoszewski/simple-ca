@@ -48,9 +48,10 @@ const (
 )
 
 // webuiScripts are the scripts of the pages, served at their paths: theme.js, which every page
-// loads in its head; picker.js and webui.js, which both pages load, then tokens.js or certs.js;
-// the signing form of serve loads picker.js and sign.js, its setup code page picker.js and
-// setup.js, and its index page picker.js and index.js.
+// loads in its head; picker.js, oidc.js and webui.js, which both pages load, then tokens.js or
+// certs.js; the signing form of serve loads picker.js, oidc.js and sign.js, its setup code page
+// picker.js, oidc.js and setup.js, its OIDC callback page oidc.js, and its index page picker.js
+// and index.js.
 //
 //go:embed assets/webui/*.js
 var webuiScripts embed.FS
@@ -108,21 +109,22 @@ type webuiDefaults struct {
 
 // webuiToken is a token of the API: its name, its issue time and its expiry, the expiry of its
 // setup code when it is pending, whether it was revoked or expired, whether it waits for its setup
-// code, its scopes, what it allows, the clients it is accepted from, and the serials of the
-// certificates issued with it.
+// code, its scopes, what it allows, the clients it is accepted from, the serials of the
+// certificates issued with it, and the OIDC user it was made for, null for another token.
 type webuiToken struct {
-	Name    string    `json:"name"`
-	Issued  time.Time `json:"issued"`
-	Expires time.Time `json:"expires"`
-	Revoked bool      `json:"revoked"`
-	Expired bool      `json:"expired"`
-	Pending bool      `json:"pending"`
-	Scopes  []string  `json:"scopes"`
-	Types   []string  `json:"types"`
-	Domains []string  `json:"domains"`
-	IPs     []string  `json:"ips"`
-	Clients []string  `json:"clients"`
-	Certs   []string  `json:"certs"`
+	Name    string     `json:"name"`
+	Issued  time.Time  `json:"issued"`
+	Expires time.Time  `json:"expires"`
+	Revoked bool       `json:"revoked"`
+	Expired bool       `json:"expired"`
+	Pending bool       `json:"pending"`
+	Scopes  []string   `json:"scopes"`
+	Types   []string   `json:"types"`
+	Domains []string   `json:"domains"`
+	IPs     []string   `json:"ips"`
+	Clients []string   `json:"clients"`
+	Certs   []string   `json:"certs"`
+	OIDC    *tokenOIDC `json:"oidc"`
 }
 
 // newWebuiToken returns the token name of tokens-db.json, t, as the API answers with it, expired
@@ -130,7 +132,7 @@ type webuiToken struct {
 func newWebuiToken(name string, t *apiToken, now time.Time) webuiToken {
 	return webuiToken{Name: name, Issued: t.Issued, Expires: t.Expires, Revoked: t.revoked(), Expired: !now.Before(t.Expires),
 		Pending: t.pending(), Scopes: t.scopes(), Types: t.Types, Domains: t.Domains, IPs: t.IPs, Clients: t.Clients,
-		Certs: append([]string{}, t.Certs...)}
+		Certs: append([]string{}, t.Certs...), OIDC: t.OIDC}
 }
 
 // webuiRequest is the body of a request changing the tokens of the CA CA: the token Name, and,

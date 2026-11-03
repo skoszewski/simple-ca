@@ -89,10 +89,10 @@ func checkAll(option string, values []string) error {
 // apiToken is a token of a CA: its JWT ID, its scopes, the certificate types, the domains and the
 // IP address prefixes it allows with the scope sign, each "*" for any, the prefixes of the client
 // addresses it is used from, any without them, its validity, the serial numbers of the
-// certificates issued with it, and the setup code it waits for. A token without a JWT ID and a
-// setup code is revoked: it expired when it was revoked, and is kept to be renewed until it is
-// purged. A token with a setup code is pending: it has no JWT until the code is exchanged, and
-// expires with the code.
+// certificates issued with it, the setup code it waits for, and the OIDC user it was made for. A
+// token without a JWT ID and a setup code is revoked: it expired when it was revoked, and is kept
+// to be renewed until it is purged. A token with a setup code is pending: it has no JWT until the
+// code is exchanged, and expires with the code.
 type apiToken struct {
 	ID      string      `json:"id,omitempty"`
 	Scopes  []string    `json:"scopes,omitempty"`
@@ -104,6 +104,15 @@ type apiToken struct {
 	Expires time.Time   `json:"expires"`
 	Certs   []string    `json:"certs,omitempty"`
 	Setup   *tokenSetup `json:"setup,omitempty"`
+	OIDC    *tokenOIDC  `json:"oidc,omitempty"`
+}
+
+// tokenOIDC is the OIDC user a token is made for at the sign-in: the issuer and the subject of the
+// user's ID token, and the user as its user claim names the user.
+type tokenOIDC struct {
+	Issuer  string `json:"issuer"`
+	Subject string `json:"subject"`
+	User    string `json:"user"`
 }
 
 // tokenSetup is the one-time setup code a pending token waits for: the SHA-256 of the code, in
@@ -337,72 +346,11 @@ func makeToken(caDir, name string, valid time.Duration, scopes, certTypes, domai
 // client addresses setupClients, any without them, for the JWT.
 func addToken(caDir, name string, valid time.Duration, scopes, certTypes, domains, ips, clients []string,
 	setupValid time.Duration, setupClients []string) (string, error) {
-	if valid < time.Second {
-		return "", errors.New("--valid must be at least 1s")
-	}
 	setup, code, err := newTokenSetup(valid, setupValid, setupClients)
 	if err != nil {
 		return "", err
 	}
-	if !kebabCaseRE.MatchString(name) {
-		return "", fmt.Errorf("token name '%s' is not a kebab-case name, such as web-deploy", name)
-	}
-	if len(scopes) == 0 {
-		scopes = []string{"sign"}
-	}
-	for _, s := range scopes {
-		if s != "*" && !slices.Contains(tokenScopes, s) {
-			return "", fmt.Errorf("unknown scope '%s': must be one of %s or *", s, strings.Join(tokenScopes, ", "))
-		}
-	}
-	if err := cmp.Or(checkAll("--scope", scopes), checkAll("--type", certTypes)); err != nil {
-		return "", err
-	}
-	if !slices.Contains(scopes, "*") {
-		scopes = slices.DeleteFunc(slices.Clone(tokenScopes), func(s string) bool { return !slices.Contains(scopes, s) })
-	}
-	switch {
-	case !allows(scopes, "sign") && len(certTypes)+len(domains)+len(ips) > 0:
-		return "", errors.New("--type, --domain, --ip and --localhost need the scope sign")
-	case !allows(scopes, "sign"):
-	case len(domains) == 0 && len(ips) == 0:
-		return "", errors.New("at least one --domain or --ip is required")
-	}
-	var names []string
-	for _, d := range domains {
-		d = strings.ToLower(strings.TrimSuffix(d, "."))
-		if d != "*" && !isHostname(d) {
-			return "", fmt.Errorf("--domain '%s' is not a domain name or *", d)
-		}
-		names = append(names, d)
-	}
-	prefixes, err := toPrefixes("--ip", ips)
-	if err != nil {
-		return "", err
-	}
-	clientPrefixes, err := toPrefixes("--host or --network", clients)
-	if err != nil {
-		return "", err
-	}
-	cfg, err := loadRootConfig(caDir)
-	if err != nil {
-		return "", err
-	}
-	types, err := cfg.certTypes()
-	if err != nil {
-		return "", err
-	}
-	for _, t := range certTypes {
-		if _, ok := types[t]; !ok && t != "*" {
-			return "", fmt.Errorf("unknown type '%s': must be one of %s or *", t, typeNames(types))
-		}
-	}
-	caKeyPath := filepath.Join(caDir, "ca_key.pem")
-	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) || !fileExists(caKeyPath) {
-		return "", fmt.Errorf(
-			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory", caDir)
-	}
-	caKey, err := loadKey(caKeyPath)
+	tok, caKey, err := prepareToken(caDir, name, valid, scopes, certTypes, domains, ips, clients)
 	if err != nil {
 		return "", err
 	}
@@ -419,12 +367,9 @@ func addToken(caDir, name string, valid time.Duration, scopes, certTypes, domain
 		return "", fmt.Errorf("token '%s' exists", name)
 	}
 
-	now := time.Now().UTC().Truncate(time.Second)
-	tok := &apiToken{ID: randomID(), Scopes: scopes, Types: certTypes, Domains: names, IPs: prefixes,
-		Clients: clientPrefixes, Issued: now, Expires: now.Add(valid)}
 	result := code
 	if setup != nil {
-		tok.ID, tok.Expires, tok.Setup = "", now.Add(setupValid), setup
+		tok.ID, tok.Expires, tok.Setup = "", tok.Issued.Add(setupValid), setup
 	} else if result, err = signToken(caKey, name, tok); err != nil {
 		return "", err
 	}
@@ -433,6 +378,105 @@ func addToken(caDir, name string, valid time.Duration, scopes, certTypes, domain
 		return "", err
 	}
 	return result, nil
+}
+
+// prepareToken returns the token name of the CA in caDir as addToken makes it, issued now with a
+// new JWT ID, without storing it, and the CA key that signs it.
+func prepareToken(caDir, name string, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (*apiToken, *rsa.PrivateKey, error) {
+	if valid < time.Second {
+		return nil, nil, errors.New("--valid must be at least 1s")
+	}
+	if !kebabCaseRE.MatchString(name) {
+		return nil, nil, fmt.Errorf("token name '%s' is not a kebab-case name, such as web-deploy", name)
+	}
+	if len(scopes) == 0 {
+		scopes = []string{"sign"}
+	}
+	for _, s := range scopes {
+		if s != "*" && !slices.Contains(tokenScopes, s) {
+			return nil, nil, fmt.Errorf("unknown scope '%s': must be one of %s or *", s, strings.Join(tokenScopes, ", "))
+		}
+	}
+	if err := cmp.Or(checkAll("--scope", scopes), checkAll("--type", certTypes)); err != nil {
+		return nil, nil, err
+	}
+	if !slices.Contains(scopes, "*") {
+		scopes = slices.DeleteFunc(slices.Clone(tokenScopes), func(s string) bool { return !slices.Contains(scopes, s) })
+	}
+	switch {
+	case !allows(scopes, "sign") && len(certTypes)+len(domains)+len(ips) > 0:
+		return nil, nil, errors.New("--type, --domain, --ip and --localhost need the scope sign")
+	case !allows(scopes, "sign"):
+	case len(domains) == 0 && len(ips) == 0:
+		return nil, nil, errors.New("at least one --domain or --ip is required")
+	}
+	var names []string
+	for _, d := range domains {
+		d = strings.ToLower(strings.TrimSuffix(d, "."))
+		if d != "*" && !isHostname(d) {
+			return nil, nil, fmt.Errorf("--domain '%s' is not a domain name or *", d)
+		}
+		names = append(names, d)
+	}
+	prefixes, err := toPrefixes("--ip", ips)
+	if err != nil {
+		return nil, nil, err
+	}
+	clientPrefixes, err := toPrefixes("--host or --network", clients)
+	if err != nil {
+		return nil, nil, err
+	}
+	cfg, err := loadRootConfig(caDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	types, err := cfg.certTypes()
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, t := range certTypes {
+		if _, ok := types[t]; !ok && t != "*" {
+			return nil, nil, fmt.Errorf("unknown type '%s': must be one of %s or *", t, typeNames(types))
+		}
+	}
+	caKeyPath := filepath.Join(caDir, "ca_key.pem")
+	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) || !fileExists(caKeyPath) {
+		return nil, nil, fmt.Errorf(
+			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory", caDir)
+	}
+	caKey, err := loadKey(caKeyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	return &apiToken{ID: randomID(), Scopes: scopes, Types: certTypes, Domains: names, IPs: prefixes,
+		Clients: clientPrefixes, Issued: now, Expires: now.Add(valid)}, caKey, nil
+}
+
+// oidcToken stores tok, made by prepareToken for the OIDC user of its OIDC, as the token name of
+// tokens-db.json of caDir, in place of the token the user had there, and returns its JWT, signed
+// with caKey. The error has the status 409 when the name belongs to a token not made for that
+// user.
+func oidcToken(caDir, name string, tok *apiToken, caKey *rsa.PrivateKey) (string, error) {
+	unlock, err := lockTokens(caDir)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	db, err := loadTokens(caDir)
+	if err != nil {
+		return "", err
+	}
+	if old, ok := db.Tokens[name]; ok && (old.OIDC == nil || old.OIDC.Issuer != tok.OIDC.Issuer ||
+		old.OIDC.Subject != tok.OIDC.Subject) {
+		return "", apiErr(http.StatusConflict, "the token '%s' exists and is not the token of this user", name)
+	}
+	jwt, err := signToken(caKey, name, tok)
+	if err != nil {
+		return "", err
+	}
+	db.Tokens[name] = tok
+	return jwt, db.save(caDir)
 }
 
 // signToken returns the JWT of the token name, its claims signed with caKey.
@@ -511,7 +555,7 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	tok := &apiToken{ID: randomID(), Scopes: old.Scopes, Types: old.Types, Domains: old.Domains, IPs: old.IPs,
-		Clients: old.Clients, Issued: now, Expires: now.Add(valid)}
+		Clients: old.Clients, Issued: now, Expires: now.Add(valid), OIDC: old.OIDC}
 	setup, result, err := newTokenSetup(valid, setupValid, setupClients)
 	if err != nil {
 		return "", err
@@ -539,7 +583,7 @@ func listTokens(w io.Writer, caDir string) error {
 	}
 	now := time.Now()
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tEXPIRES\tSCOPES\tTYPES\tDOMAINS\tIPS\tCLIENTS\tCERTS")
+	fmt.Fprintln(tw, "NAME\tEXPIRES\tSCOPES\tTYPES\tDOMAINS\tIPS\tCLIENTS\tCERTS\tOIDC USER")
 	for _, name := range slices.Sorted(maps.Keys(db.Tokens)) {
 		t := db.Tokens[name]
 		expires := t.Expires.UTC().Format(displayTimeFormat)
@@ -553,10 +597,14 @@ func listTokens(w io.Writer, caDir string) error {
 		case !now.Before(t.Expires):
 			expires += " (expired)"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\n", name, expires, strings.Join(t.scopes(), ","),
+		user := "-"
+		if t.OIDC != nil {
+			user = t.OIDC.User
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n", name, expires, strings.Join(t.scopes(), ","),
 			cmp.Or(strings.Join(t.Types, ","), "-"), cmp.Or(strings.Join(t.Domains, ","), "-"),
 			cmp.Or(strings.Join(showPrefixes(t.IPs), ","), "-"), cmp.Or(strings.Join(showPrefixes(t.Clients), ","), "any"),
-			len(t.Certs))
+			len(t.Certs), user)
 	}
 	return tw.Flush()
 }
@@ -594,6 +642,9 @@ func describeToken(name string, t *apiToken, limits bool) [][2]string {
 	}
 	attributes := [][2]string{{"Name", name}, {"Status", status}, {"Issued", at(t.Issued)},
 		{"Scopes", list(t.scopes(), "-")}}
+	if t.OIDC != nil {
+		attributes = append(attributes, [2]string{"OIDC user", t.OIDC.User + " of " + t.OIDC.Issuer})
+	}
 	if !limits {
 		return attributes
 	}

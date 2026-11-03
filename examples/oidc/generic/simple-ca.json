@@ -1,0 +1,9 @@
+{
+  "oidc": {
+    "issuer": "https://idp.example.com",
+    "client_id": "simple-ca",
+    "label": "Example SSO",
+    "user_claim": ["email", "sub"],
+    "groups_claim": "groups"
+  }
+}

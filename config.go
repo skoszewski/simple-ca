@@ -87,6 +87,160 @@ type tokensConfig struct {
 	KeepExpired string   `json:"keep_expired,omitempty"`
 }
 
+// oidcConfig holds the OIDC sign-in of serve, off without an issuer: the provider, generic,
+// keycloak or entra, whose defaults fill the label and the claims left out; the issuer and the
+// client ID of the public client the pages sign in with; the scopes they ask for, openid, profile
+// and email by default; the label of the sign-in button; and the claims naming the user, the first
+// of them present, and holding the groups and the roles, each a dotted path into the ID token.
+type oidcConfig struct {
+	Provider    string     `json:"provider,omitempty"`
+	Issuer      string     `json:"issuer,omitempty"`
+	ClientID    string     `json:"client_id,omitempty"`
+	Scopes      []string   `json:"scopes,omitempty"`
+	Label       string     `json:"label,omitempty"`
+	UserClaim   claimPaths `json:"user_claim,omitempty"`
+	GroupsClaim claimPaths `json:"groups_claim,omitempty"`
+	RolesClaim  claimPaths `json:"roles_claim,omitempty"`
+}
+
+// claimPaths are the dotted paths of claims of an ID token, given as one string or a list.
+type claimPaths []string
+
+func (p *claimPaths) UnmarshalJSON(b []byte) error {
+	var one string
+	if json.Unmarshal(b, &one) == nil {
+		*p = claimPaths{one}
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(b, &list); err != nil {
+		return errors.New("a claim must be a dotted path or a list of them")
+	}
+	*p = list
+	return nil
+}
+
+// oidcProviders are the providers of oidcConfig with the label and the claims they default to; in
+// a claim, the segment CLIENT_ID stands for the client ID.
+var oidcProviders = map[string]struct {
+	label               string
+	user, groups, roles claimPaths
+}{
+	"generic":  {"OIDC", claimPaths{"sub"}, claimPaths{"groups"}, claimPaths{"roles"}},
+	"keycloak": {"Keycloak", claimPaths{"preferred_username"}, claimPaths{"groups"}, claimPaths{"realm_access.roles", "resource_access.CLIENT_ID.roles"}},
+	"entra":    {"Entra ID", claimPaths{"preferred_username"}, claimPaths{"groups"}, claimPaths{"roles"}},
+}
+
+// resolved returns the OIDC sign-in of the config at path with the defaults of its provider, and
+// false when it is off; it refuses an unknown provider, an issuer that is not an HTTP or HTTPS
+// URL, and a missing client ID.
+func (c oidcConfig) resolved(path string) (oidcConfig, bool, error) {
+	if c.Issuer == "" {
+		return c, false, nil
+	}
+	if c.Provider == "" {
+		c.Provider = "generic"
+	}
+	preset, ok := oidcProviders[c.Provider]
+	switch {
+	case !ok:
+		return c, false, fmt.Errorf("oidc.provider of %s: unknown provider '%s': must be one of %s", path, c.Provider,
+			strings.Join(slices.Sorted(maps.Keys(oidcProviders)), ", "))
+	case !strings.HasPrefix(c.Issuer, "https://") && !strings.HasPrefix(c.Issuer, "http://"):
+		return c, false, fmt.Errorf("oidc.issuer of %s: '%s' is not an HTTP or HTTPS URL", path, c.Issuer)
+	case c.ClientID == "":
+		return c, false, fmt.Errorf("oidc.client_id of %s is required with oidc.issuer", path)
+	}
+	if len(c.Scopes) == 0 {
+		c.Scopes = []string{"openid", "profile", "email"}
+	}
+	if !slices.Contains(c.Scopes, "openid") {
+		c.Scopes = append([]string{"openid"}, c.Scopes...)
+	}
+	if c.Label == "" {
+		c.Label = preset.label
+	}
+	if len(c.UserClaim) == 0 {
+		c.UserClaim = preset.user
+	}
+	if len(c.GroupsClaim) == 0 {
+		c.GroupsClaim = preset.groups
+	}
+	if len(c.RolesClaim) == 0 {
+		c.RolesClaim = preset.roles
+	}
+	return c, true, nil
+}
+
+// oidcUsersFile is the file of the root CA directory giving the users of the OIDC sign-in their
+// tokens, an oidcUsers.
+const oidcUsersFile = "oidc-users.json"
+
+// oidcUsers are the token profiles of the OIDC sign-in and the rules giving them to users: a user
+// gets the profile of the first rule matching the user or one of the user's groups, or else the
+// first profile named by one of the user's roles.
+type oidcUsers struct {
+	path     string
+	Profiles []oidcProfile `json:"profiles"`
+	Rules    []oidcRule    `json:"rules"`
+}
+
+// oidcProfile is a token profile: its name, kebab-case, which a role of the same value gives; the
+// CA of its tokens, empty for the root CA; and the token, with the settings of the tokens section
+// of simple-ca.json, those left out taking their values there, without keep_expired.
+type oidcProfile struct {
+	Name  string       `json:"name"`
+	CA    string       `json:"ca"`
+	Token tokensConfig `json:"token"`
+}
+
+// oidcRule gives the profile Profile to the users of Users and to the members of Groups.
+type oidcRule struct {
+	Users   []string `json:"users,omitempty"`
+	Groups  []string `json:"groups,omitempty"`
+	Profile string   `json:"profile"`
+}
+
+// loadOIDCUsers reads oidc-users.json of rootDir, refusing unknown settings, a profile name that is
+// not kebab-case or given twice, keep_expired, and a rule without users and groups or naming an
+// unknown profile; without the file, it has no profiles.
+func loadOIDCUsers(rootDir string) (*oidcUsers, error) {
+	users := &oidcUsers{path: filepath.Join(rootDir, oidcUsersFile)}
+	b, err := os.ReadFile(users.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return users, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(users); err != nil {
+		return nil, fmt.Errorf("could not read %s: %w", users.path, err)
+	}
+	var names []string
+	for i, p := range users.Profiles {
+		switch {
+		case !kebabCaseRE.MatchString(p.Name):
+			return nil, fmt.Errorf("profiles[%d] of %s: name '%s' is not a kebab-case name, such as ca-admin", i, users.path, p.Name)
+		case slices.Contains(names, p.Name):
+			return nil, fmt.Errorf("profiles[%d] of %s: the profile '%s' is given twice", i, users.path, p.Name)
+		case p.Token.KeepExpired != "":
+			return nil, fmt.Errorf("profile %s of %s: keep_expired belongs to the tokens section of simple-ca.json", p.Name, users.path)
+		}
+		names = append(names, p.Name)
+	}
+	for i, r := range users.Rules {
+		switch {
+		case len(r.Users) == 0 && len(r.Groups) == 0:
+			return nil, fmt.Errorf("rules[%d] of %s: a rule needs users or groups", i, users.path)
+		case !slices.Contains(names, r.Profile):
+			return nil, fmt.Errorf("rules[%d] of %s: unknown profile '%s'", i, users.path, r.Profile)
+		}
+	}
+	return users, nil
+}
+
 // themeFile is the file of a CA directory, root or issuing CA, holding the colours of the pages
 // of serve about that CA, a themeConfig.
 const themeFile = "theme.json"
@@ -170,6 +324,7 @@ type config struct {
 	ACME             acmeConfig            `json:"acme,omitzero"`
 	Serve            serveConfig           `json:"serve,omitzero"`
 	Tokens           tokensConfig          `json:"tokens,omitzero"`
+	OIDC             oidcConfig            `json:"oidc,omitzero"`
 }
 
 // loadConfig reads simple-ca.json of caDir, refusing unknown settings, or returns an empty config

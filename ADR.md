@@ -80,3 +80,29 @@ The JSON APIs of `serve` answer with structured data: names, lists, numbers, boo
 in RFC 3339, never text laid out for reading, such as the lines of `cert show` or the labels of
 `token describe`. The pages and the commands lay the data out each for itself, so a client reads
 a field without parsing, and a change of the wording or the layout of one changes no API.
+
+## The OIDC sign-in is a public client in the browser that gets a stored token
+
+The pages run the authorization code flow with PKCE themselves and redeem the code from the
+browser. `serve` holds no client secret and no sign-in state, and needs no route to the token
+endpoint of the provider, only to its discovery document and JWKS. Entra ID allows this for a
+single-page application redirect URI only, and Keycloak for a public client with the origin of
+`serve` in its Web origins. One redirect URI, `/oidc-callback`, serves every page, which keeps the
+registration at the provider to one entry.
+
+The ID token is exchanged once for a token of `tokens-db.json`, made anew on each sign-in, and is
+not accepted as a bearer token. The pages, the signing API and the scripts then see one kind of
+token, with its scopes, CA and clients. A token is listed, renewed and revoked as any other, and
+lives as long as its profile says, not as long as the ID token. The sign-in is another way to
+hand out a token, next to a setup code, and `/token-setup` shows the token for scripts. Since a
+sign-in makes the token again, access is taken away in `oidc-users.json` or at the provider, not
+by revoking the token. The nonce of an ID token is accepted once, so an ID token read on its way
+makes no second token. The name of a token made by the sign-in belongs to its OIDC user, and a
+token of that name that is not the user's is never replaced.
+
+A user gets the profile of the first rule matching the user or a group, in the order of the
+file, so the file reads top down. A role whose value names a profile gives it without a rule.
+Entra ID app roles and Keycloak roles are given to users and groups at the provider, and they
+carry their value in the ID token, unlike Entra ID groups, which are object IDs and drop out of a
+token past 200. The rules come first, so a named user or a group can be given a profile other
+than that of the user's roles.

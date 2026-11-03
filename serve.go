@@ -110,8 +110,10 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 
 // templateFiles are the pages of serve, in the style of Tailwind CSS from its browser build:
 // index.html, the list of the CAs; sign.html, the signing form; tokens.html and certs.html, the
-// tokens and the certificates of the CAs, with the parts they share in webui-common.html; and
-// theme.html, the colours all of them share and the version line below each of them.
+// tokens and the certificates of the CAs, with the parts they share in webui-common.html;
+// token-setup.html, the setup code page; oidc-callback.html, the page the OIDC provider sends the
+// browser back to; and theme.html, the colours all of them share and the version line below each
+// of them.
 //
 //go:embed templates/*.html
 var templateFiles embed.FS
@@ -154,7 +156,8 @@ type indexCA struct {
 // trusted proxies. An executable built with serve-markdown's page assets shows the help of the
 // signing API at /help/ and, with docs, the guides at /docs/. With webui, it serves the token
 // page at tokensPath and the certificate page at certsPath. The setup codes of the tokens are
-// exchanged for them at /api/token-setup and on the page /token-setup.
+// exchanged for them at /api/token-setup and on the page /token-setup, and with oidc in
+// simple-ca.json, the ID tokens of the OIDC sign-in at /api/oidc-token.
 func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -380,6 +383,15 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http
 	mux.HandleFunc("POST /token-setup", func(w http.ResponseWriter, r *http.Request) {
 		tokenSetupPage(w, r, rootDir, trusted)
 	})
+
+	// The OIDC sign-in of the pages: its settings at /api/oidc, the exchange of an ID token for the
+	// token of its user at /api/oidc-token, and the page the provider sends the browser back to.
+	oidc := newOIDCClient(rootDir)
+	mux.HandleFunc("GET /api/oidc", oidc.apiSettings)
+	mux.HandleFunc("POST /api/oidc-token", func(w http.ResponseWriter, r *http.Request) {
+		oidc.apiToken(w, r, trusted)
+	})
+	mux.HandleFunc("GET "+oidcCallbackPath, oidc.callbackPage)
 
 	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign, under
 	// the lock of the ACME server.

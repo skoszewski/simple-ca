@@ -167,7 +167,8 @@ The page asks for a token with the scope `tokens`, or a
 [setup code](#one-time-setup-codes) of one, and keeps the token for the browser tab. A setup
 code is exchanged for its token, which the page shows once and signs in with once that dialog is
 closed; a token without the scope of the page is shown once too, and the page then asks for
-another. It shows who is signed in, with a Sign out button; the name opens a dialog of the
+another. With the [OIDC sign-in](oidc.md), the dialog also has a "Sign in with LABEL" button,
+and the token of the sign-in signs in when it has the scope of the page. It shows who is signed in, with a Sign out button; the name opens a dialog of the
 attributes of the token, as `token describe` prints them. A root CA token sees every CA; an issuing CA token sees
 only its own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
 root CA. On it you can:
@@ -218,7 +219,7 @@ token of every request: `Authorization: Bearer TOKEN`.
 | Request | Body | Answer |
 |---|---|---|
 | `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json` |
-| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `issued`, `expires`, the expiry of its setup code when it is `pending`, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, and `certs`, the serials of the certificates issued with it |
+| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `issued`, `expires`, the expiry of its setup code when it is `pending`, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, `certs`, the serials of the certificates issued with it, and `oidc`, the `issuer`, `subject` and `user` of the OIDC user it was made for, or null |
 | `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/renew` | `ca`, `name`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `name` and `token`, the new JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/revoke` | `ca`, `name` | `name` |
@@ -253,7 +254,8 @@ TOKEN=$(jq -n --arg code K7QF-M2XA-JP4D-W5ZR '{code: $code}' | curl -s \
 
 The page `/token-setup`, "Set up a token" on the index page, does the same in a browser: it asks
 for the code and shows the token once, with a Copy button and its attributes, as
-`token describe` prints them, or the error.
+`token describe` prints them, or the error. With the [OIDC sign-in](oidc.md), it also has a
+"Sign in with LABEL" button, and shows the token of the sign-in once in the same way.
 
 ## Requests and responses
 
@@ -332,3 +334,7 @@ was. The signed certificate downloads as a PEM file named by the
 [file name rules](directory-layout.md): `web_cert.pem` for the CN `web.example.com`, or the serial
 number for a request without a name. If the request is
 refused, the form shows the error again, keeping the CSR and the type and clearing the token.
+
+With the [OIDC sign-in](oidc.md), the form has a "Sign in with LABEL" button. The CSR and the
+type are kept while the browser is at the provider, and the token of the sign-in fills the token
+field once it is back; it signs at the CA of its profile alone.

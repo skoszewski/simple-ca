@@ -49,6 +49,8 @@
             <input id="token" name="token" type="password" required autocomplete="off"
               class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-sm">
             <p class="text-sm text-muted">A one-time setup code signs this one certificate, and works no more after it.</p>
+            <p id="oidc-taken" class="hidden text-sm text-muted"></p>
+            <button id="oidc-sign-in" type="button" class="hidden rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle"></button>
           </div>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex flex-wrap gap-4">
@@ -65,6 +67,7 @@
       {{template "version"}}
     </div>
     <script src="/assets/webui/picker.js"></script>
+    <script src="/assets/webui/oidc.js"></script>
     <script src="/assets/webui/sign.js"></script>
   </body>
 </html>

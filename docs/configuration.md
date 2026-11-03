@@ -23,7 +23,8 @@ writes it, and it can be written or edited by hand. A setting not described here
   "acme": {"domains": ["example.com", "lab.example.org"], "days": 30},
   "serve": {"trusted_proxies": ["127.0.0.1", "10.0.0.0/8"]},
   "tokens": {"valid": "8h", "domains": ["lab.example.org"], "networks": ["192.168.1.0/24"],
-             "keep_expired": "720h"}
+             "keep_expired": "720h"},
+  "oidc": {"provider": "keycloak", "issuer": "https://sso.example.com/realms/lab", "client_id": "simple-ca"}
 }
 ```
 
@@ -33,6 +34,9 @@ writes it, and it can be written or edited by hand. A setting not described here
     without them, `serve` has no ACME server;
   - `days` - the validity of its certificates, 90 days by default.
 - `days` - defaults for `--days`: `ca`, `cert`, `crl`.
+- `oidc` - the [OIDC sign-in](oidc.md) of the pages of `serve`: `provider`,
+  `issuer`, `client_id`, `scopes`, `label`, `user_claim`, `groups_claim` and `roles_claim`; the
+  users get their tokens from the profiles of `oidc-users.json` in the root CA directory.
 - `serve` - the settings of [serve](serve.md):
   - `trusted_proxies` - the addresses and prefixes of the proxies whose `X-Forwarded-For` header
     names the client of the [signing API](signing-api.md) and of the token and certificate

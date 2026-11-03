@@ -1,0 +1,10 @@
+{
+  "profiles": [
+    {"name": "ca-admin", "token": {"valid": "8h", "scopes": ["tokens", "certs"]}},
+    {"name": "web-signer", "ca": "servers", "token": {"valid": "1h", "scopes": ["sign"], "domains": ["lab.example.org"]}},
+    {"name": "cert-viewer", "ca": "servers", "token": {"valid": "8h", "scopes": ["certs"]}}
+  ],
+  "rules": [
+    {"users": ["alice@example.com"], "profile": "ca-admin"}
+  ]
+}

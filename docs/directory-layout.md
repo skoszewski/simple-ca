@@ -4,6 +4,7 @@
 CA_DIR/
   simple-ca.json           settings (optional)
   theme.json               colours of the pages of the root CA (optional)
+  oidc-users.json          token profiles of the OIDC sign-in and their rules (optional)
   ca_cert.pem              root CA certificate
   ca_key.pem               root CA private key
   ca_bundle.pem            root and all issuing CA certificates concatenated

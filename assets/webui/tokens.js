@@ -28,7 +28,8 @@ async function showCA() {
       : element("span", {}, time(t.expires), " ", t.expired ? badge("expired") : null,
         t.pending && !t.expired ? badge("setup code") : null);
     return element("tr", {},
-      cell(t.name, "font-mono whitespace-nowrap"),
+      cell(t.oidc ? element("span", {}, t.name, element("span", { className: "block font-sans text-xs text-muted",
+        textContent: "OIDC user " + t.oidc.user })) : t.name, "font-mono whitespace-nowrap"),
       cell(expiry, "whitespace-nowrap"),
       cell(t.scopes.join(", ")),
       cell((t.types || []).join(", ") || "-"),

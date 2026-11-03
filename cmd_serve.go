@@ -83,6 +83,9 @@ func runServe(args []string) error {
 			return err
 		}
 	}
+	if err := checkOIDC(rootDir, cfg); err != nil {
+		return err
+	}
 	option := "--trusted-proxy"
 	if !given["trusted-proxy"] {
 		proxies, option = cfg.Serve.TrustedProxies, "serve.trusted_proxies of "+cfg.path

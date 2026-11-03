@@ -1,0 +1,7 @@
+{
+  "oidc": {
+    "provider": "entra",
+    "issuer": "https://login.microsoftonline.com/aaaabbbb-0000-cccc-1111-dddd2222eeee/v2.0",
+    "client_id": "00001111-aaaa-2222-bbbb-3333cccc4444"
+  }
+}

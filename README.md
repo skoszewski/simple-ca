@@ -50,6 +50,8 @@ The commands are in groups, `ca`, `cert`, `crl` and `token`, and `serve` is a co
 - [serve](docs/serve.md) - the HTTP server of the CA certificates, CRLs and the index page.
 - [ACME](docs/acme.md) - the ACME server of `serve`.
 - [Signing API](docs/signing-api.md) - tokens, the `/api/sign` API and the signing form.
+- [OIDC sign-in](docs/oidc.md) - tokens for the users of a generic OIDC provider, Keycloak or
+  Entra ID, given by `oidc-users.json`.
 - [Signing API clients](docs/examples.md) - the clients in `examples/` and `cmd/request-cert/`,
   in Python, Node.js, Go and the shell.
 - [Trust stores](docs/trust.md) - `simple-ca-trust`, which adds the CAs to the trust store of

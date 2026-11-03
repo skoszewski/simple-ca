@@ -147,6 +147,9 @@ async function load() {
   const joined = (values, none) => (values || []).join(", ") || none;
   const attributes = [["Name", u.name], ["Status", "valid until " + time(u.expires)], ["Issued", time(u.issued)],
     ["Scopes", joined(u.scopes, "-")]];
+  if (u.oidc) {
+    attributes.push(["OIDC user", u.oidc.user + " of " + u.oidc.issuer]);
+  }
   if (u.scopes.some((scope) => scope === "sign" || scope === "*")) {
     attributes.push(["Types", joined(u.types, "-")], ["Domains", joined(u.domains, "-")],
       ["IP addresses", joined((u.ips || []).map(address), "-")]);
@@ -211,8 +214,21 @@ const table = (headings, rows) => element("div", { className: "overflow-x-auto" 
   element("tbody", { className: "divide-y divide-line" }, ...rows)));
 const list = (text) => text.split(/[\s,]+/).filter(Boolean);
 
-// start loads the page once the script of the page has defined showCA.
+// The sign-in with the OIDC provider, when it is on, is offered in the dialog asking for the token.
+oidcButton($("login-oidc"), null, askToken);
+
+// start loads the page once the script of the page has defined showCA. The token of an OIDC
+// sign-in the browser is back from is kept and signs in, unless it lacks the scope of the page.
 function start() {
+  const taken = oidcTaken();
+  if (taken && !taken.scopes.some((scope) => scope === pageScope || scope === "*")) {
+    sessionStorage.removeItem(tokenName);
+    askToken(`Your token ${taken.name} does not have the scope ${pageScope}, which this page needs.`);
+    return;
+  }
+  if (taken) {
+    sessionStorage.setItem(tokenName, taken.token);
+  }
   if (sessionStorage.getItem(tokenName)) {
     load();
   } else {

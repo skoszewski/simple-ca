@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.8.0
+
+feat: serve hands out tokens to the users of an OIDC provider, generic, Keycloak or Entra ID, who sign in on the token and certificate pages, the signing forms and /token-setup and get the token profile oidc-users.json gives their user, group or role.
+
+- The `oidc` section of `simple-ca.json` sets up the sign-in: `provider` (`generic`, `keycloak`
+  or `entra`), `issuer`, `client_id`, `scopes`, `label`, and the `user_claim`, `groups_claim`
+  and `roles_claim` of the ID token, whose defaults come from the provider.
+- The pages sign in as a public client with the authorization code flow and PKCE. The redirect
+  URI is `/oidc-callback` of `serve`, which redeems the code in the browser.
+- `POST /api/oidc-token` exchanges the ID token for the token of its user, checked against the
+  JWKS of the provider. `GET /api/oidc` answers with the settings of the sign-in.
+- `oidc-users.json` in the root CA directory holds the token profiles, each with its CA and the
+  settings of the `tokens` section, and the rules giving them to users and groups. The first
+  matching rule wins; without one, a role named like a profile gives that profile.
+- A token made by the sign-in is named after its user, such as `alice-example-com`, and is made
+  anew on each sign-in. `token list`, `token describe` and the token page show its OIDC user, and
+  renewing it keeps the user.
+- The sign-in dialog of the token and certificate pages, the signing forms and `/token-setup`
+  have a "Sign in with" button when the sign-in is set up. The token fills the token field of a
+  signing form, and `/token-setup` shows it once.
+- `serve` refuses to start with OIDC settings or an `oidc-users.json` it cannot use.
+- The new guide `docs/oidc.md` covers setting up a generic provider, Keycloak and Entra ID, and
+  `examples/oidc/` holds examples for each.
+
 ## 1.7.2
 
 fix: the pages of serve widen with the screen beyond the width of a tablet.
