@@ -124,15 +124,6 @@ function confirmed(question, action, ...extra) {
   });
 }
 
-// A dialog other than the one asking for the token closes on a click beside it.
-for (const dialog of document.querySelectorAll("dialog:not(#login)")) {
-  dialog.addEventListener("click", (event) => {
-    if (event.target === dialog) {
-      dialog.close();
-    }
-  });
-}
-
 // load reads the CAs and shows the one in the address, or the first CA the token opens.
 async function load() {
   try {

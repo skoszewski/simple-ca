@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.8.4
+
+fix: the dialogs of the pages of serve no longer close on a click beside them, which a text selection dragged out of a field was taken for.
+
+- Selecting the text of a field with the mouse, such as "Code valid for" of the form creating a
+  token, closed the dialog when the pointer was released beyond its edge. The dialogs of the
+  index page and of the token and certificate pages now close only with their Close or Cancel
+  button, or with Escape.
+
 ## 1.8.3
 
 fix: the theme CSS is written without a temporary string, and a test decodes the signed certificate without one.
