@@ -88,7 +88,7 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 	if issuingCA != "" && !kebabCaseRE.MatchString(issuingCA) {
 		return fmt.Errorf("issuing CA name '%s' is not a kebab-case name, such as servers or lab-servers", issuingCA)
 	}
-	if route := "/" + issuingCA + "/"; slices.Contains([]string{helpPath, docsPath, tokensPath, certsPath}, route) {
+	if route := "/" + issuingCA + "/"; slices.Contains([]string{helpPath, docsPath, tokensPath, certsPath, auditPagePath}, route) {
 		return fmt.Errorf("issuing CA name '%s' is taken by the pages that serve shows at %s", issuingCA, route)
 	}
 	if fileExists(filepath.Join(caDir, "ca_cert.pem")) {
@@ -164,6 +164,7 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 		if err := makeCRL(caDir, crlDays); err != nil {
 			return err
 		}
+		fmt.Printf("CRL written to %s\n", filepath.Join(caDir, "crl.pem"))
 		return rebuildCABundle(caDir)
 	}
 
@@ -239,6 +240,7 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 		if err := makeCRL(issuingCADir, crlDays); err != nil {
 			return err
 		}
+		fmt.Printf("CRL written to %s\n", filepath.Join(issuingCADir, "crl.pem"))
 	}
 
 	return rebuildCABundle(caDir)

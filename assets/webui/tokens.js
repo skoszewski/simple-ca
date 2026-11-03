@@ -61,7 +61,7 @@ async function showCA() {
           { name: "status", label: "Status", multiple: true, match: (t, values) => values.includes(tokenStatus(t)),
             choices: [["", "all"], ["active", "active"], ["pending", "waiting for a setup code"], ["expired", "expired"], ["revoked", "revoked"]] },
           { name: "scope", label: "Scope", multiple: true, match: (t, values) => values.every((scope) => allowsScope(t.scopes, scope)),
-            choices: [["", "all"], ...["sign", "tokens", "certs"].map((s) => [s, s])] },
+            choices: [["", "all"], ...["sign", "tokens", "certs", "audit"].map((s) => [s, s])] },
           { name: "kind", label: "Made by", match: (t, [value]) => (value === "oidc") === Boolean(t.oidc),
             choices: [["", "all"], ["oidc", "OIDC sign-in"], ["other", "other"]] },
         ] }),
@@ -140,44 +140,43 @@ function openCreate() {
   fields.otc.checked = false;
   fields.otc_valid.value = info.defaults.otc_valid;
   fields.otc_networks.value = "";
-  $("create-scopes").replaceChildren(...info.scopes.map((scope) => element("label", { className: "flex items-center gap-1.5" },
-    element("input", { type: "checkbox", name: "scope", value: scope, checked: info.defaults.scopes.includes(scope),
-      onchange: signFields }), " " + scope)));
-  $("create-types").replaceChildren(...[...info.types, "*"].map((type) => element("label", { className: "flex items-center gap-1.5" },
-    element("input", { type: "checkbox", name: "type", value: type, checked: info.defaults.types.includes(type),
-      onchange: signFields }), " " + type)));
+  const choices = (values) => values.map((v) => [v, v === "*" ? "* (all)" : v]);
+  $("create-scopes").replaceChildren(picker({ name: "scopes", labelledBy: "create-scopes-label", multiple: true, only: "*",
+    choices: choices(info.scopes), value: info.defaults.scopes.filter((s) => info.scopes.includes(s)),
+    placeholder: "none", onchange: signFields }));
+  $("create-types").replaceChildren(picker({ name: "types", labelledBy: "create-types-label", multiple: true, only: "*",
+    choices: choices([...info.types, "*"]), value: info.defaults.types.filter((t) => t === "*" || info.types.includes(t)),
+    placeholder: "none", onchange: signFields }));
   signFields();
   $("create-dialog").showModal();
 }
 
-// signFields turns the fields of the scope sign on with that scope or *, and off without them; a
-// checked * of the scopes or the types turns the other boxes of its group off; the fields of the
-// setup code show with its box.
+// chosen returns the values of the multiple picker named name of the form creating a token.
+const chosen = (name) => $("create-form").elements[name].value.split(",").filter((v) => v !== "");
+
+// signFields turns the fields of the scope sign on with that scope or *, and off without them; the
+// fields of the setup code show with its box.
 function signFields() {
   const otc = $("create-form").elements.otc.checked;
   $("otc-fields").disabled = !otc;
   $("otc-fields").classList.toggle("contents", otc);
   $("otc-fields").classList.toggle("hidden", !otc);
-  for (const name of ["scope", "type"]) {
-    const all = $("create-form").querySelector(`input[name="${name}"][value="*"]`);
-    for (const box of $("create-form").querySelectorAll(`input[name="${name}"]:not([value="*"])`)) {
-      box.disabled = all !== null && all.checked;
-    }
-  }
-  $("sign-fields").disabled = !$("create-form").querySelector('input[name="scope"]:is([value="sign"], [value="*"]):checked');
+  const sign = chosen("scopes").some((scope) => allowsScope([scope], "sign"));
+  $("sign-fields").disabled = !sign;
+  $("create-types").inert = !sign;
+  $("create-types").classList.toggle("opacity-50", !sign);
 }
 $("create-form").elements.otc.addEventListener("change", signFields);
 $("create-cancel").addEventListener("click", () => $("create-dialog").close());
 $("create-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const fields = event.target.elements;
-  const checked = (name) => [...event.target.querySelectorAll(`input[name="${name}"]:checked:not(:disabled)`)].map((box) => box.value);
   const sign = !$("sign-fields").disabled;
   const otc = fields.otc.checked;
   try {
     const answer = await api("POST", "/api/tokens", {
-      ca: caID, name: fields.name.value.trim(), valid: fields.valid.value, scopes: checked("scope"),
-      types: sign ? checked("type") : [], domains: sign ? list(fields.domains.value) : [],
+      ca: caID, name: fields.name.value.trim(), valid: fields.valid.value, scopes: chosen("scopes"),
+      types: sign ? chosen("types") : [], domains: sign ? list(fields.domains.value) : [],
       ips: sign ? list(fields.ips.value) : [], clients: list(fields.clients.value), localhost: sign && fields.localhost.checked,
       otc, otc_valid: otc ? fields.otc_valid.value : "", otc_networks: otc ? list(fields.otc_networks.value) : [],
     });

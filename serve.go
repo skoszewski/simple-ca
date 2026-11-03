@@ -32,7 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"log"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -79,10 +79,21 @@ var tailwindHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Reque
 	w.Write(tailwindJS)
 })
 
+// statusWriter is a ResponseWriter keeping the status of the answer, for the request log.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
 // runHTTPServer serves handler on the TCP port of address, over HTTPS with the certificate chain
-// in the PEM file tlsCert and its key in tlsKey when they are given, logging each request, until
-// it fails; listening is called with the origin of the server, such as http://127.0.0.1:8080, once
-// it listens.
+// in the PEM file tlsCert and its key in tlsKey when they are given, logging each request with
+// requestLog, until it fails; listening is called with the origin of the server, such as
+// http://127.0.0.1:8080, once it listens.
 func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsKey string, listening func(origin string)) error {
 	if address == "" {
 		return errors.New("--address must not be empty; 0.0.0.0 is all interfaces")
@@ -96,8 +107,14 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 	}
 	server := &http.Server{ReadHeaderTimeout: 10 * time.Second,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
-			handler.ServeHTTP(w, r)
+			if !requestLog {
+				handler.ServeHTTP(w, r)
+				return
+			}
+			sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+			handler.ServeHTTP(sw, r)
+			slog.Info("http.request", "method", r.Method, "path", r.URL.Path, "status", sw.status,
+				"client", clientAddr(r).String())
 		})}
 	if tlsCert != "" {
 		listening("https://" + listener.Addr().String())
@@ -129,7 +146,7 @@ var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json"
 func pageTheme(caDir string) template.CSS {
 	theme, err := loadTheme(caDir)
 	if err != nil {
-		log.Printf("theme: %v", err)
+		slog.Error("serve.error", "dir", caDir, "error", err.Error())
 	}
 	css, _ := theme.css(filepath.Join(caDir, themeFile))
 	return css
@@ -164,7 +181,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		var title string
 		cfg, err := loadConfig(rootDir)
 		if err != nil {
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			http.Error(w, "could not read the configuration", http.StatusInternalServerError)
 			return
 		}
@@ -183,7 +200,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			dir := filepath.Join(rootDir, name)
 			cert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
 			if err != nil {
-				log.Printf("%s: %v", r.URL.Path, err)
+				slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 				http.Error(w, "could not read the CA certificates", http.StatusInternalServerError)
 				return
 			}
@@ -250,7 +267,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			Theme                                    template.CSS
 			CAs                                      []indexCA
 		}{title, tailwindPath, help, guides, tokens, certs, pageTheme(rootDir), cas}); err != nil {
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		}
 	})
 	mux.Handle("GET "+tailwindPath, tailwindHandler)
@@ -266,14 +283,14 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			return
 		}
 		if err != nil {
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			http.Error(w, "could not read the file", http.StatusInternalServerError)
 			return
 		}
 		if f.der {
 			block, _ := pem.Decode(b)
 			if block == nil {
-				log.Printf("%s: no PEM block in %s", r.URL.Path, filepath.Join(dir, f.source))
+				slog.Error("serve.error", "path", r.URL.Path, "error", "no PEM block in "+filepath.Join(dir, f.source))
 				http.Error(w, "could not read the file", http.StatusInternalServerError)
 				return
 			}
@@ -293,7 +310,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			return
 		}
 		if err != nil {
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			http.Error(w, "could not read the file", http.StatusInternalServerError)
 			return
 		}
@@ -332,7 +349,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			}{oidPKCS7SignedData, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 0, IsCompound: true, Bytes: signedData}})
 		}
 		if err != nil {
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			http.Error(w, "could not build the file", http.StatusInternalServerError)
 			return
 		}
@@ -443,8 +460,9 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		top.Handle(docsPath, docsSite)
 	}
 	if webui {
-		top.Handle(tokensPath, http.StripPrefix(strings.TrimSuffix(tokensPath, "/"), (&webuiServer{rootDir: rootDir}).mux()))
-		top.Handle(certsPath, http.StripPrefix(strings.TrimSuffix(certsPath, "/"), (&webuiServer{rootDir: rootDir, certs: true}).mux()))
+		for path, scope := range map[string]string{tokensPath: "tokens", certsPath: "certs", auditPagePath: "audit"} {
+			top.Handle(path, http.StripPrefix(strings.TrimSuffix(path, "/"), (&webuiServer{rootDir: rootDir, scope: scope}).mux()))
+		}
 	}
 	top.Handle("/", mux)
 	return top

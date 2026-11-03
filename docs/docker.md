@@ -26,8 +26,9 @@ docker exec simple-ca simple-ca cert list --ca-dir /data/servers
 
 A new named volume is writable by the user 1000. A host directory mounted at `/data` must be
 writable by uid 1000, as a directory of the first user of an Ubuntu host is, or the container is
-run with `--user` of the owner of the directory. `serve` writes
-`acme.json` and `tokens-db.json` to the CA directories, so `/data` is mounted read-write. With
+run with `--user` of the owner of the directory. `serve` writes `acme.json`, `tokens-db.json`,
+`audit.log` and the files of the certificates it issues, such as `index.txt`, to the CA
+directories, so `/data` is mounted read-write. With
 `--tls-cert` and `--tls-key`, the certificate and the key are files of the volume or of another
 mount:
 
@@ -48,7 +49,7 @@ working directory, so a host directory is mounted there, with `--user` of its ow
 
 ```sh
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" -w /work -e SIMPLE_CA_TOKEN \
-  --entrypoint request-cert simple-ca https://pki.example.com:8080/servers/api/sign web.example.com
+  --entrypoint request-cert simple-ca https://pki.example.com:8443/servers/api/sign web.example.com
 ```
 
 ## Docker Compose
@@ -65,14 +66,20 @@ docker compose -f examples/compose.yaml run --rm simple-ca ca create \
 docker compose -f examples/compose.yaml run --rm simple-ca ca create \
   --issuing-ca servers "My Servers CA"
 docker compose -f examples/compose.yaml run --rm simple-ca token create \
-  --scope tokens --scope certs admin
+  --scope tokens --scope certs --scope audit admin
 docker compose -f examples/compose.yaml up -d
 ```
 
-The index page is at `http://pki.example.com:8080/`, and the token and certificate pages ask for
-the token `admin`. For an image of a registry, `image` names it, such as
+The index page is at `http://pki.example.com:8080/`, and the token, certificate and audit pages
+ask for the token `admin`. For an image of a registry, `image` names it, such as
 `registry.example.com/simple-ca:latest` for `./build.mjs docker --registry registry.example.com
 --push`.
+
+`serve` writes every record of its [log](serve.md), its start, pages, warnings, errors, requests
+and [audit records](audit.md), to the standard error, so
+`docker compose -f examples/compose.yaml logs simple-ca` shows them; the audit records also go
+to `audit.log`, in the volume unless `audit.file` of `simple-ca.json` names another path. The
+records of the commands of `docker compose run` are in `audit.log` alone.
 
 ## Kubernetes
 
@@ -95,12 +102,12 @@ kubectl apply -f kubernetes/kubernetes.yaml
 kubectl port-forward service/simple-ca 8080:8080
 ```
 
-With the port forwarded, the index page is at `http://127.0.0.1:8080/`. A token of the token and
-certificate pages is made when one is needed, in the running container:
+With the port forwarded, the index page is at `http://127.0.0.1:8080/`. A token of the token,
+certificate and audit pages is made when one is needed, in the running container:
 
 ```sh
 kubectl exec deployment/simple-ca -- \
-  simple-ca token create --valid 8h --scope tokens --scope certs alice
+  simple-ca token create --valid 8h --scope tokens --scope certs --scope audit alice
 ```
 
 The nodes of the cluster must have both images; for images

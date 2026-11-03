@@ -15,7 +15,8 @@
                                # build simple-ca-trust-windows-arm64.exe carrying the .NET runtime
 ./build.mjs test               # run the tests
 ./build.mjs check              # check formatting, vet and run the tests
-./build.mjs clean              # remove the built executables
+./build.mjs clean              # remove the built executables, build/, dist/ and the build
+                               # files of trust/macos and trust/windows
 ./build.mjs assets             # download the browser files of the /help/ and /docs/ pages
 ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]
                                # build simple-ca:<version> and simple-ca:latest; --push pushes them
@@ -31,10 +32,13 @@ download it first when `assets/markdown/` holds another release, and build witho
 pages, with a warning, when the download fails. A plain `go build` embeds what
 `assets/markdown/` holds, and builds without the pages when it holds only `.gitkeep`.
 
-While the newest `CHANGELOG.md` entry is not tagged, `build` and `trust` build the Go programs as
-its release candidate: `simple-ca --version` prints `simple-ca version v1.7.0-rc` for an open
-`1.7.0` entry. Once the entry is tagged, and without git, they report the version Go derives
-from the module, as a plain `go build` does; the release workflow builds with the tag.
+While the newest `CHANGELOG.md` entry is not tagged, `build`, and `trust` for `linux/*`, build
+the Go programs as its release candidate: `simple-ca --version` prints
+`simple-ca version v1.7.0-rc` for an open `1.7.0` entry. Once the entry is tagged, and without
+git, they report the version Go derives from the module, as a plain `go build` does; the release
+workflow builds with the tag. The Windows version of `simple-ca-trust` reports `dev`, or
+`$InformationalVersion`, and the macOS version the version in
+`trust/macos/Sources/simple-ca-trust/Version.swift`; the release workflow sets both to the tag.
 
 `simple-ca-trust` is the Go program of `cmd/simple-ca-trust/` on Linux, which `build` builds
 with the rest, and on macOS and Windows a program of the platform's own toolset, which only
@@ -51,7 +55,8 @@ version for `windows/amd64` and `windows/arm64`, running on the installed .NET r
 for Windows; [Trust stores](trust.md) has the commands for building it by hand.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
-are run with `./build.mjs test` or `./build.mjs check`.
+are run with `./build.mjs test` or `./build.mjs check`. It refuses a tag that is not on `main` or
+is not the version of the newest `CHANGELOG.md` entry.
 
 ## Releasing
 
@@ -80,8 +85,9 @@ machine; each next one needs a new entry, with a new version.
 ./release.mjs -n               # print the commands instead of running them
 ```
 
-It refuses to commit changes for a released entry, and to publish an entry whose tag is on
-GitHub; the next change needs a new entry. Only a tag is built: pushing `dev` or `main` runs no
+It runs on `dev` only. It refuses to commit changes for a released entry, and to publish an entry
+whose tag is on GitHub; the next change needs a new entry. A tag made but not pushed is refused
+too, with the command that pushes it. Only a tag is built: pushing `dev` or `main` runs no
 workflow. An entry `x.y.z-N`, `N` from 2, is a later release of the same code with changes to the
 documentation or the packaging alone: `./release.mjs --push` fast-forwards `main` to `dev` and
 pushes both without a tag, so nothing is built and no GitHub release is made, and the entry goes

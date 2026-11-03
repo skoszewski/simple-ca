@@ -9,18 +9,35 @@ certificate can be one of the CA itself. Without them, `SIMPLE_CA_TLS_CERT` and
 `SIMPLE_CA_TLS_KEY` name the two files; either way, the two are given together. With `--docs`,
 it also shows the guides of `simple-ca`, the files of `docs/`, at `/docs/`.
 
-With `--webui`, it also serves the [token page](signing-api.md#token-page) at `/tokens/` and the
-[certificate page](usage.md#certificate-page) at `/certificates/`, linked from the index page.
-They ask for a token with the scope `tokens` or `certs`, or for the
-[OIDC sign-in](oidc.md) when `simple-ca.json` sets it up. Over plain HTTP, the tokens cross the
-network in clear, which `serve` mentions at start for an address other than a loopback one;
-`--tls-cert` and `--tls-key` serve the pages over HTTPS where that matters. The names `help`, `docs`, `tokens` and `certificates` cannot be issuing CA names,
-because the pages use those paths.
+With `--webui`, it also serves the [token page](signing-api.md#token-page) at `/tokens/`, the
+[certificate page](usage.md#certificate-page) at `/certificates/` and the
+[audit page](audit.md#the-audit-page) at `/audit/`, linked from the index page. They ask for a
+token with the scope `tokens`, `certs` or `audit`, or for the [OIDC sign-in](oidc.md) when
+`simple-ca.json` sets it up. Over plain HTTP, the tokens cross the network in clear, which
+`serve` mentions at start for an address other than a loopback one; `--tls-cert` and
+`--tls-key` serve the pages over HTTPS where that matters. The names `help`, `docs`, `tokens`,
+`certificates` and `audit` cannot be issuing CA names, because the pages use those paths.
+
+`serve` logs in one format, the lines of key=value pairs of its [audit records](audit.md), each
+starting with `time=` and `event=`: the start, with the version, the root CA, the origin and
+whether requests are logged, a `serve.page` record for each page with its URL, warnings, errors,
+the audit records and, with `--request-log` or `serve.request_log` of
+[simple-ca.json](configuration.md), an `http.request` record of each request with its method,
+path, status and client. The log goes to the systemd journal when `serve` runs under systemd,
+else to the standard error; the audit records also go to the audit log.
+
+```text
+time=2026-11-03T21:07:02.529Z event=serve.start version=v1.9.0 root=/etc/simple-ca origin=http://127.0.0.1:8080 request_log=true
+time=2026-11-03T21:07:02.529Z event=serve.page page=index url=http://127.0.0.1:8080/
+time=2026-11-03T21:07:03.565Z event=http.request method=GET path=/ca_cert.pem status=200 client=127.0.0.1
+```
 
 Behind a reverse proxy, `--trusted-proxy` (an address or a prefix; it may be specified multiple
-times) names the proxies whose `X-Forwarded-For` header gives the client of a request to the
-[signing API](signing-api.md) and the token and certificate pages, whose tokens can be limited to
-client addresses; without it, `serve.trusted_proxies` of [simple-ca.json](configuration.md) does.
+times) names the proxies whose `X-Forwarded-For` header gives the client of a request: the client
+that the tokens of the [signing API](signing-api.md) and of the pages and the setup codes are
+limited to, that [ACME](acme.md) and the [OIDC sign-in](oidc.md) see, that refused credentials
+are [counted for](signing-api.md#refused-credentials), and that the log and the audit records
+name; without it, `serve.trusted_proxies` of [simple-ca.json](configuration.md) does.
 For a request from a trusted proxy, the client is the last address of `X-Forwarded-For` that is
 not a trusted proxy, so an address a client puts in the header itself is not taken. The header
 of any other peer is not read, and without trusted proxies the client is always the address the
@@ -43,13 +60,13 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/NAME`, `/NAME/` | a redirect (`302 Found`) to `/#NAME`, the index page with the dialog of the issuing CA `NAME` | |
 | `/acme/directory` | the ACME directory of the root CA, see [ACME](acme.md) | `application/json` |
 | `/NAME/acme/directory` | the ACME directory of the issuing CA `NAME` | `application/json` |
-| `/api/sign` | the [signing API](signing-api.md) of the root CA, `POST` | `application/json` |
+| `/api/sign` | the [signing API](signing-api.md) of the root CA, `POST`; `GET` is `405 Method Not Allowed`, with `Allow: POST` | `application/json` |
 | `/NAME/api/sign` | the signing API of the issuing CA `NAME`, `POST` | `application/json` |
 | `/sign` | the [signing form](signing-api.md#signing-form) of the root CA | `text/html` |
 | `/NAME/sign` | the signing form of the issuing CA `NAME` | `text/html` |
 | `/token-setup` | the exchange of a [setup code](signing-api.md#setup-code-exchange) for its token | `text/html` |
 | `/api/token-setup` | the exchange of a setup code, `POST` | `application/json` |
-| `/api/oidc` | the settings of the [OIDC sign-in](oidc.md), `404 Not Found` when it is off | `application/json` |
+| `/api/oidc` | the settings of the [OIDC sign-in](oidc.md), `404 Not Found` when it is off, `502 Bad Gateway` when the discovery document of the provider cannot be read | `application/json` |
 | `/api/oidc-token` | the exchange of an ID token for the token of its user, `POST` | `application/json` |
 | `/oidc-callback` | the page the OIDC provider sends the browser back to, its redirect URI | `text/html` |
 | `/help/` | the help of the signing API for its clients | `text/html` |
@@ -74,16 +91,16 @@ theme button below the page. Its icon shows the choice, a screen for the theme o
 sun for light and a moon for dark; a click goes to the next, and the browser keeps the choice for
 all the pages. The
 pages are styled with the browser build of Tailwind CSS 4.3.3, embedded in the executable and
-served at `/assets/tailwindcss-browser-4.3.3.js`; `/assets/webui/theme.js` sets the theme, the
-index page opens its dialogs with the script `/assets/webui/index.js`, and the signing forms
-choose the certificate type with the scripts `/assets/webui/picker.js` and
-`/assets/webui/sign.js`, so the pages load nothing from other sites. The
+served at `/assets/tailwindcss-browser-4.3.3.js`; `/assets/webui/theme.js` sets the theme,
+`/assets/webui/picker.js` draws the dropdown choosers, the index page opens its dialogs with the
+script `/assets/webui/index.js`, the signing forms choose the certificate type with
+`/assets/webui/sign.js`, and `/token-setup` shows the token with `/assets/webui/setup.js`, so the
+pages load nothing from other sites. The
 [OIDC sign-in](oidc.md), `/assets/webui/oidc.js`, sends the browser to the provider, and the page
 `/oidc-callback` redeems the code at the token endpoint of the provider.
 
 The files are read on each request, so a CRL written by `crl create` is served at once; a file that
-does not exist is `404 Not Found`. No other file is served. Each
-request is logged to the standard error.
+does not exist is `404 Not Found`. No other file is served.
 
 `/help/` shows the clients of the [signing API](signing-api.md) how to request a certificate with
 `request-cert`, step by step with `openssl`, `curl` and `jq`, or with the signing form:

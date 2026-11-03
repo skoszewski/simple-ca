@@ -32,7 +32,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"log"
+	"log/slog"
 	"maps"
 	"mime"
 	"net/http"
@@ -390,7 +390,7 @@ func (c *oidcClient) configured(w http.ResponseWriter) (oidcConfig, bool) {
 	oc, on, err := c.settings()
 	switch {
 	case err != nil:
-		log.Printf("oidc: %v", err)
+		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, "could not read the OIDC settings")
 	case !on:
 		webuiFail(w, http.StatusNotFound, "the OIDC sign-in is off")
@@ -408,7 +408,7 @@ func (c *oidcClient) apiSettings(w http.ResponseWriter, r *http.Request) {
 	d, err := c.discover(oc)
 	c.mu.Unlock()
 	if err != nil {
-		log.Printf("oidc: %v", err)
+		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusBadGateway, "could not read the discovery document of the OIDC provider")
 		return
 	}
@@ -454,12 +454,12 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, refused.status, refused.msg)
 			return
 		}
-		log.Printf("oidc: %v", err)
+		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, "could not make the token")
 	}
 
 	var claims map[string]any
-	err := guard.attempt(w, client, func() (err error) {
+	err := guard.attempt(w, r, c.rootDir, func() (err error) {
 		claims, err = c.checkIDToken(oc, strings.TrimSpace(req.IDToken))
 		return err
 	})
@@ -475,7 +475,8 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request) {
 	user := users[0]
 	groups := claimValues(claims, oc.GroupsClaim, oc.ClientID)
 	if names, ok := claims["_claim_names"].(map[string]any); ok && names["groups"] != nil && len(groups) == 0 {
-		log.Printf("oidc: the ID token of %s has too many groups to hold them; the user is matched by none", user)
+		slog.Warn("oidc.groups", "user", user, "message", "the ID token has too many groups to hold them; "+
+			"the user is matched by none")
 	}
 	roles := claimValues(claims, oc.RolesClaim, oc.ClientID)
 	cfg, err := loadConfig(c.rootDir)
@@ -531,11 +532,15 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	verb := "made"
-	if given != tok {
-		verb = "given again"
+	action := "made"
+	switch {
+	case given != tok:
+		action = "reused"
+	case req.Replace:
+		action = "replaced"
 	}
-	log.Printf("token %s of %s %s for OIDC user %s from %s", name, dir, verb, user, client)
+	audit(dir, "token.oidc", "name", name, "user", user, "issuer", oc.Issuer, "profile", profile.Name, "action", action,
+		"via", "oidc", "actor", user, "client", client.String())
 	webuiReply(w, http.StatusOK, map[string]any{"ca": profile.CA, "name": name, "token": jwt, "scopes": given.scopes()})
 }
 
@@ -543,7 +548,7 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request) {
 func (c *oidcClient) callbackPage(w http.ResponseWriter, r *http.Request) {
 	caCert, err := loadCert(filepath.Join(c.rootDir, "ca_cert.pem"))
 	if err != nil {
-		log.Printf("%s: %v", r.URL.Path, err)
+		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		http.Error(w, "could not read the CA", http.StatusInternalServerError)
 		return
 	}
@@ -553,6 +558,6 @@ func (c *oidcClient) callbackPage(w http.ResponseWriter, r *http.Request) {
 		Title, Script string
 		Theme         template.CSS
 	}{caCert.Subject.CommonName, tailwindPath, pageTheme(c.rootDir)}); err != nil {
-		log.Printf("%s: %v", r.URL.Path, err)
+		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 	}
 }

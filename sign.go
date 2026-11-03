@@ -39,65 +39,73 @@ import (
 	"time"
 )
 
-// ---- signCSR ----------------------------------------------------------------
+// ---- signing requests -------------------------------------------------------
 
-// signCSR issues a certificate of the type certType for the certificate signing request in
-// csrPath, a PEM or DER file, signed by the CA in caDir, writes it to certDir, the CA directory
-// when empty, as NAME_cert.pem for the request file NAME.EXT, with each run of characters besides
-// letters, digits, - and _ in NAME as one _, and records it in index.txt of that CA.
+// requestCert issues a certificate of the type certType for the certificate signing request
+// csrData, PEM or DER, signed by the CA in caDir, without writing or recording it.
 //
 // Only the subject and the subjectAltName extension of the request are copied, as they are; the
 // key usages and extended key usages are those of the type with kus and ekus added, as parsed by
 // parseUsages, and the other extensions of the request are left out.
-//
-// The certificate is shown before it is written, and written when the answer read from confirm
-// is y or yes, or without asking with force.
-func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []string, force bool, confirm io.Reader) error {
+func requestCert(caDir string, csrData []byte, certType string, days int, ekus, kus []string) (*x509.Certificate, error) {
 	if days < 1 {
-		return errors.New("--days must be a positive integer")
+		return nil, errors.New("--days must be a positive integer")
 	}
 	if !dirExists(caDir) {
-		return fmt.Errorf("CA directory %s does not exist", caDir)
+		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
 	}
-
-	data, err := os.ReadFile(csrPath)
+	csr, err := parseCSR(csrData)
 	if err != nil {
-		return err
-	}
-	csr, err := parseCSR(data)
-	if err != nil {
-		return fmt.Errorf("%s: %w", csrPath, err)
+		return nil, err
 	}
 	san := csrSAN(csr)
 	if len(csr.Subject.Names) == 0 && san == nil {
-		return fmt.Errorf("%s has neither a subject nor subject alternative names", csrPath)
+		return nil, errors.New("the request has neither a subject nor subject alternative names")
 	}
-
-	if certDir == "" {
-		certDir = caDir
-	}
-	if !dirExists(certDir) {
-		return fmt.Errorf("certificate directory %s does not exist", certDir)
-	}
-	// The certificate is named after the request file without its extension, each run of
-	// characters besides letters, digits, - and _ as one _.
-	base := filepath.Base(csrPath)
-	certName := strings.Trim(fileNameRE.ReplaceAllString(strings.TrimSuffix(base, filepath.Ext(base)), "_"), "_")
-	if certName == "" {
-		return fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", base)
-	}
-	certOut := filepath.Join(certDir, certName+"_cert.pem")
-	if fileExists(certOut) {
-		return fmt.Errorf("certificate %s exists", certOut)
-	}
-
 	tmpl := &x509.Certificate{RawSubject: csr.RawSubject}
 	if san != nil {
 		tmpl.ExtraExtensions = []pkix.Extension{*san}
 	}
-	cert, err := issueLeaf(caDir, certType, days, ekus, kus, tmpl, csr.PublicKey)
-	if err != nil {
+	return issueLeaf(caDir, certType, days, ekus, kus, tmpl, csr.PublicKey)
+}
+
+// storeCert writes cert, issued by the CA in caDir, to the file certOut and records it in
+// index.txt of that CA.
+func storeCert(caDir, certOut string, cert *x509.Certificate) error {
+	if err := writeCert(cert.Raw, certOut); err != nil {
 		return err
+	}
+	return recordIssued(caDir, cert)
+}
+
+// signCSR signs the request in csrPath as cert sign does, as requestCert, and writes it with
+// storeCert to certDir, the CA directory when empty, as NAME_cert.pem for the request file
+// NAME.EXT, each run of characters besides letters, digits, - and _ in NAME as one _, and returns
+// it. The certificate is shown on stdout before it is written, and written when the answer read
+// from confirm is y or yes, or without asking with force.
+func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []string, force bool, confirm io.Reader) (*x509.Certificate, error) {
+	if certDir == "" {
+		certDir = caDir
+	}
+	if !dirExists(certDir) {
+		return nil, fmt.Errorf("certificate directory %s does not exist", certDir)
+	}
+	base := filepath.Base(csrPath)
+	certName := strings.Trim(fileNameRE.ReplaceAllString(strings.TrimSuffix(base, filepath.Ext(base)), "_"), "_")
+	if certName == "" {
+		return nil, fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", base)
+	}
+	certOut := filepath.Join(certDir, certName+"_cert.pem")
+	if fileExists(certOut) {
+		return nil, fmt.Errorf("certificate %s exists", certOut)
+	}
+	data, err := os.ReadFile(csrPath)
+	if err != nil {
+		return nil, err
+	}
+	cert, err := requestCert(caDir, data, certType, days, ekus, kus)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", csrPath, err)
 	}
 
 	// The certificate is shown, and written only once it is approved or with force.
@@ -105,27 +113,27 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	writeCertFields(tw, cert, time.Now())
 	if err := tw.Flush(); err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Println()
 	if !force {
 		fmt.Print("Sign this certificate? [y/N] ")
 		answer, err := bufio.NewReader(confirm).ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			return err
+			return nil, err
 		}
 		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
 			if errors.Is(err, io.EOF) {
 				fmt.Println()
 			}
-			return errors.New("the certificate was not signed")
+			return nil, errors.New("the certificate was not signed")
 		}
 	}
-	if err := writeCert(cert.Raw, certOut); err != nil {
-		return err
+	if err := storeCert(caDir, certOut, cert); err != nil {
+		return nil, err
 	}
 	fmt.Printf("Certificate written to %s\n", certOut)
-	return recordIssued(caDir, cert)
+	return cert, nil
 }
 
 // parseCSR parses a certificate signing request, PEM or DER, and checks its signature.

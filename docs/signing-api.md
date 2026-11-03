@@ -17,6 +17,7 @@ CA key (RS256) and is valid only for that CA. It is shown only once, so copy it 
 | `sign` | the [signing API](#requests-and-responses) and the [signing form](#signing-form) |
 | `tokens` | the [token page](#token-page) of `serve --webui` |
 | `certs` | the [certificate page](usage.md#certificate-page) of `serve --webui` |
+| `audit` | the [audit page](audit.md#the-audit-page) of `serve --webui` |
 | `*` | all of them, given alone |
 
 A root CA token opens the pages for every CA; an issuing CA token opens only its own CA.
@@ -58,7 +59,8 @@ With `--otc`, `token create` prints a one-time setup code, such as `K7QF-M2XA-JP
 of the token, so the token itself is not handed over. The token waits for the code, pending: it
 has no JWT yet. The holder of the code exchanges it once for the token, with
 [`/api/token-setup`](#setup-code-exchange) or the page `/token-setup`, or signs in with it on the
-[token page](#token-page) or the certificate page, which show the token once. The token is valid
+[token page](#token-page), the certificate page or the audit page, which show the token once. The
+token is valid
 for `--valid` from the exchange on. On the [signing form](#signing-form), the code signs one
 certificate instead, and its token is revoked once it is issued, without ever leaving `serve`.
 
@@ -76,12 +78,14 @@ simple-ca token create --ca-dir /tmp/ca/servers --otc --otc-network 192.168.1.0/
 ```
 
 `token list` lists the tokens of the CA: name, expiry (marked `(expired)`, `revoked`,
-`setup until TIME` or `setup expired`), scopes, types, domains, IP prefixes, clients and the
-number of certificates issued. `-` marks what a token without `sign` does not have.
+`setup until TIME` or `setup expired`), scopes, types, domains, IP prefixes, clients, the
+number of certificates issued and the OIDC user it was made for. `-` marks what a token without
+`sign` does not have, and a token not made by the [OIDC sign-in](oidc.md).
 
 `token describe NAME` prints the attributes of the token `NAME` of the CA, one per line: its
 status (valid until, expired, revoked, or waiting for its setup code), when it was issued, its
-scopes, with `sign` its types, domains and IP addresses, the clients it is used from, for a setup
+scopes, for a token of the OIDC sign-in its OIDC user and issuer, with `sign` its types, domains
+and IP addresses, the clients it is used from, for a setup
 code the clients the code is usable from and the validity of the token after the exchange, and
 the serial numbers of the certificates issued with it.
 
@@ -114,7 +118,8 @@ the API and the web UIs. The token stays in `tokens-db.json`, without a JWT ID, 
 renewed. An entry without `scopes` has the scope `sign`.
 
 `token renew` renews the token `NAME`, whether revoked, expired or still valid, and prints it; a
-token waiting for its setup code is revoked first. It gets a new JWT, valid from now, with the
+token waiting for its setup code is refused, and is revoked first to be renewed. It gets a new
+JWT, valid from now, with the
 same scopes and limits; the old JWT stops working. It is valid for `--valid`, or else for as long
 as before; a revoked token gets the default validity of `token create`. Its certificate count
 starts again from zero. With `--otc`, `--otc-valid` and `--otc-network`, as for `token create`,
@@ -146,11 +151,11 @@ certificates for clients in 192.168.1.0/24. `admin` is a root CA token that open
 certificate pages for every CA.
 
 ```text
-NAME     EXPIRES                  SCOPES  TYPES   DOMAINS      IPS         CLIENTS         CERTS
-builder  2026-12-01 13:43:41 UTC  sign    server  *            -           192.168.1.4     0
-deploy   2026-11-01 21:43:41 UTC  sign    server  example.com  -           any             1
-dev      2026-11-01 14:43:41 UTC  sign    server  localhost    127.0.0.1   192.168.1.0/24  0
-lab      2026-12-01 13:43:41 UTC  sign    server  *            10.0.0.0/8  any             0
+NAME     EXPIRES                  SCOPES  TYPES   DOMAINS      IPS         CLIENTS         CERTS  OIDC USER
+builder  2026-12-01 13:43:41 UTC  sign    server  *            -           192.168.1.4     0      -
+deploy   2026-11-01 21:43:41 UTC  sign    server  example.com  -           any             1      -
+dev      2026-11-01 14:43:41 UTC  sign    server  localhost    127.0.0.1   192.168.1.0/24  0      -
+lab      2026-12-01 13:43:41 UTC  sign    server  *            10.0.0.0/8  any             0      -
 ```
 
 The commands and `serve` change `tokens-db.json` under a lock: the file `tokens-db.json.lock`
@@ -168,9 +173,10 @@ The page asks for a token with the scope `tokens`, or a
 code is exchanged for its token, which the page shows once and signs in with once that dialog is
 closed; a token without the scope of the page is shown once too, and the page then asks for
 another. With the [OIDC sign-in](oidc.md), the dialog also has a "Sign in with LABEL" button,
-and the token of the sign-in signs in when it has the scope of the page. It shows who is signed in, with a Sign out button; the name opens a dialog of the
-attributes of the token, as `token describe` prints them. A root CA token sees every CA; an issuing CA token sees
-only its own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
+and the token of the sign-in signs in when it has the scope of the page. It shows who is signed
+in, with a Sign out button; the name opens a dialog of the attributes of the token, as
+`token describe` prints them. A root CA token sees every CA; an issuing CA token sees only its
+own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
 root CA. On it you can:
 
 - list the tokens, as `token list` does, and find them with the search and the filters. The search
@@ -178,9 +184,9 @@ root CA. On it you can:
   status, scopes, types, domains, IP addresses, clients or certificate serials. The filters
   are:
   - **Status**: active, waiting for a setup code, expired or revoked, one or more, showing the
-    tokens of any status ticked;
-  - **Scope**: sign, tokens or certs, one or more, showing the tokens having every scope ticked,
-    by name or by `*`;
+    tokens of any status chosen;
+  - **Scope**: sign, tokens, certs or audit, one or more, showing the tokens having every scope
+    chosen, by name or by `*`;
   - **Made by**: the OIDC sign-in or another way.
 
   A count tells how many are shown. The search and the filters are kept in the address, as `?q=`,
@@ -221,6 +227,9 @@ with the name of the token that made it.
 The API of the page, below `/tokens/api/`, answers with JSON and takes the token as the bearer
 token of every request: `Authorization: Bearer TOKEN`.
 
+- `400 Bad Request` - a body that is not a JSON object of the request, a `valid` or `otc_valid`
+  that is not a duration, or a token that cannot be created, renewed, revoked or removed as asked,
+  such as an invalid name or option;
 - `401 Unauthorized` - no token, or an invalid, revoked, expired or unknown one;
 - `403 Forbidden` - a token without the scope `tokens`, a client the token does not allow, or
   creating, renewing, revoking or removing a token with a scope the signed-in token does not have;
@@ -232,7 +241,7 @@ token of every request: `Authorization: Bearer TOKEN`.
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json` |
+| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json`, with only the scopes of them the token can give, or `sign` without any, and `otc_valid`, always 15 minutes |
 | `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `issued`, `expires`, the expiry of its setup code when it is `pending`, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, `certs`, the serials of the certificates issued with it, and `oidc`, the `issuer`, `subject` and `user` of the OIDC user it was made for, or null |
 | `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/renew` | `ca`, `name`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `name` and `token`, the new JWT, or `code`, the setup code |
@@ -259,7 +268,8 @@ its issuing CAs for the token at `/api/token-setup`, with `--webui` or without i
 The answer is `{"ca": "servers", "name": "builder", "token": "eyJ...", "scopes": ["sign"]}`: the
 issuing CA of the token, empty for the root CA, its name, its JWT, valid for the `--valid` of
 `token create` from now, and its scopes. The code works once. An error is `{"error": "..."}` with
-the status `401 Unauthorized` for an unknown, used or expired code, `403 Forbidden` for a client
+the status `400 Bad Request` for a body that is not a JSON object with the code,
+`401 Unauthorized` for an unknown, used or expired code, `403 Forbidden` for a client
 outside `--otc-network`, `415 Unsupported Media Type` for a body that is not
 `application/json`, and `429 Too Many Requests` for a client held back after refused codes.
 
@@ -321,7 +331,9 @@ number in the token's entry in `tokens-db.json`. The response is JSON:
 - `401 Unauthorized` - the token is missing, belongs to another CA, or is revoked, expired or
   unknown (as the old JWT of a renewed token is);
 - `403 Forbidden` - the token has no scope `sign`, does not allow the type or a name, or is not
-  accepted from the client;
+  accepted from the client, or the request breaks the name rules above, such as a subject
+  attribute other than CN and `emailAddress`, or a SAN other than a DNS name, an email address
+  or an IP address;
 - `415 Unsupported Media Type` - the body is not `application/json`;
 - `429 Too Many Requests` - the client is held back after refused tokens, see
   [Refused credentials](#refused-credentials).
@@ -348,7 +360,8 @@ certificate and its chain.
 `serve` counts the tokens, setup codes and OIDC ID tokens it refuses with
 `401 Unauthorized` for each client, an IPv6 client by its /64 prefix. This applies to the
 signing API, the signing forms, `/api/token-setup`, `/token-setup`, `/api/oidc-token` and the
-API of the token and certificate pages. After 5 refusals in a row:
+API of the token, certificate and audit pages. The first 5 refusals in a row are free; from the
+6th:
 
 - the client is held back for 1 second, a time that doubles with each further refusal, up to
   15 minutes;
@@ -357,14 +370,17 @@ API of the token and certificate pages. After 5 refusals in a row:
   credential, even a valid one;
 - a request without a credential is not counted.
 
-A credential accepted forgets the refusals of its client, and so do 60 minutes without a
-refusal. The count is kept in memory and starts again with `serve`. Behind a reverse proxy, name
+A request that succeeds forgets the refusals of its client, and so do 60 minutes without a
+refusal. A request whose credential is valid but refused with another status, such as
+`403 Forbidden` for a scope, a client or a name the token does not allow, neither counts nor
+forgets. The count is kept in memory and starts again with `serve`. Behind a reverse proxy, name
 it with `--trusted-proxy`, or every client counts as the proxy.
 
 ## Signing form
 
 `/sign` for the root CA, and `/NAME/sign` for the issuing CA `NAME`, are pages with a form for the
-[signing API](#requests-and-responses); the index page links to them for each CA with tokens. For
+[signing API](#requests-and-responses); the index page links to them for each CA with tokens and
+its key. For
 a CA without its key or without `tokens-db.json`, the page says so instead of showing the form,
 and a form sent to it gets `403 Forbidden`. A `NAME` that is not an issuing CA gets
 `404 Not Found`.

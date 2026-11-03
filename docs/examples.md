@@ -56,6 +56,7 @@ The Go `request-cert` also takes options, each of which replaces its environment
 ```text
 SIMPLE_CA_TOKEN=TOKEN request-cert [options] API_URL CN [DNS_NAME ...]
 request-cert --token-file FILE [options] API_URL CN [DNS_NAME ...]
+request-cert --setup-code CODE [--token-file NEW_FILE] [options] API_URL CN [DNS_NAME ...]
 ```
 
 - `--token-file FILE` - the file holding the token, or, with `--setup-code`, the new file the

@@ -25,6 +25,7 @@ package main
 import (
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -151,11 +152,21 @@ func makeCRL(caDir string, days int) error {
 	}
 
 	next := new(big.Int).Add(number, big.NewInt(1))
-	if err := os.WriteFile(numberPath, []byte(serialHex(next)+"\n"), 0o644); err != nil {
-		return err
+	return os.WriteFile(numberPath, []byte(serialHex(next)+"\n"), 0o644)
+}
+
+// auditCRL audits the CRL of the CA in caDir that makeCRL wrote, by its number, with the actor
+// pairs of args.
+func auditCRL(caDir string, args ...any) {
+	number := ""
+	if b, err := os.ReadFile(filepath.Join(caDir, "crl.pem")); err == nil {
+		if block, _ := pem.Decode(b); block != nil {
+			if crl, err := x509.ParseRevocationList(block.Bytes); err == nil {
+				number = crl.Number.String()
+			}
+		}
 	}
-	fmt.Printf("CRL written to %s\n", crlPath)
-	return nil
+	audit(caDir, "crl.write", append([]any{"number", number}, args...)...)
 }
 
 // ---- revokeCert -------------------------------------------------------------
@@ -184,7 +195,8 @@ func markRevoked(caDir, serial, reason string) (bool, error) {
 }
 
 // revokeCert marks the certificate at certPath as revoked in index.txt of the CA in caDir, for
-// reason, one of the first six of crlReasons in any letter case, or for no reason when empty.
+// reason, one of the first six of crlReasons in any letter case, or for no reason when empty, and
+// audits it as cert revoke.
 func revokeCert(certPath, caDir, reason string) error {
 	if reason != "" {
 		var names []string
@@ -218,6 +230,7 @@ func revokeCert(certPath, caDir, reason string) error {
 		fmt.Printf("Certificate %s (serial %s) is already revoked.\n", certPath, serial)
 		return nil
 	}
+	audit(signingDir, "cert.revoke", "serial", serial, "reason", reason, "via", "cli", "actor", cliActor())
 	if reason != "" {
 		fmt.Printf("Certificate %s (serial %s) marked as revoked, reason %s.\n", certPath, serial, reason)
 	} else {

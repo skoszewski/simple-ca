@@ -54,12 +54,13 @@ func runCACreate(args []string) error {
 	if err := makeCA(dir, rest[0], *days, *issuingCA, *baseURL); err != nil {
 		return err
 	}
-	if !*writeConf {
-		return nil
-	}
 	target := dir
 	if *issuingCA != "" {
 		target = filepath.Join(dir, *issuingCA)
+	}
+	audit(target, "ca.create", "subject", rest[0], "days", *days, "via", "cli", "actor", cliActor())
+	if !*writeConf {
+		return nil
 	}
 	path, err := writeOpenSSLConf(target)
 	if err != nil {

@@ -52,6 +52,8 @@ The commands are in groups, `ca`, `cert`, `crl` and `token`, and `serve` is a co
 - [Signing API](docs/signing-api.md) - tokens, the `/api/sign` API and the signing form.
 - [OIDC sign-in](docs/oidc.md) - tokens for the users of a generic OIDC provider, Keycloak or
   Entra ID, given by `oidc-users.json`.
+- [Audit log](docs/audit.md) - what changed a CA and who changed it, in `audit.log`, the systemd
+  journal and container logs.
 - [Signing API clients](docs/examples.md) - the clients in `examples/` and `cmd/request-cert/`,
   in Python, Node.js, Go and the shell.
 - [Trust stores](docs/trust.md) - `simple-ca-trust`, which adds the CAs to the trust store of

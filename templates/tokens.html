@@ -27,17 +27,17 @@
           <input name="name" required placeholder="web-deploy" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
         <label class="space-y-1"><span class="block font-medium">Valid for</span>
           <input name="valid" required placeholder="1h, 8h, 720h" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
-        <fieldset class="space-y-1 sm:col-span-2"><legend class="font-medium">Scopes</legend>
-          <div id="create-scopes" class="flex flex-wrap gap-x-4 gap-y-1"></div>
-        </fieldset>
+        <div class="space-y-1"><span id="create-scopes-label" class="block font-medium">Scopes</span>
+          <div id="create-scopes"></div>
+        </div>
         <fieldset id="sign-fields" class="contents">
           <label class="space-y-1"><span class="block font-medium">Allowed domains</span>
             <input name="domains" placeholder="example.com, lab.example.org" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
           <label class="space-y-1"><span class="block font-medium">Allowed IP addresses</span>
             <input name="ips" placeholder="192.0.2.10, 10.0.0.0/8" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
-          <fieldset class="space-y-1"><legend class="font-medium">Certificate types</legend>
-            <div id="create-types" class="flex flex-wrap gap-x-4 gap-y-1"></div>
-          </fieldset>
+          <div class="space-y-1"><span id="create-types-label" class="block font-medium">Certificate types</span>
+            <div id="create-types"></div>
+          </div>
           <label class="flex items-center gap-1.5"><input type="checkbox" name="localhost"> Allow localhost and 127.0.0.1</label>
         </fieldset>
         <label class="space-y-1"><span class="block font-medium">Allowed clients</span>

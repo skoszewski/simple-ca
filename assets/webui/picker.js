@@ -15,8 +15,10 @@ function element(tag, props = {}, ...children) {
 // value and its label, with value chosen; a hidden input named name holds the value chosen, and
 // onchange is called with a value chosen anew. The chooser is a details element with id, when
 // given; with fit, it is as wide as its longest choice. With multiple, value and the argument of
-// onchange are lists, the input holds them comma-separated, and the choice "" clears them.
-function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}, fit = false, multiple = false }) {
+// onchange are lists, the input holds them comma-separated, the choice "" clears them, the choice
+// only, when given, stands alone, and placeholder shows while none is chosen.
+function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}, fit = false, multiple = false,
+  only = null, placeholder = "" }) {
   const input = element("input", { type: "hidden", name });
   const current = element("span", { className: "col-start-1 row-start-1 truncate" });
   const shown = !fit ? current : element("span", { className: "grid min-w-0" }, current,
@@ -39,7 +41,8 @@ function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}
   const show = (chosen) => {
     const picked = (v) => !multiple ? v === chosen : v === "" ? chosen.length === 0 : chosen.includes(v);
     input.value = multiple ? chosen.join(",") : chosen;
-    current.textContent = !multiple ? labelOf(chosen) : chosen.length === 0 ? labelOf("") : chosen.map(labelOf).join(", ");
+    current.textContent = !multiple ? labelOf(chosen)
+      : chosen.length === 0 ? labelOf("") || placeholder : chosen.map(labelOf).join(", ");
     current.title = current.textContent;
     list.replaceChildren(...choices.map(([v, label], i) => element("li", { role: "option", ariaSelected: String(picked(v)) },
       element("button", { type: "button", className: "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-subtle" +
@@ -47,7 +50,10 @@ function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}
         if (multiple) {
           // A choice toggles with the list kept open.
           event.stopPropagation();
-          const next = v === "" ? [] : choices.map(([c]) => c).filter((c) => c !== "" && (c === v) !== chosen.includes(c));
+          let next = v === "" ? [] : choices.map(([c]) => c).filter((c) => c !== "" && (c === v) !== chosen.includes(c));
+          if (only !== null && next.includes(only)) {
+            next = v === only ? [only] : next.filter((c) => c !== only);
+          }
           show(next);
           list.querySelectorAll("button")[i].focus();
           onchange(next);

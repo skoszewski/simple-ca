@@ -8,7 +8,7 @@ platform's own toolset:
 | Platform | Source | Built with | Store |
 |---|---|---|---|
 | Windows | `trust/windows/` | .NET 10 | the certificate stores of the user or the computer |
-| macOS | `trust/macos/` | Swift | the login or the System keychain, and the trust settings |
+| macOS 15 or later | `trust/macos/` | Swift | the login or the System keychain, and the trust settings |
 | Linux | `cmd/simple-ca-trust/` | Go | the system trust anchors |
 
 ```sh
@@ -39,11 +39,13 @@ not are refused before anything is changed.
 
 ## The commands
 
-- `add` adds the root CA as a trusted root and the issuing CAs as intermediate CAs. A CA already
-  there is left as it is.
+- `add` adds the root CA as a trusted root and the issuing CAs as intermediate CAs. On Windows
+  and Linux, a CA already there is left as it is; on macOS, it is labelled again, and the root CA
+  trusted again.
 - `remove` removes the CAs of the bundle, and the trust of its root CA.
 - `list` lists the CAs `simple-ca-trust` added, with their role, subject, expiry and SHA-256
-  fingerprint, written as `simple-ca ca show` writes it.
+  fingerprint, written as `simple-ca ca show` writes it. On macOS, a root CA without its trust
+  settings has the role `root CA, not trusted`.
 
 `--user`, the default on Windows and macOS, changes the store of the current user; `--machine`
 changes the store of the machine, used by all its users and services, and needs Administrator or
@@ -98,7 +100,7 @@ or `./build.mjs trust <goos>/<goarch>` for another platform the host's toolchain
 # Linux, with Go
 go build -o simple-ca-trust ./cmd/simple-ca-trust
 
-# macOS, with Swift 6.4 or later
+# macOS 15 or later, with Swift 6.4 or later
 swift build -c release --package-path trust/macos
 cp "$(swift build -c release --package-path trust/macos --show-bin-path)/simple-ca-trust" .
 

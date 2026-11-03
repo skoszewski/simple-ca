@@ -42,11 +42,15 @@ writes it, and it can be written or edited by hand. A setting not described here
     ],
     "days": 30
   },
+  "audit": {
+    "file": "/var/log/simple-ca/audit.log"
+  },
   "serve": {
     "trusted_proxies": [
       "127.0.0.1",
       "10.0.0.0/8"
-    ]
+    ],
+    "request_log": true
   },
   "tokens": {
     "valid": "8h",
@@ -68,13 +72,18 @@ writes it, and it can be written or edited by hand. A setting not described here
     without them, `serve` has no ACME server;
   - `days` - the validity of its certificates, 90 days by default.
 - `days` - defaults for `--days`: `ca`, `cert`, `crl`.
+- `audit` - the [audit log](audit.md):
+  - `file` - its path, absolute or relative to the root CA directory; `audit.log` by default.
 - `oidc` - the [OIDC sign-in](oidc.md) of the pages of `serve`: `provider`,
-  `issuer`, `client_id`, `scopes`, `label`, `user_claim`, `groups_claim` and `roles_claim`; the
-  users get their tokens from the profiles of `oidc-users.json` in the root CA directory.
+  `issuer`, `client_id`, `scopes`, `label`, `user_claim`, `groups_claim`, `roles_claim` and
+  `reuse_token`; the users get their tokens from the profiles of `oidc-users.json` in the root CA
+  directory.
 - `serve` - the settings of [serve](serve.md):
   - `trusted_proxies` - the addresses and prefixes of the proxies whose `X-Forwarded-For` header
-    names the client of the [signing API](signing-api.md) and of the token and certificate
-    pages; `serve --trusted-proxy` replaces them.
+    names the client of every request to `serve`, such as of the [signing API](signing-api.md),
+    the pages, the setup code exchange, the OIDC sign-in and ACME; `serve --trusted-proxy`
+    replaces them;
+  - `request_log` - `true` logs each request, `false` by default; `serve --request-log` sets it.
 - `tokens` - the defaults of [token create](signing-api.md#token-create-list-renew-revoke-and-purge);
   the option of the same name overrides each: `valid`, a duration such as `8h`, `scopes`,
   `types`, `domains`, `ips`, `localhost`, `hosts`, and `networks`, a list of prefixes. `--host`
@@ -125,9 +134,9 @@ name. A role left out keeps its built-in colour, and a setting not described her
 
 | Page | Colours |
 |---|---|
-| the index page, `/token-setup` | those of the root CA |
+| the index page, `/token-setup`, `/oidc-callback` | those of the root CA |
 | `/sign`, `/NAME/sign` | those of the CA of the form |
-| the token and certificate pages | those of the CA chosen in their selector, changing with it |
+| the token, certificate and audit pages | those of the CA chosen in their selector, changing with it |
 
 `serve` refuses to start with an unknown role or a value that is not a colour in the
 `theme.json` of any CA, and the pages read the colours on each request, so a change shows

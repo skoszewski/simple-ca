@@ -52,7 +52,7 @@ var docsPages embed.FS
 // docsMenu is the menu of the guides, in the order of the README.
 var docsMenu = []render.MenuEntry{{Path: "usage.md"}, {Path: "directory-layout.md"},
 	{Path: "configuration.md"}, {Path: "serve.md"}, {Path: "acme.md"}, {Path: "signing-api.md"},
-	{Path: "oidc.md"}, {Path: "examples.md"}, {Path: "trust.md"}, {Path: "systemd.md"}, {Path: "docker.md"}, {Path: "simple-ca-mini.md"},
+	{Path: "oidc.md"}, {Path: "audit.md"}, {Path: "examples.md"}, {Path: "trust.md"}, {Path: "systemd.md"}, {Path: "docker.md"}, {Path: "simple-ca-mini.md"},
 	{Path: "development.md"}}
 
 // markdownAssets holds the browser files of serve-markdown's page, which ./build.mjs assets

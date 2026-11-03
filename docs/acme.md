@@ -11,8 +11,9 @@ one of `acme.domains` or below one of them, and whose challenge is met:
   a wildcard name, `*.NAME`, is offered only this challenge.
 
 A certificate is of the type `server`, valid for `acme.days` of `simple-ca.json`, 90 days
-without it, with the first name of the order as the CN and all its names as DNS names; the key usages,
-extended key usages, AIA and CRL Distribution Point URLs are those of `cert create`. It is recorded
+without it, with the first name of the order as the CN, or no CN when that name is longer than 64
+characters, and all its names as DNS names; the key usages, extended key usages, AIA and CRL
+Distribution Point URLs are those of `cert create`. It is recorded
 in `index.txt` like any other. The chain returned holds the certificate and, from an issuing CA,
 the issuing CA certificate. A certificate is revoked by the account it was issued to, or with its
 key, for a reason from 0 to 5, as for `cert revoke`; `crl create` writes the CRL listing it.

@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -78,13 +79,23 @@ func guardKey(client netip.Addr) netip.Prefix {
 	return prefix
 }
 
-// attempt runs try for client unless it is held back, records its outcome, and returns its error.
-func (g *authGuard) attempt(w http.ResponseWriter, client netip.Addr, try func() error) error {
+// attempt runs try for the client of r unless it is held back, records its outcome, audits a
+// refusal and a hold for the CA in dir, and returns its error.
+func (g *authGuard) attempt(w http.ResponseWriter, r *http.Request, dir string, try func() error) error {
+	client := clientAddr(r)
 	if err := g.check(w, client); err != nil {
 		return err
 	}
 	err := try()
-	g.record(client, err)
+	hold := g.record(client, err)
+	var e *apiError
+	if errors.As(err, &e) && e.status == http.StatusUnauthorized {
+		route, _, _ := strings.Cut(r.RequestURI, "?")
+		audit(dir, "auth.refused", "route", route, "reason", e.msg, "client", client.String())
+		if hold > 0 {
+			audit(dir, "auth.held", "client", client.String(), "wait", hold.String())
+		}
+	}
 	return err
 }
 
@@ -103,19 +114,20 @@ func (g *authGuard) check(w http.ResponseWriter, client netip.Addr) error {
 }
 
 // record counts the outcome err of a request of client: a refused credential, of status 401, is
-// counted, and a success, a nil err, forgets the refusals.
-func (g *authGuard) record(client netip.Addr, err error) {
+// counted, and a success, a nil err, forgets the refusals. It returns the hold the refusal starts,
+// zero for none.
+func (g *authGuard) record(client netip.Addr, err error) time.Duration {
 	var e *apiError
 	refused := errors.As(err, &e) && e.status == http.StatusUnauthorized
 	if err != nil && !refused {
-		return
+		return 0
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key, now := guardKey(client), time.Now()
 	if !refused {
 		delete(g.clients, key)
-		return
+		return 0
 	}
 	for k, f := range g.clients {
 		if now.Sub(f.last) > authForget {
@@ -128,7 +140,11 @@ func (g *authGuard) record(client netip.Addr, err error) {
 		g.clients[key] = f
 	}
 	f.count, f.last = f.count+1, now
-	if n := f.count - authFreeFailures; n > 0 {
-		f.until = now.Add(min(authFirstWait<<min(n-1, 20), authMaxWait))
+	n := f.count - authFreeFailures
+	if n <= 0 {
+		return 0
 	}
+	hold := min(authFirstWait<<min(n-1, 20), authMaxWait)
+	f.until = now.Add(hold)
+	return hold
 }

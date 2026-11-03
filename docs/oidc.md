@@ -7,8 +7,9 @@ Keycloak and Microsoft Entra ID are supported.
 
 The sign-in is offered as a "Sign in with LABEL" button on:
 
-- the token page `/tokens/` and the certificate page `/certificates/`, in the dialog asking for
-  the token; the token of the sign-in signs in, when it has the scope of the page;
+- the token page `/tokens/`, the certificate page `/certificates/` and the audit page `/audit/`,
+  in the dialog asking for the token; the token of the sign-in signs in, when it has the scope of
+  the page;
 - the signing forms `/sign` and `/NAME/sign`, where the token of the sign-in fills the token
   field, and the request and the type are kept while the browser is at the provider;
 - `/token-setup`, which shows the token once, with a Copy button, for scripts and the signing
@@ -95,7 +96,8 @@ A claim is a dotted path into the ID token, such as `realm_access.roles`, and th
 
 `serve` accepts an ID token signed with RS256, ES256, ES384, ES512 or EdDSA by a key of the JWKS
 of the provider. Its `iss` must be the issuer and its `aud` must hold the client ID. Its `azp`,
-when present, must be the client ID too. It must have a subject and must not have expired. Its
+when present, must be the client ID too. It must have a subject and a `nonce`, must not have
+expired, and its `iat` must be present and at most 2 minutes ahead of the clock of `serve`. Its
 `nonce` gives one token: an ID token that has given a token is refused after that. The JWKS is
 fetched again for a key it does not have, at most once a minute.
 
@@ -187,7 +189,8 @@ apart from one user.
 ## Requests and responses
 
 `GET /api/oidc` answers with the settings the pages sign in with, or `404 Not Found` when the
-sign-in is off, and `502 Bad Gateway` when the discovery document of the provider cannot be read:
+sign-in is off, `500 Internal Server Error` when `simple-ca.json` cannot be read, and
+`502 Bad Gateway` when the discovery document of the provider cannot be read:
 
 ```json
 {
@@ -232,13 +235,16 @@ The ID token is not used up by that answer, so the same body can be sent again w
 
 Any other error is `{"error": "..."}` with the status:
 
-- `400 Bad Request` - `reuse` without `reuse_token`, or `replace` and `reuse` together;
+- `400 Bad Request` - a body that is not a JSON object with a non-empty `id_token` and no other
+  keys than `id_token`, `replace` and `reuse`, `reuse` without `reuse_token`, or `replace` and
+  `reuse` together;
 - `401 Unauthorized` - an ID token `serve` does not accept, or one used before;
-- `403 Forbidden` - a user without a user claim or a profile, or a client the token of the
-  profile is not accepted from;
+- `403 Forbidden` - a user without a user claim or a profile, a user claim that makes no
+  kebab-case token name, or a client the token of the profile is not accepted from;
 - `404 Not Found` - the sign-in is off;
 - `409 Conflict` without `active` - the name of the token belongs to another token;
 - `415 Unsupported Media Type` - a body that is not `application/json`;
+- `500 Internal Server Error` - `simple-ca.json` cannot be read;
 - `429 Too Many Requests` - a client held back after refused ID tokens, as described in
   [Refused credentials](signing-api.md#refused-credentials).
 
@@ -326,20 +332,36 @@ have no overage limit, unlike groups, which makes them the way to match Entra ID
       "name": "ca-admin",
       "token": {
         "valid": "8h",
-        "scopes": ["*"],
-        "domains": ["example.com"]
+        "scopes": [
+          "tokens",
+          "certs"
+        ]
       }
     },
     {
       "name": "web-signer",
       "ca": "servers",
       "token": {
+        "valid": "1h",
         "scopes": ["sign"],
         "domains": ["lab.example.org"]
       }
+    },
+    {
+      "name": "cert-viewer",
+      "ca": "servers",
+      "token": {
+        "valid": "8h",
+        "scopes": ["certs"]
+      }
     }
   ],
-  "rules": []
+  "rules": [
+    {
+      "users": ["alice@example.com"],
+      "profile": "ca-admin"
+    }
+  ]
 }
 ```
 

@@ -207,38 +207,38 @@ func locateCA(caDir string) (rootDir, issuingCA string, err error) {
 // SAN; the rest of sans are email addresses and numeric OIDs.
 //
 // kus are added to the key usages of the type and ekus to its extended key usages, as parsed by
-// parseUsages.
-func makeCert(subjectName string, sans []string, caDir, certDir, certType string, days int, ekus, kus []string) error {
+// parseUsages. It returns the certificate issued, nil when the certificate and its key exist.
+func makeCert(subjectName string, sans []string, caDir, certDir, certType string, days int, ekus, kus []string) (*x509.Certificate, error) {
 	if days < 1 {
-		return errors.New("--days must be a positive integer")
+		return nil, errors.New("--days must be a positive integer")
 	}
 	if !dirExists(caDir) {
-		return fmt.Errorf("CA directory %s does not exist", caDir)
+		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
 	}
 	if subjectName == "" {
-		return errors.New("subject name is required")
+		return nil, errors.New("subject name is required")
 	}
 
 	rootDir, issuingCA, err := locateCA(caDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cfg, err := loadConfig(rootDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	types, err := cfg.certTypes()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	def, ok := types[certType]
 	if !ok {
-		return fmt.Errorf("unknown type '%s': must be one of %s", certType, typeNames(types))
+		return nil, fmt.Errorf("unknown type '%s': must be one of %s", certType, typeNames(types))
 	}
 	keyUsage, extKeyUsages, extKeyUsageOIDs, err := parseUsages(
 		append(slices.Clone(def.keyUsage), kus...), append(slices.Clone(def.extKeyUsage), ekus...))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	userNames := def.names == "user"
 
@@ -250,7 +250,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 	rest := sans
 	if !userNames {
 		if !isHostname(subjectName) {
-			return fmt.Errorf("invalid CN '%s': a %s certificate's CN must be a hostname or FQDN", subjectName, certType)
+			return nil, fmt.Errorf("invalid CN '%s': a %s certificate's CN must be a hostname or FQDN", subjectName, certType)
 		}
 		cn = subjectName
 		dnsNames = []string{cn}
@@ -265,11 +265,11 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 			rest = rest[1:]
 			switch {
 			case email == "" && !emailRE.MatchString(next):
-				return fmt.Errorf("invalid emailAddress '%s': the CN is '%s', so the second argument must be the email address", next, cn)
+				return nil, fmt.Errorf("invalid emailAddress '%s': the CN is '%s', so the second argument must be the email address", next, cn)
 			case email == "":
 				email = next
 			case emailRE.MatchString(next):
-				return fmt.Errorf("invalid CN '%s': the emailAddress is '%s', so the second argument must be the CN", next, email)
+				return nil, fmt.Errorf("invalid CN '%s': the emailAddress is '%s', so the second argument must be the CN", next, email)
 			default:
 				cn = next
 			}
@@ -291,9 +291,9 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 		case userNames && emailRE.MatchString(entry):
 			emails = append(emails, entry)
 		case !userNames:
-			return fmt.Errorf("invalid SAN '%s': must be a hostname, FQDN, IPv4 or IPv6 address, or numeric OID", entry)
+			return nil, fmt.Errorf("invalid SAN '%s': must be a hostname, FQDN, IPv4 or IPv6 address, or numeric OID", entry)
 		default:
-			return fmt.Errorf("invalid SAN '%s': must be an email address or numeric OID", entry)
+			return nil, fmt.Errorf("invalid SAN '%s': must be an email address or numeric OID", entry)
 		}
 	}
 
@@ -301,13 +301,13 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 		certDir = caDir
 	}
 	if !dirExists(certDir) {
-		return fmt.Errorf("certificate directory %s does not exist", certDir)
+		return nil, fmt.Errorf("certificate directory %s does not exist", certDir)
 	}
 
 	caCertPath := filepath.Join(caDir, "ca_cert.pem")
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
 	if !fileExists(caCertPath) || !fileExists(caKeyPath) {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory",
 			caDir)
 	}
@@ -319,7 +319,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 
 	certName := certFileName(cn, email, userNames)
 	if certName == "" {
-		return fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", cmp.Or(cn, email))
+		return nil, fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", cmp.Or(cn, email))
 	}
 
 	subject := pkix.Name{CommonName: cn}
@@ -331,71 +331,44 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 
 	// The subjectAltName extension, with the registeredID names.
 	var names []asn1.RawValue
-	var described []string
 	for _, e := range emails {
 		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 1, Bytes: []byte(e)})
-		described = append(described, "email:"+e)
 	}
 	for _, d := range dnsNames {
 		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 2, Bytes: []byte(d)})
-		described = append(described, "DNS:"+d)
 	}
 	for _, ip := range ips {
 		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 7, Bytes: ip.AsSlice()})
-		described = append(described, "IP:"+ip.String())
 	}
 	for _, oid := range oids {
 		b, err := oid.MarshalBinary()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 8, Bytes: b})
-		described = append(described, "RID:"+oid.String())
-	}
-
-	if cn != "" {
-		fmt.Printf("Generating %s certificate for CN '%s'", certType, cn)
-	} else {
-		fmt.Printf("Generating %s certificate for emailAddress '%s'", certType, email)
-	}
-	if len(described) == 0 {
-		fmt.Println(".")
-	} else {
-		fmt.Println(" with SANs:")
-	}
-	for _, d := range described {
-		fmt.Printf("  - %s\n", d)
-	}
-	if len(kus) > 0 {
-		fmt.Printf("Added key usage: %s\n", strings.Join(kus, ", "))
-	}
-	if len(ekus) > 0 {
-		fmt.Printf("Added extended key usage: %s\n", strings.Join(ekus, ", "))
 	}
 
 	certOut := filepath.Join(certDir, certName+"_cert.pem")
 	keyOut := filepath.Join(certDir, certName+"_key.pem")
 	if fileExists(certOut) && fileExists(keyOut) {
-		fmt.Printf("Certificate already exists in %s, skipping.\n", certDir)
-		return nil
+		return nil, nil
 	}
 
-	fmt.Println("Generating certificate and key...")
 	caCert, err := loadCert(caCertPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	caKey, err := loadKey(caKeyPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	key, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	serial, err := randomSerial()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	now := time.Now().UTC()
 
@@ -412,7 +385,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 	if len(names) > 0 {
 		san, err := asn1.Marshal(names)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		tmpl.ExtraExtensions = []pkix.Extension{{Id: oidSubjectAltName, Value: san}}
 	}
@@ -422,17 +395,17 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := writeKey(key, keyOut); err != nil {
-		return err
+		return nil, err
 	}
 	if err := writeCert(der, certOut); err != nil {
-		return err
+		return nil, err
 	}
 	cert, err := x509.ParseCertificate(der)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return recordIssued(caDir, cert)
+	return cert, recordIssued(caDir, cert)
 }

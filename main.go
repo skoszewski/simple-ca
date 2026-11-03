@@ -124,6 +124,9 @@ var commands = []command{
 		{name: "renew", summary: "Renew a token of a CA, expired or not.", run: runTokenRenew},
 		{name: "purge", summary: "Remove the expired and revoked tokens of a CA.", run: runTokenPurge},
 	}},
+	{name: "audit", summary: "Read the audit log of a root CA and its issuing CAs.", sub: []command{
+		{name: "list", summary: "Print the records of the audit log, filtered.", run: runAuditList},
+	}},
 	{name: "serve", summary: "Serve the CA certificates, CRLs, ACME, the signing API and the web pages over HTTP.", run: runServe},
 }
 

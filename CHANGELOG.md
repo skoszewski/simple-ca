@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.9.0
+
+feat: the commands and serve write an audit log of every change to a CA and every credential handed out or refused, which serve also sends to the systemd journal or its standard error, audit list reads, and the audit page of serve --webui shows; serve logs everything in the format of the audit records, and logs requests only with --request-log.
+
+- Each record is a line of `key=value` pairs, written by Go's `log/slog`, with the time first.
+  The record names the event, the CA, the way the change was made (`via`), the actor and, for
+  `serve`, the client.
+  - The events are `ca.create`, `cert.issue`, `cert.revoke`, `cert.pfx` and `crl.write`;
+    `token.create`, `token.renew`, `token.revoke`, `token.purge`, `token.setup` and
+    `token.oidc`; and `auth.refused` and `auth.held`.
+  - A record holds no token, setup code, ID token, key or password.
+- The records of the root CA and its issuing CAs go to `audit.log` in the root CA directory,
+  mode 0600, which `audit.file` of `simple-ca.json` moves. The file is opened for each record,
+  so `logrotate` can rename it; a record that cannot be written is reported on the standard error.
+- `serve` also sends each record to the systemd journal when it runs under systemd, each key a
+  field such as `SIMPLE_CA_EVENT`, and to the standard error otherwise, where container runtimes
+  collect it. The journal is used on Linux alone.
+- `audit list` prints the records, filtered by `--event`, `--ca`, `--actor`, `--since` and
+  `--until`.
+- The new token scope `audit` opens the audit page of `serve --webui` at `/audit/`. It shows the
+  newest records of a CA with a search and filters of the event and the way, from
+  `GET /audit/api/entries`. `audit` cannot be the name of an issuing CA.
+- The new guide `docs/audit.md` describes the records, the outputs, `audit list` and the page.
+- `serve` logs its start, its pages, warnings and errors as records of the same format, such as
+  `event=serve.start` and `event=serve.error`, in place of free-text lines, and no longer adds
+  a line of its own beside the audit record of a change. In the journal, errors and warnings
+  have their priority.
+- `serve` logs each request, as `event=http.request` with the method, path, status and client,
+  only with `--request-log` or `serve.request_log` of `simple-ca.json`; it is off by default.
+- The certificate page no longer makes `serve` print the output of the commands, such as the
+  fields of a new certificate, and signs a request without a temporary file.
+- `docs/configuration.md` lists `oidc.reuse_token`, and the colours of `/oidc-callback` and the
+  audit page in its table of `theme.json`.
+- The form creating a token on the token page chooses the scopes and the certificate types in
+  multi-select dropdowns in place of rows of check boxes; `*` chosen stands alone.
+- `systemd/simple-ca.service` allows Unix sockets, so `serve` reaches the systemd journal.
+- `simple-ca-mini.py` is in the repository again, unchanged at version 1.3.0, with its guide
+  and its systemd unit.
+- The guides are corrected against the code, among them:
+  - `token renew` refuses a token waiting for its setup code, and `token list` and
+    `token describe` show the OIDC user;
+  - a client is held back from its 6th refused credential;
+  - the names `tokens`, `certificates` and `audit` are refused as issuing CA names;
+  - a CA without its key on the server can still revoke its certificates on the certificate page;
+  - the `--days` defaults of `simple-ca.json`;
+  - the audit page, its scope and `audit.log` in the guides of the pages, systemd and Docker;
+  - the status codes of the APIs, and the clients `X-Forwarded-For` names;
+  - the macOS behaviour and version of `simple-ca-trust`, and what `build.mjs clean` and
+    `release.mjs` do.
+
 ## 1.8.5
 
 fix: Enter in a field of a question of the token and certificate pages answers it with its action, in place of Cancel.

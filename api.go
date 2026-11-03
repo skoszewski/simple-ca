@@ -40,7 +40,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"log"
+	"log/slog"
 	"maps"
 	"mime"
 	"net/http"
@@ -67,9 +67,9 @@ var tokensLockWait = 10 * time.Second
 var jwtHeader = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
 
 // tokenScopes are the scopes a token may have: sign for the signing API and the signing form,
-// tokens for the token page of serve --webui, and certs for its certificate page; the scope * is
-// all of them.
-var tokenScopes = []string{"sign", "tokens", "certs"}
+// tokens for the token page of serve --webui, certs for its certificate page, and audit for its
+// audit page; the scope * is all of them.
+var tokenScopes = []string{"sign", "tokens", "certs", "audit"}
 
 // allows reports whether values, the scopes or the certificate types of a token, hold value or *,
 // which stands for every value.
@@ -700,11 +700,7 @@ func revokeToken(caDir, name string) error {
 		return fmt.Errorf("token '%s' is revoked already", name)
 	}
 	t.ID, t.Setup, t.Expires = "", nil, time.Now().UTC().Truncate(time.Second)
-	if err := db.save(caDir); err != nil {
-		return err
-	}
-	fmt.Printf("Token %s revoked\n", name)
-	return nil
+	return db.save(caDir)
 }
 
 // caIDs returns the IDs of the root CA in rootDir, empty, and of its issuing CAs.
@@ -791,7 +787,7 @@ func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string) {
 	}
 	client := clientAddr(r)
 	var id, name, jwt string
-	err := guard.attempt(w, client, func() (err error) {
+	err := guard.attempt(w, r, rootDir, func() (err error) {
 		id, name, jwt, err = exchangeSetupCode(rootDir, req.Code, client)
 		return err
 	})
@@ -801,11 +797,11 @@ func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string) {
 		webuiFail(w, refused.status, refused.msg)
 		return
 	case err != nil:
-		log.Printf("token setup: %v", err)
+		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, "could not set up the token")
 		return
 	}
-	log.Printf("token %s of %s set up from %s", name, filepath.Join(rootDir, id), client)
+	audit(filepath.Join(rootDir, id), "token.setup", "name", name, "via", "setup", "actor", name, "client", client.String())
 	scopes := []string{}
 	if db, err := loadTokens(filepath.Join(rootDir, id)); err == nil && db.Tokens[name] != nil {
 		scopes = db.Tokens[name].scopes()
@@ -820,7 +816,7 @@ func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string) {
 func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 	caCert, err := loadCert(filepath.Join(rootDir, "ca_cert.pem"))
 	if err != nil {
-		log.Printf("%s: %v", r.URL.Path, err)
+		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		http.Error(w, "could not read the CA", http.StatusInternalServerError)
 		return
 	}
@@ -840,7 +836,7 @@ func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 		code := strings.TrimSpace(r.PostForm.Get("code"))
 		err = apiErr(http.StatusUnauthorized, "a setup code is required")
 		if code != "" {
-			err = guard.attempt(w, client, func() (err error) {
+			err = guard.attempt(w, r, rootDir, func() (err error) {
 				page.CA, page.Name, page.Token, err = exchangeSetupCode(rootDir, code, client)
 				return err
 			})
@@ -850,10 +846,11 @@ func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 		case errors.As(err, &e):
 			status, page.Error = e.status, e.msg
 		case err != nil:
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			status, page.Error = http.StatusInternalServerError, "could not set up the token"
 		default:
-			log.Printf("token %s of %s set up from %s", page.Name, filepath.Join(rootDir, page.CA), client)
+			audit(filepath.Join(rootDir, page.CA), "token.setup", "name", page.Name, "via", "setup", "actor", page.Name,
+				"client", client.String())
 			if db, err := loadTokens(filepath.Join(rootDir, page.CA)); err == nil && db.Tokens[page.Name] != nil {
 				page.Attributes = describeToken(page.Name, db.Tokens[page.Name], true)
 			}
@@ -863,7 +860,7 @@ func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	if err := pageTemplates.ExecuteTemplate(w, "token-setup.html", page); err != nil {
-		log.Printf("%s: %v", r.URL.Path, err)
+		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 	}
 }
 
@@ -1162,14 +1159,23 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	}
 	serial := serialHex(cert.SerialNumber)
 	tok.Certs = append(tok.Certs, serial)
-	if tok.pending() {
+	byCode := tok.pending()
+	if byCode {
 		// The token of a setup code signs this certificate alone.
 		tok.Setup, tok.Expires = nil, time.Now().UTC().Truncate(time.Second)
 	}
 	if err := db.save(caDir); err != nil {
 		return nil, nil, "", err
 	}
-	log.Printf("API certificate %s issued to token %s for %s", serial, name, nameString(cert.Subject))
+	via := "api"
+	if setupCodes {
+		via = "form"
+	}
+	pairs := []any{"setup_code", byCode, "via", via, "actor", name}
+	if tok.OIDC != nil {
+		pairs = append(pairs, "oidc_user", tok.OIDC.User)
+	}
+	auditIssued(caDir, cert, certType, append(pairs, "client", client.String())...)
 
 	// The file is named after the CN, else the first DNS name or email address.
 	cn, email := csr.Subject.CommonName, ""
@@ -1215,7 +1221,7 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 	case dec.Decode(&req) != nil:
 		err = apiErr(http.StatusBadRequest, "invalid request: the body is not a JSON object of csr and type")
 	default:
-		err = guard.attempt(w, client, func() (err error) {
+		err = guard.attempt(w, r, caDir, func() (err error) {
 			cert, caCert, _, err = signWithToken(caDir, token, client, []byte(req.CSR), req.Type, false)
 			return err
 		})
@@ -1225,7 +1231,7 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 	if err != nil {
 		var e *apiError
 		if !errors.As(err, &e) {
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			e = apiErr(http.StatusInternalServerError, "internal error")
 		}
 		if e.status == http.StatusUnauthorized {
@@ -1258,7 +1264,7 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 		types, err1 = cfg.certTypes()
 	}
 	if err := cmp.Or(err1, err2); err != nil {
-		log.Printf("%s: %v", r.URL.Path, err)
+		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		http.Error(w, "could not read the CA", http.StatusInternalServerError)
 		return
 	}
@@ -1318,7 +1324,7 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 		token := strings.TrimSpace(r.PostForm.Get("token"))
 		var err error = apiErr(http.StatusUnauthorized, "a token or a setup code is required")
 		if token != "" {
-			err = guard.attempt(w, client, func() (err error) {
+			err = guard.attempt(w, r, caDir, func() (err error) {
 				cert, _, fileName, err = signWithToken(caDir, token, client, []byte(page.CSR), page.Type, true)
 				return err
 			})
@@ -1331,7 +1337,7 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 		}
 		var e *apiError
 		if !errors.As(err, &e) {
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			e = apiErr(http.StatusInternalServerError, "internal error")
 		}
 		status, page.Error = e.status, e.msg
@@ -1340,6 +1346,6 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	if err := pageTemplates.ExecuteTemplate(w, "sign.html", page); err != nil {
-		log.Printf("%s: %v", r.URL.Path, err)
+		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 	}
 }

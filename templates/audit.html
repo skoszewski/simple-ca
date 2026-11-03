@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Audit log - simple-ca</title>
+    <script src="{{.Script}}"></script>
+    {{template "theme" ""}}
+    <style id="ca-theme"></style>
+  </head>
+  <body class="min-h-screen bg-page text-ink">
+    <div class="mx-auto max-w-5xl space-y-6 px-4 py-10 sm:py-16 xl:w-11/12 xl:max-w-[160rem] 2xl:w-5/6">
+      <div class="rounded-2xl border border-line bg-card shadow-lg">
+        {{template "webui-top" "Audit log"}}
+        <main id="ca-section" class="space-y-4 px-6 py-5"></main>
+      </div>
+      {{template "version"}}
+    </div>
+
+    {{template "webui-dialogs"}}
+
+    <script src="/assets/webui/picker.js"></script>
+    <script src="/assets/webui/oidc.js"></script>
+    <script src="/assets/webui/webui.js"></script>
+    <script src="/assets/webui/audit.js"></script>
+  </body>
+</html>

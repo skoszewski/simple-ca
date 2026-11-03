@@ -23,10 +23,13 @@
 package main
 
 import (
+	"cmp"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
+	"text/tabwriter"
+	"time"
 )
 
 // ---- cert commands ----------------------------------------------------------
@@ -57,7 +60,20 @@ func runCertCreate(args []string) error {
 	if !given["days"] && cfg.Days.Cert > 0 {
 		*days = cfg.Days.Cert
 	}
-	return makeCert(rest[0], rest[1:], dir, *certDir, *certType, *days, *ekus, *kus)
+	cert, err := makeCert(rest[0], rest[1:], dir, *certDir, *certType, *days, *ekus, *kus)
+	out := cmp.Or(*certDir, dir)
+	switch {
+	case err != nil:
+		return err
+	case cert == nil:
+		fmt.Printf("The certificate and its key exist in %s; nothing was created.\n", out)
+		return nil
+	}
+	auditIssued(dir, cert, *certType, "via", "cli", "actor", cliActor())
+	fmt.Printf("The %s certificate and its key, written to %s:\n\n", *certType, out)
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	writeCertFields(tw, cert, time.Now())
+	return tw.Flush()
 }
 
 // usageFlags defines the --eku and --ku options of fs and returns the extended key usages and
@@ -108,7 +124,11 @@ func runCertSign(args []string) error {
 	if !given["days"] && cfg.Days.Cert > 0 {
 		*days = cfg.Days.Cert
 	}
-	return signCSR(rest[0], dir, *certDir, *certType, *days, *ekus, *kus, *force, os.Stdin)
+	cert, err := signCSR(rest[0], dir, *certDir, *certType, *days, *ekus, *kus, *force, os.Stdin)
+	if cert != nil {
+		auditIssued(dir, cert, *certType, "via", "cli", "actor", cliActor())
+	}
+	return err
 }
 
 // runCertPFX runs cert pfx.
@@ -120,7 +140,12 @@ func runCertPFX(args []string) error {
 	if err != nil {
 		return err
 	}
-	return makePFX(rest[0], resolveCADir(*caDir), *password)
+	dir := resolveCADir(*caDir)
+	if err := makePFX(rest[0], dir, *password); err != nil {
+		return err
+	}
+	audit(dir, "cert.pfx", "file", rest[0], "via", "cli", "actor", cliActor())
+	return nil
 }
 
 // runCertRevoke runs cert revoke.

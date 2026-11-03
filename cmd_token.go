@@ -44,8 +44,8 @@ func runTokenCreate(args []string) error {
 		"Create the token NAME of the CA in --ca-dir, and print it.\n\n"+
 			"The token is a JWT signed with the CA key and valid for that CA only. Scopes: sign (the\n"+
 			"signing API and the signing form of serve), tokens (the /tokens/ page of serve --webui),\n"+
-			"certs (its /certificates/ page). A root CA token opens the pages for every CA; an issuing\n"+
-			"CA token opens only its own CA.\n\n"+
+			"certs (its /certificates/ page), audit (its /audit/ page). A root CA token opens the pages\n"+
+			"for every CA; an issuing CA token opens only its own CA.\n\n"+
 			"With the scope sign, the token allows the --type certificate types, the --domain domains\n"+
 			"and their subdomains, and the --ip addresses; at least one --domain, --ip or --localhost\n"+
 			"is required. With --host or --network, the token is accepted only from those clients.\n\n"+
@@ -59,7 +59,7 @@ func runTokenCreate(args []string) error {
 	valid := fs.Duration("valid", time.Hour, "validity `period` of the token, such as 30m, 8h or 720h")
 	localhost := fs.Bool("localhost", false, "allow the name localhost and the IP address 127.0.0.1")
 	var scopes, certTypes, domains, ips, clients []string
-	fs.Func("scope", "`scope` of the token: sign, tokens, certs, or * for all; may be specified multiple times\n"+
+	fs.Func("scope", "`scope` of the token: sign, tokens, certs, audit, or * for all; may be specified multiple times\n"+
 		"(default: sign)", func(s string) error {
 		scopes = append(scopes, s)
 		return nil
@@ -142,6 +142,8 @@ func runTokenCreate(args []string) error {
 	if err != nil {
 		return err
 	}
+	audit(dir, "token.create", "name", rest[0], "scopes", strings.Join(scopes, ","), "setup_code", setupValid > 0,
+		"via", "cli", "actor", cliActor())
 	fmt.Println(token)
 	return nil
 }
@@ -289,7 +291,13 @@ func runTokenRevoke(args []string) error {
 	if err != nil {
 		return err
 	}
-	return revokeToken(resolveCADir(*caDir), rest[0])
+	dir := resolveCADir(*caDir)
+	if err := revokeToken(dir, rest[0]); err != nil {
+		return err
+	}
+	audit(dir, "token.revoke", "name", rest[0], "via", "cli", "actor", cliActor())
+	fmt.Printf("Token %s revoked\n", rest[0])
+	return nil
 }
 
 // runTokenPurge runs token purge.
@@ -302,16 +310,21 @@ func runTokenPurge(args []string) error {
 	if err != nil {
 		return err
 	}
+	dir := resolveCADir(*caDir)
 	if len(rest) == 1 {
-		if err := purgeToken(resolveCADir(*caDir), rest[0]); err != nil {
+		if err := purgeToken(dir, rest[0]); err != nil {
 			return err
 		}
+		audit(dir, "token.purge", "name", rest[0], "via", "cli", "actor", cliActor())
 		fmt.Printf("Token %s removed\n", rest[0])
 		return nil
 	}
-	n, err := purgeTokens(resolveCADir(*caDir), 0)
+	n, err := purgeTokens(dir, 0)
 	if err != nil {
 		return err
+	}
+	if n > 0 {
+		audit(dir, "token.purge", "count", n, "via", "cli", "actor", cliActor())
 	}
 	fmt.Printf("%d expired or revoked tokens removed\n", n)
 	return nil
@@ -335,10 +348,12 @@ func runTokenRenew(args []string) error {
 	if err != nil {
 		return err
 	}
-	token, err := reissueToken(resolveCADir(*caDir), rest[0], *valid, setupValid, setupClients)
+	dir := resolveCADir(*caDir)
+	token, err := reissueToken(dir, rest[0], *valid, setupValid, setupClients)
 	if err != nil {
 		return err
 	}
+	audit(dir, "token.renew", "name", rest[0], "setup_code", setupValid > 0, "via", "cli", "actor", cliActor())
 	fmt.Println(token)
 	return nil
 }

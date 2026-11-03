@@ -30,6 +30,7 @@ CA_DIR/
     ca_key.pem             issuing CA private key
     {name}_cert.pem        certificate issued by the issuing CA
     {name}_key.pem         key of a certificate issued by the issuing CA
+    {name}.pfx             PKCS#12 bundle (cert pfx)
 ```
 
 The layout and the file names are those of `simple-ca`. `{name}` is the CN of a server or none
@@ -65,12 +66,12 @@ directory above it.
 Without `--issuing-ca`, creates the root CA in the CA directory, with a path length of 1. With
 `--issuing-ca NAME`, creates an issuing CA in `CA_DIR/NAME/`, signed by the root CA in the CA
 directory, with a path length of 0; `NAME` is a **kebab-case** name, such as `lab-servers`. Both
-have the key usages keyCertSign and cRLSign. A CA that exists is left as it is, and
-`ca_bundle.pem` is written again with the root CA and every issuing CA. `--days` defaults to
-`days.ca` of `simple-ca.json`, else 3650.
+have the key usages keyCertSign and cRLSign. A CA that exists is left as it is. Creating the
+root CA, and any run with `--issuing-ca`, writes `ca_bundle.pem` again with the root CA and every
+issuing CA. `--days` defaults to `days.ca` of `simple-ca.json`, else 3650.
 
-`--ca-url URL` is stored in `simple-ca.json` and embeds an AIA (Authority
-Information Access) extension in the issuing CAs and certificates issued from then on:
+`--ca-url URL`, which must not contain a comma, is stored in `simple-ca.json` and embeds an AIA
+(Authority Information Access) extension in the issuing CAs and certificates issued from then on:
 `URL/ca_cert.crt` for those signed by the root CA, `URL/NAME/ca_cert.crt` for those signed by the
 issuing CA `NAME`. These are the URLs of [serve](#serve).
 
@@ -122,7 +123,8 @@ simple-ca-mini.py cert create --type user alice@example.com "Alice Example" a.ex
 Creates `{name}.pfx` next to `CERT_PATH` from the certificate, its key and the chain of the CA in
 the CA directory, which signed it: the root CA, and the issuing CA when the CA directory holds
 one. The password defaults to `changeit` and reaches `openssl` through its environment. The
-bundle is encrypted with AES-256-CBC and PBKDF2, with a SHA-256 MAC.
+bundle is encrypted with AES-256-CBC and PBKDF2, with a SHA-256 MAC, the defaults of OpenSSL 3,
+and written readable by its owner alone. A `{name}.pfx` that exists is refused.
 
 ### serve
 
@@ -142,7 +144,8 @@ port, 8080 by default.
 
 The index page lists the root CA and its issuing CAs, each with its subject, issuer, validity
 period, days left and SHA-256 fingerprint. The files are read on each request; any other path is
-`404 Not Found`. Each request is logged to the standard error.
+`404 Not Found`. `GET` and `HEAD` are answered, and other methods with
+`405 Method Not Allowed`. Each request is logged to the standard error.
 
 ```sh
 simple-ca-mini.py ca create --ca-dir /tmp/ca --ca-url http://pki.example.com:8080 "My Root CA"

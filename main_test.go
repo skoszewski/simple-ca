@@ -20,6 +20,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"log/slog"
 	"maps"
 	"net"
 	"net/http"
@@ -30,6 +31,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -79,7 +81,7 @@ func TestStandaloneCA(t *testing.T) {
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(caDir, "ca_cert.pem"))
 
-	if err := makeCert("test", []string{"test.example.com", "127.0.0.1"}, caDir, "", "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("test", []string{"test.example.com", "127.0.0.1"}, caDir, "", "server", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "test_cert.pem")
@@ -106,7 +108,7 @@ func TestTwoLevelCA(t *testing.T) {
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), issuingCert)
 
-	if err := makeCert("test", []string{"test.example.com", "127.0.0.1"}, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("test", []string{"test.example.com", "127.0.0.1"}, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "issuing-ca", "test_cert.pem")
@@ -141,7 +143,7 @@ func TestUserCert(t *testing.T) {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 
-	if err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing-ca"), "", "user", 365, nil, nil); err != nil {
+	if _, err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing-ca"), "", "user", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert user: %v", err)
 	}
 	certPath := filepath.Join(caDir, "issuing-ca", "Alice_Example_cert.pem")
@@ -161,7 +163,7 @@ func TestCertDirOverride(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCert("test", []string{"test.example.com"}, caDir, certDir, "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("test", []string{"test.example.com"}, caDir, certDir, "server", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(certDir, "test_cert.pem")
@@ -177,7 +179,7 @@ func TestServerSANs(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCert("web.example.com", []string{"web", "www.example.com", "192.0.2.1", "2001:db8::1", "1.3.6.1.4.1.99999.1"},
+	if _, err := makeCert("web.example.com", []string{"web", "www.example.com", "192.0.2.1", "2001:db8::1", "1.3.6.1.4.1.99999.1"},
 		caDir, "", "server", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
@@ -219,7 +221,7 @@ func TestServerSANs(t *testing.T) {
 		{"host.example.com", []string{"fe80::1%en0"}},
 		{"host.example.com", []string{"under_score.example.com"}},
 	} {
-		if err := makeCert(c.cn, c.sans, caDir, "", "server", 365, nil, nil); err == nil {
+		if _, err := makeCert(c.cn, c.sans, caDir, "", "server", 365, nil, nil); err == nil {
 			t.Fatalf("expected an error for CN %q and SANs %v", c.cn, c.sans)
 		}
 	}
@@ -247,7 +249,7 @@ func TestUserSubjects(t *testing.T) {
 			"/CN=../Frank Example/emailAddress=frank@example.com", []string{"frank@example.com"}, ""},
 		{[]string{"g.example@example.com"}, "g_example", "/emailAddress=g.example@example.com", []string{"g.example@example.com"}, ""},
 	} {
-		if err := makeCert(c.args[0], c.args[1:], caDir, "", "user", 365, nil, nil); err != nil {
+		if _, err := makeCert(c.args[0], c.args[1:], caDir, "", "user", 365, nil, nil); err != nil {
 			t.Fatalf("makeCert %v: %v", c.args, err)
 		}
 		certPath := filepath.Join(caDir, c.file+"_cert.pem")
@@ -282,7 +284,7 @@ func TestUserSubjects(t *testing.T) {
 		{"Eve", "eve@example.com", "192.0.2.1"},
 		{"..."},
 	} {
-		if err := makeCert(args[0], args[1:], caDir, "", "user", 365, nil, nil); err == nil {
+		if _, err := makeCert(args[0], args[1:], caDir, "", "user", 365, nil, nil); err == nil {
 			t.Fatalf("expected an error for %v", args)
 		}
 	}
@@ -294,7 +296,7 @@ func TestInvalidIPSAN(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCert("test", []string{"999.1.1.1"}, caDir, "", "server", 365, nil, nil); err == nil {
+	if _, err := makeCert("test", []string{"999.1.1.1"}, caDir, "", "server", 365, nil, nil); err == nil {
 		t.Fatal("expected error for invalid IPv4 SAN")
 	}
 }
@@ -327,7 +329,7 @@ func TestPublishURLs(t *testing.T) {
 	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if err := makeCert("test", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("test", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 
@@ -359,7 +361,7 @@ func TestIndex(t *testing.T) {
 	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if err := makeCert("test", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("test", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	if fileExists(filepath.Join(caDir, configFile)) {
@@ -397,7 +399,7 @@ func TestOpenSSLCA(t *testing.T) {
 		t.Fatalf("makeCA: %v", err)
 	}
 	for _, name := range []string{"alice", "bob"} {
-		if err := makeCert(name, nil, caDir, "", "server", 365, nil, nil); err != nil {
+		if _, err := makeCert(name, nil, caDir, "", "server", 365, nil, nil); err != nil {
 			t.Fatalf("makeCert %s: %v", name, err)
 		}
 	}
@@ -526,7 +528,7 @@ func TestRevokeAndCRL(t *testing.T) {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	for _, name := range []string{"alice", "bob"} {
-		if err := makeCert(name, nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+		if _, err := makeCert(name, nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
 			t.Fatalf("makeCert %s: %v", name, err)
 		}
 	}
@@ -605,7 +607,7 @@ func TestListAndInfo(t *testing.T) {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	for _, name := range []string{"alice", "bob"} {
-		if err := makeCert(name, nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+		if _, err := makeCert(name, nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
 			t.Fatalf("makeCert %s: %v", name, err)
 		}
 	}
@@ -670,7 +672,7 @@ func TestShowCert(t *testing.T) {
 	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing-ca"), "", "user", 365, nil, nil); err != nil {
+	if _, err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing-ca"), "", "user", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "issuing-ca", "Alice_Example_cert.pem")
@@ -757,7 +759,7 @@ func TestEKU(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCert("device01.example.com", nil, caDir, "", "server", 365,
+	if _, err := makeCert("device01.example.com", nil, caDir, "", "server", 365,
 		[]string{"clientAuth", "1.3.6.1.4.1.99999.10"}, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
@@ -780,7 +782,7 @@ func TestEKU(t *testing.T) {
 		}
 	}
 
-	if err := makeCert("Signer", nil, caDir, "", "user", 365, []string{"TIMESTAMPING", "codeSigning"}, nil); err != nil {
+	if _, err := makeCert("Signer", nil, caDir, "", "user", 365, []string{"TIMESTAMPING", "codeSigning"}, nil); err != nil {
 		t.Fatalf("makeCert user: %v", err)
 	}
 	signer, err := loadCert(filepath.Join(caDir, "Signer_cert.pem"))
@@ -793,7 +795,7 @@ func TestEKU(t *testing.T) {
 	}
 
 	for _, eku := range []string{"deviceAuth", "3.1.2", "1.3.6.1.4.1.99999.x"} {
-		if err := makeCert("bad.example.com", nil, caDir, "", "server", 365, []string{eku}, nil); err == nil {
+		if _, err := makeCert("bad.example.com", nil, caDir, "", "server", 365, []string{eku}, nil); err == nil {
 			t.Fatalf("expected an error for EKU %q", eku)
 		}
 	}
@@ -818,7 +820,7 @@ func TestKeyUsageAndNone(t *testing.T) {
 			x509.KeyUsageDigitalSignature | x509.KeyUsageContentCommitment | x509.KeyUsageKeyEncipherment,
 			[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageEmailProtection, x509.ExtKeyUsageCodeSigning}},
 	} {
-		if err := makeCert(c.cn, nil, caDir, "", c.certType, 365, c.ekus, c.kus); err != nil {
+		if _, err := makeCert(c.cn, nil, caDir, "", c.certType, 365, c.ekus, c.kus); err != nil {
 			t.Fatalf("makeCert %s: %v", c.cn, err)
 		}
 		name, _, _ := strings.Cut(strings.ReplaceAll(c.cn, " ", "_"), ".")
@@ -857,7 +859,7 @@ func TestKeyUsageAndNone(t *testing.T) {
 		{"none", []string{"admin@example.com"}, nil},
 		{"device", nil, nil},
 	} {
-		if err := makeCert("bad.example.com", c.sans, caDir, "", c.certType, 365, nil, c.kus); err == nil {
+		if _, err := makeCert("bad.example.com", c.sans, caDir, "", c.certType, 365, nil, c.kus); err == nil {
 			t.Fatalf("expected an error for type %s, SANs %v and key usages %v", c.certType, c.sans, c.kus)
 		}
 	}
@@ -892,7 +894,7 @@ func TestConfigTypes(t *testing.T) {
 		{"server", []string{"web.example.com"}, "web", x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 			[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, 0},
 	} {
-		if err := makeCert(c.args[0], c.args[1:], caDir, "", c.certType, 365, nil, nil); err != nil {
+		if _, err := makeCert(c.args[0], c.args[1:], caDir, "", c.certType, 365, nil, nil); err != nil {
 			t.Fatalf("makeCert %s: %v", c.certType, err)
 		}
 		cert, err := loadCert(filepath.Join(caDir, c.file+"_cert.pem"))
@@ -903,7 +905,7 @@ func TestConfigTypes(t *testing.T) {
 			t.Fatalf("%s: key usage %b, EKUs %v, other EKUs %v", c.certType, cert.KeyUsage, cert.ExtKeyUsage, cert.UnknownExtKeyUsage)
 		}
 	}
-	if err := makeCert("x.example.com", nil, caDir, "", "printer", 365, nil, nil); err == nil ||
+	if _, err := makeCert("x.example.com", nil, caDir, "", "printer", 365, nil, nil); err == nil ||
 		!strings.Contains(err.Error(), "device, none, person, server, user") {
 		t.Fatalf("expected an unknown type error naming the types, got %v", err)
 	}
@@ -937,7 +939,7 @@ func TestConfigTypes(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(types), 0o644); err != nil {
 			t.Fatalf("write %s: %v", configFile, err)
 		}
-		if err := makeCert("y.example.com", nil, caDir, "", "server", 365, nil, nil); err == nil {
+		if _, err := makeCert("y.example.com", nil, caDir, "", "server", 365, nil, nil); err == nil {
 			t.Fatalf("expected an error for\n%s", types)
 		}
 	}
@@ -1048,7 +1050,7 @@ func TestServe(t *testing.T) {
 	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if err := makeCert("web.example.com", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("web.example.com", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 
@@ -1252,7 +1254,7 @@ func TestACME(t *testing.T) {
 	if err := makeCA(caDir, "Servers CA", 3650, "servers", ""); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if err := makeCert("localhost", nil, caDir, tlsDir, "server", 30, nil, nil); err != nil {
+	if _, err := makeCert("localhost", nil, caDir, tlsDir, "server", 30, nil, nil); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1482,7 +1484,7 @@ func TestSign(t *testing.T) {
 
 	certPath := filepath.Join(issuingDir, "web_cert.pem")
 	for _, answer := range []string{"n\n", "\n", ""} {
-		if err := signCSR(csrPath, issuingDir, "", "server", 30, nil, nil, false, strings.NewReader(answer)); err == nil {
+		if _, err := signCSR(csrPath, issuingDir, "", "server", 30, nil, nil, false, strings.NewReader(answer)); err == nil {
 			t.Fatalf("signCSR answered %q succeeded, want an error", answer)
 		}
 		if fileExists(certPath) {
@@ -1492,7 +1494,7 @@ func TestSign(t *testing.T) {
 			t.Fatalf("signCSR answered %q recorded %+v, %v", answer, entries, err)
 		}
 	}
-	if err := signCSR(csrPath, issuingDir, "", "server", 30, []string{"codeSigning"}, nil, false, strings.NewReader("Yes\n")); err != nil {
+	if _, err := signCSR(csrPath, issuingDir, "", "server", 30, []string{"codeSigning"}, nil, false, strings.NewReader("Yes\n")); err != nil {
 		t.Fatalf("signCSR: %v", err)
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
@@ -1531,14 +1533,14 @@ func TestSign(t *testing.T) {
 		t.Fatalf("index.txt entries %+v, want the signed certificate", entries)
 	}
 
-	if err := signCSR(csrPath, issuingDir, "", "server", 30, nil, nil, true, nil); err == nil || !strings.Contains(err.Error(), "exists") {
+	if _, err := signCSR(csrPath, issuingDir, "", "server", 30, nil, nil, true, nil); err == nil || !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("signing again: %v, want an error for the existing certificate", err)
 	}
-	if err := signCSR(certPath, issuingDir, t.TempDir(), "server", 30, nil, nil, true, nil); err == nil {
+	if _, err := signCSR(certPath, issuingDir, t.TempDir(), "server", 30, nil, nil, true, nil); err == nil {
 		t.Fatal("signing a certificate file succeeded, want an error")
 	}
 	forceDir := t.TempDir()
-	if err := signCSR(csrPath, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err != nil {
+	if _, err := signCSR(csrPath, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err != nil {
 		t.Fatalf("signCSR with force: %v", err)
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(forceDir, "web_cert.pem"))
@@ -1548,7 +1550,7 @@ func TestSign(t *testing.T) {
 		if err := os.Link(csrPath, renamed); err != nil {
 			t.Fatalf("link %s: %v", renamed, err)
 		}
-		if err := signCSR(renamed, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err != nil {
+		if _, err := signCSR(renamed, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err != nil {
 			t.Fatalf("signCSR %s: %v", c.file, err)
 		}
 		verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(forceDir, c.cert))
@@ -1557,7 +1559,7 @@ func TestSign(t *testing.T) {
 	if err := os.Link(csrPath, empty); err != nil {
 		t.Fatalf("link %s: %v", empty, err)
 	}
-	if err := signCSR(empty, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err == nil {
+	if _, err := signCSR(empty, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err == nil {
 		t.Fatal("signing +.csr succeeded, want an error for the empty file name")
 	}
 }
@@ -2295,7 +2297,7 @@ func TestKebabCaseNames(t *testing.T) {
 		[]byte(`{"types": {"web-server": {"key_usage": ["digitalSignature"], "ext_key_usage": ["serverAuth"]}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := makeCert("web.example.com", nil, issuingDir, "", "web-server", 30, nil, nil); err != nil {
+	if _, err := makeCert("web.example.com", nil, issuingDir, "", "web-server", 30, nil, nil); err != nil {
 		t.Fatalf("makeCert --type web-server: %v", err)
 	}
 	conf, err := writeOpenSSLConf(issuingDir)
@@ -3797,6 +3799,198 @@ func TestAuthGuard(t *testing.T) {
 	}
 	if resp := call("GET", "/tokens/api/cas", "", ""); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("no token: %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestAudit(t *testing.T) {
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	rootDir := t.TempDir()
+	if err := makeCA(rootDir, "Root CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	if err := makeCA(rootDir, "Servers CA", 3650, "servers", ""); err != nil {
+		t.Fatalf("makeCA servers: %v", err)
+	}
+	serversDir := filepath.Join(rootDir, "servers")
+	field := func(e auditEntry, key string) string {
+		for _, p := range e.Fields {
+			if p[0] == key {
+				return p[1]
+			}
+		}
+		return ""
+	}
+	last := func() auditEntry {
+		t.Helper()
+		entries, err := readAudit(rootDir)
+		if err != nil || len(entries) == 0 {
+			t.Fatalf("readAudit: %d records, %v", len(entries), err)
+		}
+		return entries[len(entries)-1]
+	}
+
+	// The reader reads back what TextHandler wrote, quoted or not, and the stream gets the same.
+	var streamed []string
+	logStream = func(line string, pairs [][2]string, level slog.Level) error {
+		streamed = append(streamed, line)
+		return nil
+	}
+	t.Cleanup(func() { logStream = nil })
+	odd := []string{"two words", `a "quote"`, "k=v", "", `back\slash`, "line\nbreak"}
+	audit(serversDir, "test.event", "a", odd[0], "b", odd[1], "c", odd[2], "d", odd[3], "e", odd[4], "f", odd[5], "n", 42)
+	e := last()
+	if e.Event != "test.event" || e.CA != "servers" || time.Since(e.Time) > time.Minute {
+		t.Errorf("record %+v, want test.event of servers, now", e)
+	}
+	for i, key := range []string{"a", "b", "c", "d", "e", "f"} {
+		if got := field(e, key); got != odd[i] {
+			t.Errorf("%s = %q, want %q", key, got, odd[i])
+		}
+	}
+	if field(e, "n") != "42" || !strings.HasPrefix(e.Line, "time=") || strings.Contains(e.Line, "level=") {
+		t.Errorf("line %q, want time first, n=42 and no level", e.Line)
+	}
+	if len(streamed) != 1 || strings.TrimSuffix(streamed[0], "\n") != e.Line {
+		t.Errorf("stream %q, want the line of the file", streamed)
+	}
+	if info, err := os.Stat(filepath.Join(rootDir, auditFile)); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Errorf("audit.log: %v, want mode 0600", err)
+	}
+	logStream = nil
+
+	// The commands record their changes with the OS user.
+	for _, c := range []struct {
+		args  []string
+		event string
+	}{
+		{[]string{"cert", "create", "--ca-dir", serversDir, "web.example.com"}, "cert.issue"},
+		{[]string{"cert", "revoke", "--ca-dir", serversDir, "--reason", "superseded", filepath.Join(serversDir, "web_cert.pem")}, "cert.revoke"},
+		{[]string{"crl", "create", "--ca-dir", serversDir}, "crl.write"},
+		{[]string{"token", "create", "--ca-dir", serversDir, "--domain", "example.com", "deploy"}, "token.create"},
+		{[]string{"token", "revoke", "--ca-dir", serversDir, "deploy"}, "token.revoke"},
+		{[]string{"token", "purge", "--ca-dir", serversDir, "deploy"}, "token.purge"},
+	} {
+		if err := run(c.args); err != nil {
+			t.Fatalf("run %q: %v", c.args, err)
+		}
+		if e := last(); e.Event != c.event || e.CA != "servers" || field(e, "via") != "cli" || field(e, "actor") != cliActor() {
+			t.Errorf("run %q: %s, want %s by cli and %s", c.args, e.Line, c.event, cliActor())
+		}
+	}
+	if e := last(); field(e, "name") != "deploy" {
+		t.Errorf("token.purge: %s, want the name deploy", e.Line)
+	}
+
+	// serve records the token page, the signing API and refused tokens with the client.
+	free := authFreeFailures
+	authFreeFailures = 1
+	shared := guard
+	guard = newAuthGuard()
+	t.Cleanup(func() { authFreeFailures, guard = free, shared })
+	admin, err := makeToken(rootDir, "admin", time.Hour, []string{"*"}, nil, []string{"example.com"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := makeToken(serversDir, "signer", time.Hour, []string{"sign", "audit"}, []string{"server"}, []string{"example.com"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(newServeMux(rootDir, false, true))
+	defer server.Close()
+	call := func(token, method, path string, body any) (int, map[string]any) {
+		t.Helper()
+		b, _ := json.Marshal(body)
+		req, err := http.NewRequest(method, server.URL+path, bytes.NewReader(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var answer map[string]any
+		json.NewDecoder(resp.Body).Decode(&answer)
+		return resp.StatusCode, answer
+	}
+	if status, _ := call(admin, "POST", "/tokens/api/tokens", map[string]any{"ca": "servers", "name": "web", "valid": "1h",
+		"scopes": []string{"sign"}, "domains": []string{"example.com"}}); status != http.StatusCreated {
+		t.Fatalf("create a token on the token page: %d", status)
+	}
+	if e := last(); e.Event != "token.create" || field(e, "via") != "webui" || field(e, "actor") != "admin" || field(e, "client") != "127.0.0.1" {
+		t.Errorf("token page: %s, want token.create by admin on webui from 127.0.0.1", e.Line)
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader,
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "api.example.com"}, DNSNames: []string{"api.example.com"}}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, answer := call(signer, "POST", "/servers/api/sign", map[string]string{
+		"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))})
+	if e := last(); status != http.StatusOK || e.Event != "cert.issue" || field(e, "serial") != answer["serial"] ||
+		field(e, "via") != "api" || field(e, "actor") != "signer" {
+		t.Errorf("signing API: %d, %s, want cert.issue of serial %v by signer", status, e.Line, answer["serial"])
+	}
+	call("bad.token.here", "GET", "/tokens/api/cas", nil)
+	if e := last(); e.Event != "auth.refused" || field(e, "route") != "/tokens/api/cas" || field(e, "reason") != "invalid token" {
+		t.Errorf("a refused token: %s, want auth.refused of /tokens/api/cas", e.Line)
+	}
+	call("bad.token.here", "GET", "/tokens/api/cas", nil)
+	if e := last(); e.Event != "auth.held" || field(e, "wait") != "1s" {
+		t.Errorf("a second refused token: %s, want auth.held for 1s", e.Line)
+	}
+	guard = newAuthGuard()
+
+	// The audit page wants the scope audit, and shows a CA's records, newest first, within limit.
+	if status, _ := call(signer, "GET", "/audit/api/entries?ca=servers", nil); status != http.StatusOK {
+		t.Errorf("the audit page with the scope audit: %d, want 200", status)
+	}
+	status, answer = call(signer, "GET", "/audit/api/entries?ca=servers&limit=2", nil)
+	if entries, _ := answer["entries"].([]any); status != http.StatusOK || len(entries) != 2 ||
+		entries[0].(map[string]any)["event"] != "cert.issue" || answer["total"].(float64) < 8 {
+		t.Errorf("the 2 newest records of servers: %d %v, want cert.issue first of at least 8", status, answer)
+	}
+	if status, _ := call(signer, "GET", "/audit/api/entries?ca=", nil); status != http.StatusNotFound {
+		t.Errorf("the root CA records with an issuing CA token: %d, want 404", status)
+	}
+	if web, err := makeToken(serversDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	} else if status, _ := call(web, "GET", "/audit/api/entries?ca=servers", nil); status != http.StatusForbidden {
+		t.Errorf("the audit page without the scope audit: %d, want 403", status)
+	}
+
+	// audit list filters the records, and audit.file moves the log.
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = writer
+	err = run([]string{"audit", "list", "--ca-dir", rootDir, "--event", "token.", "--ca", "servers", "--actor", cliActor()})
+	os.Stdout = stdout
+	writer.Close()
+	printed, _ := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(printed)
+	if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) != 3 || !strings.Contains(lines[0], "event=token.create") {
+		t.Errorf("audit list --event token. --ca servers: %q, want the 3 token records of the commands", out)
+	}
+	moved := filepath.Join(t.TempDir(), "moved.log")
+	if err := os.WriteFile(filepath.Join(rootDir, configFile), []byte(`{"audit": {"file": "`+filepath.ToSlash(moved)+`"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	audit(rootDir, "test.moved")
+	if b, err := os.ReadFile(moved); err != nil || !strings.Contains(string(b), "event=test.moved") {
+		t.Errorf("audit.file: %q, %v, want the record in %s", b, err, moved)
 	}
 }
 

@@ -66,9 +66,10 @@ type acmeConfig struct {
 }
 
 // serveConfig holds the settings of serve: the addresses and prefixes of the proxies whose
-// X-Forwarded-For header names the client of a request.
+// X-Forwarded-For header names the client of a request, and whether each request is logged.
 type serveConfig struct {
 	TrustedProxies []string `json:"trusted_proxies,omitempty"`
+	RequestLog     bool     `json:"request_log,omitempty"`
 }
 
 // tokensConfig holds the defaults of token create, each replaced by the option of the same name:
@@ -85,6 +86,12 @@ type tokensConfig struct {
 	Hosts       []string `json:"hosts,omitempty"`
 	Networks    []string `json:"networks,omitempty"`
 	KeepExpired string   `json:"keep_expired,omitempty"`
+}
+
+// auditConfig holds the audit log settings: the path of the file, relative to the root CA
+// directory, auditFile by default.
+type auditConfig struct {
+	File string `json:"file,omitempty"`
 }
 
 // oidcConfig is the oidc section of simple-ca.json, the OIDC sign-in of serve, off without an
@@ -313,6 +320,7 @@ type config struct {
 	Serve            serveConfig           `json:"serve,omitzero"`
 	Tokens           tokensConfig          `json:"tokens,omitzero"`
 	OIDC             oidcConfig            `json:"oidc,omitzero"`
+	Audit            auditConfig           `json:"audit,omitzero"`
 }
 
 // loadConfig reads simple-ca.json of caDir, refusing unknown settings, or returns an empty config

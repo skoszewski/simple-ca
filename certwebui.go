@@ -25,7 +25,7 @@ package main
 import (
 	"crypto/x509"
 	"encoding/pem"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -122,47 +122,40 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.URL.Path {
 	case "/api/certs":
-		// makeCert leaves a certificate whose files exist, so a create that adds no entry to
-		// index.txt created nothing.
-		before, err := readIndex(dir)
-		if err != nil {
-			webuiFail(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if err := makeCert(strings.TrimSpace(req.Subject), req.SANs, dir, "", req.Type, req.Days, req.EKU, req.KU); err != nil {
+		cert, err := makeCert(strings.TrimSpace(req.Subject), req.SANs, dir, "", req.Type, req.Days, req.EKU, req.KU)
+		switch {
+		case err != nil:
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
-		}
-		if after, err := readIndex(dir); err != nil || len(after) == len(before) {
+		case cert == nil:
 			webuiFail(w, http.StatusConflict, "a certificate with the files of this name exists already in the CA directory")
 			return
 		}
-		log.Printf("certificate %s of %s created", req.Subject, dir)
+		auditIssued(dir, cert, req.Type, s.auditActor()...)
 		webuiReply(w, http.StatusCreated, map[string]string{"subject": req.Subject})
 	case "/api/certs/sign":
-		// signCSR reads the request from a file named after the certificate it writes.
-		scratch, err := os.MkdirTemp("", "simple-ca-csr-")
-		if err != nil {
-			webuiFail(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		defer os.RemoveAll(scratch)
-		name := strings.TrimSpace(req.Name)
-		if name == "" || strings.ContainsAny(name, `/\`) {
+		// The certificate is named after the name given, each run of characters besides letters,
+		// digits, - and _ as one _, as cert sign names it after the request file.
+		name := strings.Trim(fileNameRE.ReplaceAllString(strings.TrimSpace(req.Name), "_"), "_")
+		if name == "" || strings.ContainsAny(req.Name, `/\`) {
 			webuiFail(w, http.StatusBadRequest, "name: the file name of the certificate is required, without a directory")
 			return
 		}
-		csrPath := filepath.Join(scratch, name+".csr")
-		if err := os.WriteFile(csrPath, []byte(req.CSR), 0o600); err != nil {
+		file := name + "_cert.pem"
+		if fileExists(filepath.Join(dir, file)) {
+			webuiFail(w, http.StatusConflict, "a certificate "+file+" exists already in the CA directory")
+			return
+		}
+		cert, err := requestCert(dir, []byte(req.CSR), req.Type, req.Days, req.EKU, req.KU)
+		if err != nil {
+			webuiFail(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := storeCert(dir, filepath.Join(dir, file), cert); err != nil {
 			webuiFail(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if err := signCSR(csrPath, dir, "", req.Type, req.Days, req.EKU, req.KU, true, nil); err != nil {
-			webuiFail(w, http.StatusBadRequest, strings.ReplaceAll(err.Error(), csrPath, "the request"))
-			return
-		}
-		file := strings.Trim(fileNameRE.ReplaceAllString(name, "_"), "_") + "_cert.pem"
-		log.Printf("request %s signed by %s as %s", name, dir, file)
+		auditIssued(dir, cert, req.Type, s.auditActor()...)
 		webuiReply(w, http.StatusCreated, map[string]string{"file": file})
 	case "/api/certs/revoke":
 		reason := ""
@@ -186,7 +179,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 		case !revoked:
 			webuiFail(w, http.StatusBadRequest, "the certificate is revoked already")
 		default:
-			log.Printf("certificate %s of %s revoked", req.Serial, dir)
+			audit(dir, "cert.revoke", append([]any{"serial", req.Serial, "reason", reason}, s.auditActor()...)...)
 			webuiReply(w, http.StatusOK, map[string]string{"serial": req.Serial})
 		}
 	case "/api/crl":
@@ -194,6 +187,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		auditCRL(dir, s.auditActor()...)
 		webuiReply(w, http.StatusOK, map[string]string{"ca": req.CA})
 	}
 }
@@ -202,7 +196,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 	entries, err := readIndex(dir)
 	if err != nil {
-		log.Printf("webui: %v", err)
+		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, err.Error())
 		return
 	}

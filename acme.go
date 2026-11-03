@@ -41,10 +41,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -337,11 +338,12 @@ type acmeRequest struct {
 }
 
 // acmeCA is the ACME server of one CA for one request: the CA directory, the scheme and host of
-// the request, the URL the CA's ACME paths start with, and the allowed domains.
+// the request, the URL the CA's ACME paths start with, the allowed domains, and the client.
 type acmeCA struct {
 	*acmeServer
 	dir, origin, base string
 	domains           []string
+	client            netip.Addr
 }
 
 // handle serves the ACME request r for the CA in caDir at the ACME path path, below prefix, the
@@ -350,7 +352,7 @@ func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caD
 	cfg, err := loadConfig(rootDir)
 	if err != nil || len(cfg.ACME.Domains) == 0 || !fileExists(filepath.Join(caDir, "ca_key.pem")) {
 		if err != nil {
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		}
 		http.NotFound(w, r)
 		return
@@ -360,7 +362,8 @@ func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caD
 		scheme = "https"
 	}
 	origin := scheme + "://" + r.Host
-	ca := &acmeCA{acmeServer: s, dir: caDir, origin: origin, base: origin + prefix, domains: cfg.ACME.Domains}
+	ca := &acmeCA{acmeServer: s, dir: caDir, origin: origin, base: origin + prefix, domains: cfg.ACME.Domains,
+		client: clientAddr(r)}
 	w.Header().Set("Link", fmt.Sprintf("<%s/directory>;rel=\"index\"", ca.base))
 
 	switch {
@@ -392,7 +395,7 @@ func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caD
 	if err != nil {
 		var p *acmeProblem
 		if !errors.As(err, &p) {
-			log.Printf("%s: %v", r.URL.Path, err)
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			p = problem(http.StatusInternalServerError, "serverInternal", "internal error")
 		}
 		w.Header().Set("Replay-Nonce", s.newNonce())
@@ -909,7 +912,7 @@ func (ca *acmeCA) validate(aid, typ, name, keyAuth string) {
 	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
-		log.Printf("ACME %s: %v", ca.dir, err)
+		slog.Error("serve.error", "dir", ca.dir, "error", err.Error())
 		return
 	}
 	a := st.Authzs[aid]
@@ -923,15 +926,15 @@ func (ca *acmeCA) validate(aid, typ, name, keyAuth string) {
 		}
 		if failure != nil {
 			c.Status, c.Error, a.Status = "invalid", failure, "invalid"
-			log.Printf("ACME %s challenge of %s failed: %s", typ, name, failure.Detail)
+			slog.Info("acme.challenge", "dir", ca.dir, "type", typ, "name", name, "status", "invalid", "detail", failure.Detail)
 		} else {
 			now := time.Now().UTC().Truncate(time.Second)
 			c.Status, c.Validated, a.Status = "valid", &now, "valid"
-			log.Printf("ACME %s challenge of %s is valid", typ, name)
+			slog.Info("acme.challenge", "dir", ca.dir, "type", typ, "name", name, "status", "valid")
 		}
 	}
 	if err := ca.save(ca.dir); err != nil {
-		log.Printf("ACME %s: %v", ca.dir, err)
+		slog.Error("serve.error", "dir", ca.dir, "error", err.Error())
 	}
 }
 
@@ -1011,7 +1014,7 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 	if err := ca.save(ca.dir); err != nil {
 		return err
 	}
-	log.Printf("ACME certificate %s issued for %s", serialHex(cert.SerialNumber), strings.Join(o.Names, ", "))
+	auditIssued(ca.dir, cert, "server", "via", "acme", "actor", req.account, "client", ca.client.String())
 	w.Header().Set("Location", ca.base+"/order/"+oid)
 	ca.json(w, http.StatusOK, ca.orderObject(st, oid, o))
 	return nil
@@ -1094,7 +1097,8 @@ func (ca *acmeCA) revoke(w http.ResponseWriter, req *acmeRequest) error {
 	if !revoked {
 		return problem(http.StatusBadRequest, "alreadyRevoked", "the certificate is revoked already")
 	}
-	log.Printf("ACME certificate %s revoked", serial)
+	audit(ca.dir, "cert.revoke", "serial", serial, "reason", reason, "via", "acme", "actor", req.account,
+		"client", ca.client.String())
 	w.Header().Set("Replay-Nonce", ca.newNonce())
 	w.WriteHeader(http.StatusOK)
 	return nil

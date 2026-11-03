@@ -95,6 +95,46 @@ telling a held client which credential is valid would undo the hold, and the hol
 user mistyping a code is seconds, while a guessing client reaches the 15 minute cap at its 16th
 refusal.
 
+## The audit log is slog lines in one file, copied to the journal or stderr by serve
+
+The audit records are written by the standard library's `log/slog` with its `TextHandler`, which
+formats and quotes the `key=value` pairs, so the format is one Go programs and logfmt tools
+already read. The time comes first, keyed, as `TextHandler` writes it; `level` is left out, as
+every record is of one level, and the message is the event.
+
+One file in the root CA directory holds the records of the root CA and its issuing CAs, with the
+CA in each record, so one file tells all that happened to a PKI. The records are written where
+the actor is known, by the commands and the handlers of `serve`, not by the functions that
+write `index.txt` and `tokens-db.json`, which do not know who called them. Each record is one
+appended write to a file opened for it, which needs no lock between the commands and `serve`,
+and lets `logrotate` move the file. A record that cannot be written stops no change, as a full
+disk should not stop a lab CA from issuing.
+
+`serve` also copies each record to a stream, so its records reach the log of a container, which
+reads stderr, and the systemd journal. Under systemd, `serve` sends them by the journal's native
+protocol, in place of stderr, so each key becomes a journal field to search by. The standard
+library has no journal client; the protocol is one datagram of `KEY=value` lines to a Unix
+socket, which a few lines of `net` send. The stream is detected from `$JOURNAL_STREAM` rather
+than configured, as systemd sets it exactly when the stderr of a service is the journal. Linux
+alone has the journal, so macOS and Windows write stderr. The commands write the file alone,
+so their records do not mix with what they print.
+
+## serve logs every record in the format of the audit records
+
+Everything `serve` logs, its start, its pages, warnings, errors and the requests, is a `slog`
+record of the same handler as the audit records, so one stream has one format that one parser
+reads, and the journal gets the fields of every record. The default logger of `slog` is that
+handler, and the `log` package writes through it, so a message of the standard library, such as
+one of `net/http`, is a record too. The level of a record gives its journal priority and is left
+out of the line, as in the audit log. The request log is off unless asked for.
+
+## The commands and serve share core functions that print nothing
+
+The functions that issue a certificate, make a CRL or revoke a token return their results and
+print nothing; the commands print and ask, and `serve` answers and logs. A function written for
+a command, which prints to stdout or asks on a terminal, is not called by `serve`, whose stdout
+is not a terminal and whose output is its log.
+
 ## The lists of the pages are searched in the browser
 
 The token and certificate pages search and filter their lists in the browser, over the list the

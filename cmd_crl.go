@@ -54,7 +54,12 @@ func runCRLCreate(args []string) error {
 		*days = cfg.Days.CRL
 	}
 	if !*all {
-		return makeCRL(dir, *days)
+		if err := makeCRL(dir, *days); err != nil {
+			return err
+		}
+		auditCRL(dir, "via", "cli", "actor", cliActor())
+		fmt.Printf("CRL written to %s\n", filepath.Join(dir, "crl.pem"))
+		return nil
 	}
 
 	// Every CA is tried, also after one fails.
@@ -73,7 +78,10 @@ func runCRLCreate(args []string) error {
 	for _, d := range dirs {
 		if err := makeCRL(d, *days); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", d, err))
+			continue
 		}
+		auditCRL(d, "via", "cli", "actor", cliActor())
+		fmt.Printf("CRL written to %s\n", filepath.Join(d, "crl.pem"))
 	}
 	return errors.Join(errs...)
 }

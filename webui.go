@@ -28,7 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/netip"
@@ -40,11 +40,12 @@ import (
 
 // ---- the token and certificate pages of serve -------------------------------
 
-// tokensPath is the route serve --webui shows the token page under, and certsPath the route of
-// the certificate page.
+// tokensPath is the route serve --webui shows the token page under, certsPath the route of the
+// certificate page, and auditPagePath that of the audit page.
 const (
-	tokensPath = "/tokens/"
-	certsPath  = "/certificates/"
+	tokensPath    = "/tokens/"
+	certsPath     = "/certificates/"
+	auditPagePath = "/audit/"
 )
 
 // webuiScripts are the scripts of the pages, served at their paths: theme.js, which every page
@@ -67,19 +68,30 @@ var webuiScriptHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Re
 	http.ServeFileFS(w, r, webuiScripts, "assets/webui/"+file)
 })
 
-// webuiServer serves the token page, or the certificate page with certs, for the root CA in
-// rootDir and its issuing CAs, below tokensPath or certsPath with the prefix stripped: the page at
-// /, and its API below /api/, for the requests carrying a token with the scope tokens, or certs,
-// as their bearer token, from the clients the token allows, the address of a client behind the
+// webuiServer serves the page of its scope, the token page for tokens, the certificate page for
+// certs or the audit page for audit, for the root CA in rootDir and its issuing CAs, below its
+// path with the prefix stripped: the page at /, and its API below /api/, for the requests carrying
+// a token with that scope as their bearer token, from the clients the token allows, the address of a client behind the
 // trusted proxies read from X-Forwarded-For. A copy of it answers each request, with the name, the
-// CA ID, the scopes and the entry of the token of the request.
+// CA ID, the scopes and the entry of the token of the request, and its client.
 type webuiServer struct {
 	rootDir    string
-	certs      bool
+	scope      string
 	user       string
 	userCA     string
 	userScopes []string
 	userToken  *apiToken
+	client     netip.Addr
+}
+
+// auditActor returns the audit pairs naming the token of the request, its OIDC user, and the
+// client.
+func (s *webuiServer) auditActor() []any {
+	pairs := []any{"via", "webui", "actor", s.user}
+	if s.userToken != nil && s.userToken.OIDC != nil {
+		pairs = append(pairs, "oidc_user", s.userToken.OIDC.User)
+	}
+	return append(pairs, "client", s.client.String())
 }
 
 // webuiCA is a CA of the API: its ID, empty for the root CA, the attributes of its subject, each a
@@ -171,22 +183,19 @@ func (s *webuiServer) caDir(id string) (string, bool) {
 // authenticate takes the bearer token of r, as identify does, the client held back by the guard
 // while its tokens are refused; for a token refused it answers with the error and returns false.
 func (s *webuiServer) authenticate(w http.ResponseWriter, r *http.Request) bool {
-	scope := "tokens"
-	if s.certs {
-		scope = "certs"
-	}
+	scope := s.scope
 	given, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	client := clientAddr(r)
 	var err error = apiErr(http.StatusUnauthorized, "a token with the scope %s is required", scope)
 	if given = strings.TrimSpace(given); given != "" {
-		err = guard.attempt(w, client, func() error { return s.identify(given, scope, client) })
+		err = guard.attempt(w, r, s.rootDir, func() error { return s.identify(given, scope, client) })
 	}
 	if err == nil {
 		return true
 	}
 	var e *apiError
 	if !errors.As(err, &e) {
-		log.Printf("webui: %v", err)
+		slog.Error("serve.error", "error", err.Error())
 		e = apiErr(http.StatusInternalServerError, "could not read the tokens")
 	}
 	if e.status == http.StatusUnauthorized {
@@ -222,7 +231,7 @@ func (s *webuiServer) identify(given, scope string, client netip.Addr) error {
 		case !tok.clientAllowed(client):
 			return apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
 		}
-		s.user, s.userCA, s.userScopes, s.userToken = name, id, tok.scopes(), tok
+		s.user, s.userCA, s.userScopes, s.userToken, s.client = name, id, tok.scopes(), tok, client
 		return nil
 	}
 	return apiErr(http.StatusUnauthorized, "invalid token")
@@ -243,12 +252,9 @@ func (s *webuiServer) mux() *http.ServeMux {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		page := "tokens.html"
-		if s.certs {
-			page = "certs.html"
-		}
+		page := map[string]string{"tokens": "tokens.html", "certs": "certs.html", "audit": "audit.html"}[s.scope]
 		if err := pageTemplates.ExecuteTemplate(w, page, struct{ Script string }{tailwindPath}); err != nil {
-			log.Printf("webui: %v", err)
+			slog.Error("serve.error", "error", err.Error())
 		}
 	})
 	mux.HandleFunc("/api/", s.api)
@@ -279,8 +285,10 @@ func (s *webuiServer) api(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/cas":
 		ui.listCAs(w)
-	case ui.certs:
+	case ui.scope == "certs":
 		ui.certAPI(w, r)
+	case ui.scope == "audit":
+		ui.auditAPI(w, r)
 	default:
 		ui.tokenAPI(w, r)
 	}
@@ -332,7 +340,7 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	db, err := loadTokens(dir)
 	if err != nil {
-		log.Printf("webui: %v", err)
+		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -386,7 +394,8 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Printf("token %s of %s created by %s", req.Name, dir, s.user)
+		audit(dir, "token.create", append([]any{"name", req.Name, "scopes", strings.Join(scopes, ","), "setup_code", req.OTC},
+			s.auditActor()...)...)
 		answer(http.StatusCreated, req.Name, token)
 	case "/api/tokens/renew":
 		token, err := reissueToken(dir, req.Name, 0, setupValid, req.OTCNetworks)
@@ -394,14 +403,14 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Printf("token %s of %s renewed by %s", req.Name, dir, s.user)
+		audit(dir, "token.renew", append([]any{"name", req.Name, "setup_code", req.OTC}, s.auditActor()...)...)
 		answer(http.StatusOK, req.Name, token)
 	case "/api/tokens/revoke":
 		if err := revokeToken(dir, req.Name); err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Printf("token %s of %s revoked by %s", req.Name, dir, s.user)
+		audit(dir, "token.revoke", append([]any{"name", req.Name}, s.auditActor()...)...)
 		webuiReply(w, http.StatusOK, map[string]string{"name": req.Name})
 	case "/api/tokens/purge":
 		if req.Name != "" {
@@ -409,7 +418,7 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 				webuiFail(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			log.Printf("token %s of %s removed by %s", req.Name, dir, s.user)
+			audit(dir, "token.purge", append([]any{"name", req.Name}, s.auditActor()...)...)
 			webuiReply(w, http.StatusOK, map[string]int{"removed": 1})
 			return
 		}
@@ -424,7 +433,9 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 				n++
 			}
 		}
-		log.Printf("%d tokens of %s removed by %s", n, dir, s.user)
+		if n > 0 {
+			audit(dir, "token.purge", append([]any{"count", n}, s.auditActor()...)...)
+		}
 		webuiReply(w, http.StatusOK, map[string]int{"removed": n})
 	}
 }
@@ -439,7 +450,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 	}
 	rootCert, err2 := loadCert(filepath.Join(s.rootDir, "ca_cert.pem"))
 	if err := cmp.Or(err, err2); err != nil {
-		log.Printf("webui: %v", err)
+		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, "could not read the CA")
 		return
 	}
@@ -452,12 +463,12 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		}
 		cert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
 		if err != nil {
-			log.Printf("webui: %v", err)
+			slog.Error("serve.error", "error", err.Error())
 			continue
 		}
 		theme, err := loadTheme(dir)
 		if err != nil {
-			log.Printf("theme: %v", err)
+			slog.Error("serve.error", "dir", dir, "error", err.Error())
 		}
 		cas = append(cas, webuiCA{ID: id, Subject: subjectAttributes(nameString(cert.Subject)),
 			HasKey: fileExists(filepath.Join(dir, "ca_key.pem")), Theme: theme})
@@ -465,7 +476,8 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 
 	answer := map[string]any{"title": rootCert.Subject.CommonName, "types": slices.Sorted(maps.Keys(types)), "cas": cas,
 		"user": s.user, "user_ca": s.userCA, "user_token": newWebuiToken(s.user, s.userToken, time.Now())}
-	if s.certs {
+	switch s.scope {
+	case "certs":
 		// The certificate page tells the name rules of each type, the revocation reasons, and the
 		// validity of a certificate and of a CRL in days.
 		names := map[string]string{}
@@ -478,7 +490,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		}
 		answer["names"], answer["reasons"] = names, reasons
 		answer["defaults"] = map[string]int{"days": cmp.Or(cfg.Days.Cert, 365), "crl_days": cmp.Or(cfg.Days.CRL, 30)}
-	} else {
+	case "tokens":
 		defaults := webuiDefaults{Valid: cmp.Or(cfg.Tokens.Valid, "1h"), Types: cfg.Tokens.Types,
 			Domains: cfg.Tokens.Domains, IPs: cfg.Tokens.IPs,
 			Clients: append(slices.Clone(cfg.Tokens.Hosts), cfg.Tokens.Networks...), Localhost: cfg.Tokens.Localhost,
@@ -503,7 +515,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 func (s *webuiServer) listTokens(w http.ResponseWriter, dir string) {
 	db, err := loadTokens(dir)
 	if err != nil {
-		log.Printf("webui: %v", err)
+		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, err.Error())
 		return
 	}

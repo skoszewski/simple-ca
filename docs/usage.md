@@ -32,13 +32,17 @@ simple-ca token renew  [--ca-dir DIR] [--valid DURATION]
 simple-ca token revoke [--ca-dir DIR] NAME
 simple-ca token purge  [--ca-dir DIR] [NAME]
 
+simple-ca audit list   [--ca-dir DIR] [--event EVENT] [--ca NAME] [--actor ACTOR]
+                       [--since TIME] [--until TIME]
+
 simple-ca serve        [--ca-dir DIR] [--address ADDRESS] [--port PORT]
                        [--tls-cert FILE --tls-key FILE] [--docs] [--webui]
-                       [--trusted-proxy ADDRESS ...]
+                       [--trusted-proxy ADDRESS ...] [--request-log]
 simple-ca --version
 ```
 
-The commands are in groups, `ca`, `cert`, `crl` and `token`; `serve` is a command of its own.
+The commands are in groups, `ca`, `cert`, `crl`, `token` and `audit`; `serve` is a command of
+its own. The commands that change a CA write its [audit log](audit.md), which `audit list` reads.
 `simple-ca -h` lists the groups, `simple-ca GROUP -h` the commands of a group, and
 `simple-ca GROUP COMMAND -h` the options of a command. Options come before the arguments, and take
 one dash or two: `-days 30` and `--days 30` are the same.
@@ -56,9 +60,9 @@ Without `--issuing-ca`, creates the root CA in the CA directory. With `--issuing
 creates an issuing CA in `CA_DIR/NAME/`, signed by the root CA in the CA directory, and adds it
 to `ca_bundle.pem` and to `index.txt` of the root CA. `NAME` is a **kebab-case** name: words of
 lower-case letters and digits joined by hyphens, such as `servers` or `lab-servers`, but not
-`help` or `docs`, the routes of the pages of [serve](serve.md). The CA directory must not hold an issuing
-CA. A CA that exists is left as it is. `--days` defaults to
-3650.
+`help`, `docs`, `tokens`, `certificates` or `audit`, the routes of the pages of
+[serve](serve.md). The CA directory must not hold an issuing CA. A CA that exists is left as it
+is. `--days` defaults to `days.ca` of `simple-ca.json`, 3650 without it.
 
 A new CA starts with an empty CRL, number 1, valid for `days.crl` of `simple-ca.json`, 30 days
 without it, so the CRL Distribution Point URL of its certificates has a CRL to serve from the
@@ -67,8 +71,7 @@ start. `crl create` renews it before its next update.
 `--ca-url URL` is stored in `simple-ca.json` and embeds AIA (Authority Information
 Access) and CRL Distribution Point extensions in the issuing CAs and certificates issued from
 then on: `URL/ca_cert.crt` and `URL/crl.pem` for the root CA, `URL/NAME/ca_cert.crt` and
-`URL/NAME/crl.pem` for the issuing CA `NAME`. Its former name, `--ca-publish-base-url`, is still
-accepted.
+`URL/NAME/crl.pem` for the issuing CA `NAME`. `--ca-publish-base-url` is an alias of it.
 
 `--write-conf` also writes `openssl.cnf`, a configuration of `openssl ca`, to the directory of the
 CA, the root CA or the issuing CA `--issuing-ca`; for a CA that exists, it writes the file again.
@@ -130,14 +133,16 @@ simple-ca cert create --type user CN|EMAIL [EMAIL|CN] [SAN ...]
   numeric OID.
 
 A numeric OID, such as `1.3.6.1.4.1.99999.1`, is a registeredID SAN. An argument that is an IPv4
-address, such as `1.2.3.4`, is an IP address SAN of a server or none certificate, not an OID. A hostname
-or FQDN is made of labels of letters, digits and hyphens, and its last label is not all digits;
-the addresses of email address SANs are ASCII.
+address, such as `1.2.3.4`, is an IP address SAN of a server or none certificate, not an OID. A
+hostname or FQDN is made of labels of letters, digits and hyphens, and its last label is not all
+digits; the addresses of email address SANs are ASCII.
 
 The certificate is signed by the CA in the CA directory (root or issuing CA) and written to
 that directory, or to `--cert-dir`, named as described under
 [Directory layout](directory-layout.md); a CN that gives no file name, such as `...`, is refused.
-A certificate that exists is left as it is. `--days` defaults to 365.
+A certificate whose certificate and key files both exist is left as it is; a certificate file
+without its key is written again. `--days` defaults to `days.cert` of `simple-ca.json`, 365
+without it.
 
 `--ku USAGES` adds key usages to those of the type, as a comma-separated list, and `--eku USAGE`
 adds an extended key usage; both may be specified multiple times, and a usage the type already
@@ -169,14 +174,16 @@ valid, with the CA in the CA directory, and records the certificate in `index.tx
 Only the subject and the subject alternative names of the request are copied, as they are; the
 name rules of the type are not checked. The key usages and extended key usages are those of the
 type, with `--ku` and `--eku` added as for [cert create](#cert-create), and the other extensions of
-the request are left out. The AIA and CRL Distribution Point URLs are those of the CA.
+the request are left out. The AIA and CRL Distribution Point URLs are those of the CA. A request
+with neither a subject nor subject alternative names is refused; with an empty subject, the
+subject alternative name extension is critical.
 
 The certificate is written to the CA directory, or to `--cert-dir`, named after the request file
 without its extension, with each run of characters other than letters, digits, hyphens and
 underscores replaced by one `_`, without a leading or trailing `_`: `web.csr` is written as
 `web_cert.pem` and `my web.v2.csr` as `my_web_v2_cert.pem`. A request file that gives no name,
-such as `+.csr`, and a certificate that exists are errors. `--type` defaults
-to `server` and `--days` to 365.
+such as `+.csr`, and a certificate that exists are errors. `--type` defaults to `server`, and
+`--days` to `days.cert` of `simple-ca.json`, 365 without it.
 
 The certificate is shown, with the fields of [cert show](#ca-show-and-cert-show), and
 `cert sign` asks `Sign this certificate? [y/N]`. It is written and recorded after `y` or `yes`;
@@ -195,7 +202,8 @@ simple-ca cert sign --ca-dir /tmp/ca/servers --type user --cert-dir . --force al
 
 Creates `{name}.pfx` next to `CERT_PATH` from the certificate, its key and the chain of the CA in
 the CA directory, which signed it: the root CA, and the issuing CA when the CA directory holds
-one. The password defaults to `changeit`. The bundle is encrypted with PBES2 (AES-256-CBC).
+one. The password defaults to `changeit`. The bundle is encrypted with PBES2 (AES-256-CBC) and
+written with mode 0600; a `.pfx` that exists is an error.
 
 ## cert revoke and crl create
 
@@ -211,7 +219,8 @@ code. The reasons `openssl ca` records for revocations of its own, `certificateH
 `removeFromCRL` and those of `-crl_hold` and `-crl_compromise`, are listed in the CRL as well.
 
 `crl create` writes `crl.pem` of the CA in the CA directory, listing every revoked certificate,
-with the number in `crlnumber`, and raises the number. `--days` defaults to 30. With `--all`, it
+with the number in `crlnumber`, and raises the number. `--days` defaults to `days.crl` of
+`simple-ca.json`, 30 without it. With `--all`, it
 writes the CRLs of the root CA of the CA directory and of each of its issuing CAs whose key is
 there; a CA that fails does not stop the others, and the command then fails.
 
@@ -292,15 +301,17 @@ starting with the root CA:
 - **Write the CRL**: writes a new CRL, as `crl create` does, valid for the days given in the dialog
   asking first.
 
-A CA whose key is not in its directory can only be looked at. The days start from `days.cert` and
-`days.crl` of [simple-ca.json](configuration.md).
+For a CA whose key is not in its directory, the page offers no create, sign or CRL; its
+certificates can still be revoked. The days start from `days.cert` and `days.crl` of
+[simple-ca.json](configuration.md).
 
 The page asks for a token made by
 [token create](signing-api.md#token-create-list-renew-revoke-and-purge) with the scope `certs`, or
 a [setup code](signing-api.md#one-time-setup-codes) of one, which it exchanges for the token and
 shows once, and sends the token in the `Authorization` header to its API, below
-`/certificates/api/`. A root CA token opens every CA; an issuing CA token opens only its own CA. The API refuses tokens as the
-[token page](signing-api.md#token-page) does, with `403 Forbidden` for a token without `certs`.
+`/certificates/api/`. A root CA token opens every CA; an issuing CA token opens only its own CA.
+The API refuses tokens as the [token page](signing-api.md#token-page) does, with
+`403 Forbidden` for a token without `certs`.
 Every change is logged with the name of the token that made it.
 
 ```sh
@@ -310,7 +321,7 @@ simple-ca serve --ca-dir /etc/simple-ca --webui
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /certificates/api/cas` | | `title`, `user`, `user_ca`, `cas`, the CAs the token opens, `types`, `names`, the name rules of each type, `reasons` and `defaults`, `days` and `crl_days` |
+| `GET /certificates/api/cas` | | `title`, `user`, `user_ca`, `user_token`, the token signed in with, `cas`, the CAs the token opens, `types`, `names`, the name rules of each type, `reasons` and `defaults`, `days` and `crl_days` |
 | `GET /certificates/api/certs?ca=CA` | | `certs`, each with `serial`, `subject`, the attributes of its subject as type and value pairs, `status`, `expires`, `revoked` and `reason`; `crl`, with `number`, `next_update` and `overdue`, or null |
 | `GET /certificates/api/certs/show?ca=CA&serial=SERIAL` | | `file`, the file holding the certificate, relative to the CA directory; `certificate`, its content, as `cert show` shows it: `subject` and `issuer`, as type and value pairs, `serial`, `not_before`, `not_after`, `validity` (`valid`, `not yet valid` or `expired`), `signature_algorithm`, `key` (`algorithm`, with `bits` or `curve`), `ca`, `path_length`, absent when unlimited, `key_usage`, `ext_key_usage`, `dns_names`, `ip_addresses`, `email_addresses`, `uris`, `registered_ids`, `subject_key_id`, `authority_key_id`, `ca_issuers`, `ocsp`, `crl_distribution_points` and `sha256_fingerprint`, the serial, the key IDs and the fingerprint in hex, a field the certificate does not have left out; `404 Not Found` when no file holds it |
 | `POST /certificates/api/certs` | `ca`, `type`, `subject`, `sans`, `days`, `ku`, `eku` | `201 Created`, `subject` |
@@ -319,7 +330,8 @@ simple-ca serve --ca-dir /etc/simple-ca --webui
 | `POST /certificates/api/crl` | `ca`, `days` | `ca` |
 
 `CA` is the name of an issuing CA, or empty for the root CA. A create whose certificate and key
-files exist already is `409 Conflict`, as `cert create` leaves such a certificate.
+files exist already is `409 Conflict`, as `cert create` leaves such a certificate, and so is a
+sign whose `NAME_cert.pem` exists.
 
 ## Example
 
@@ -330,7 +342,7 @@ simple-ca ca create --ca-dir /tmp/ca --issuing-ca servers "My Servers CA"
 
 export SIMPLE_CA_DIR=/tmp/ca/servers
 
-simple-ca cert create web.example.com web.example.com 192.168.1.1
+simple-ca cert create web.example.com www.example.com 192.168.1.1
 simple-ca cert create alice.example.com
 simple-ca cert pfx --password s3cr3t /tmp/ca/servers/web_cert.pem
 

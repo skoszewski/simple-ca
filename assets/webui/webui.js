@@ -1,11 +1,11 @@
-// The parts the token and certificate pages share, after picker.js. The page draws one CA from
+// The parts the token, certificate and audit pages share, after picker.js. The page draws one CA from
 // the API, sending the token, which the tab keeps, as its bearer token; the CA on the page is in
 // the address as ?ca=. The script of the page, loaded after this one, defines showCA, which draws
 // the CA.
 const tokenName = "simple-ca-webui-token";
 const params = new URLSearchParams(location.search);
 const base = location.pathname.replace(/\/$/, "");
-const pageScope = base.endsWith("/certificates") ? "certs" : "tokens";
+const pageScope = base.endsWith("/certificates") ? "certs" : base.endsWith("/audit") ? "audit" : "tokens";
 let caID = params.get("ca") || "";
 let info = null;
 const $ = (id) => document.getElementById(id);
@@ -174,6 +174,7 @@ function currentCA() {
   const query = new URLSearchParams({ ca: caID });
   $("tokens-link").href = "/tokens/?" + query;
   $("certs-link").href = "/certificates/?" + query;
+  $("audit-link").href = "/audit/?" + query;
   $("ca-picker").replaceChildren(picker({ name: "ca", id: "ca-chooser", labelledBy: "ca-label",
     choices: info.cas.map((ca) => [ca.id, caRole(ca) + ": " + subjectName(ca.subject)]), value: caID, onchange: choose }));
   const ca = info.cas.find((ca) => ca.id === caID);
