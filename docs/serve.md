@@ -5,16 +5,25 @@ over HTTP, until it is stopped with Ctrl-C. `--address` is the address of the in
 listens on, `127.0.0.1` by default and `0.0.0.0` for all interfaces (`::` also works), and
 `--port` the TCP port, 8080 by default. With `--tls-cert` and `--tls-key`, PEM files of a
 certificate chain and its key, it serves HTTPS instead, as [ACME](acme.md) clients require; the
-certificate can be one of the CA itself. With `--docs`, it also shows the guides of `simple-ca`,
-the files of `docs/`, at `/docs/`.
+certificate can be one of the CA itself. Without them, `SIMPLE_CA_TLS_CERT` and
+`SIMPLE_CA_TLS_KEY` name the two files; either way, the two are given together. With `--docs`,
+it also shows the guides of `simple-ca`, the files of `docs/`, at `/docs/`.
 
-Behind a reverse proxy, `--trusted-proxy`, an address or a prefix repeated for more, names the
-proxies whose `X-Forwarded-For` header gives the client of a request to the
-[signing API](signing-api.md), whose tokens can be limited to client addresses; without it,
-`serve.trusted_proxies` of [simple-ca.json](configuration.md) does. For a request from a trusted
-proxy, the client is the last address of `X-Forwarded-For` that is not a trusted proxy, so an
-address a client puts in the header itself is not taken. The header of any other peer is not
-read, and without trusted proxies the client is always the address the request comes from.
+With `--webui`, it also serves the [token page](signing-api.md#token-page) at `/tokens/` and the
+[certificate page](usage.md#certificate-page) at `/certificates/`, linked from the index page.
+They ask for a token with the scope `tokens` or `certs`. Serve them over HTTPS: over plain HTTP
+on any address but a loopback one, the tokens can be read on the network, which `serve` warns
+about at start. The names `help`, `docs`, `tokens` and `certificates` cannot be issuing CA names,
+because the pages use those paths.
+
+Behind a reverse proxy, `--trusted-proxy` (an address or a prefix; it may be specified multiple
+times) names the proxies whose `X-Forwarded-For` header gives the client of a request to the
+[signing API](signing-api.md) and the token and certificate pages, whose tokens can be limited to
+client addresses; without it, `serve.trusted_proxies` of [simple-ca.json](configuration.md) does.
+For a request from a trusted proxy, the client is the last address of `X-Forwarded-For` that is
+not a trusted proxy, so an address a client puts in the header itself is not taken. The header
+of any other peer is not read, and without trusted proxies the client is always the address the
+request comes from.
 
 ```sh
 simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1

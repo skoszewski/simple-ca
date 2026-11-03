@@ -34,13 +34,14 @@ import (
 // runCertCreate runs cert create.
 func runCertCreate(args []string) error {
 	fs := newFlagSet("cert create", "CN|EMAIL [EMAIL|CN] [SAN ...]",
-		"Create a server, user or none certificate signed by the CA in --ca-dir.\n\n"+
+		"Create a certificate signed by the CA in --ca-dir, of the type server, user, none or a\n"+
+			"type of simple-ca.json.\n\n"+
 			"server, none: CN [SAN ...]; the CN is a hostname or FQDN, a SAN a hostname, FQDN, IPv4 or\n"+
 			"IPv6 address, or numeric OID. A none certificate has no key usages of its own.\n"+
 			"user: CN|EMAIL [EMAIL|CN] [SAN ...]; the CN, the emailAddress or both, in either order,\n"+
 			"then email addresses or numeric OIDs, after both the CN and the emailAddress.")
 	certDir := fs.String("cert-dir", "", "output `directory` (default: the CA directory)")
-	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, the root CA or an issuing CA")
+	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, root or issuing CA")
 	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.json")
 	days := fs.Int("days", 365, "validity period in `days`")
 	ekus, kus := usageFlags(fs)
@@ -64,12 +65,12 @@ func runCertCreate(args []string) error {
 func usageFlags(fs *flag.FlagSet) (ekus, kus *[]string) {
 	ekus, kus = new([]string), new([]string)
 	fs.Func("eku", "extended key `usage` added to those of the type, a name such as clientAuth or a\n"+
-		"numeric OID; repeated for more", func(s string) error {
+		"numeric OID; may be specified multiple times", func(s string) error {
 		*ekus = append(*ekus, s)
 		return nil
 	})
 	fs.Func("ku", "comma-separated key `usages` added to those of the type, such as\n"+
-		"digitalSignature,keyEncipherment; repeated for more", func(s string) error {
+		"digitalSignature,keyEncipherment; may be specified multiple times", func(s string) error {
 		for _, ku := range strings.Split(s, ",") {
 			ku = strings.TrimSpace(ku)
 			if ku == "" {
@@ -87,10 +88,10 @@ func runCertSign(args []string) error {
 	fs := newFlagSet("cert sign", "CSR_FILE",
 		"Sign the certificate signing request in CSR_FILE, PEM or DER, with the CA in --ca-dir.\n\n"+
 			"Only the subject and the subject alternative names of the request are copied; the type\n"+
-			"sets the key usages and extended key usages. NAME.EXT is written as NAME_cert.pem.\n"+
-			"The certificate is shown and signed once the answer to the question is y.")
+			"sets the key usages and extended key usages. The certificate of NAME.EXT is written as\n"+
+			"NAME_cert.pem. It is shown first and signed after you answer y.")
 	certDir := fs.String("cert-dir", "", "output `directory` (default: the CA directory)")
-	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, the root CA or an issuing CA")
+	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, root or issuing CA")
 	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.json")
 	days := fs.Int("days", 365, "validity period in `days`")
 	force := fs.Bool("force", false, "sign without asking")
@@ -138,7 +139,7 @@ func runCertRevoke(args []string) error {
 // runCertList runs cert list.
 func runCertList(args []string) error {
 	fs := newFlagSet("cert list", "", "List the certificates the CA in --ca-dir issued; without a status option, all of them.")
-	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := fs.Bool("valid", false, "list the valid certificates")
 	revoked := fs.Bool("revoked", false, "list the revoked certificates")
 	expired := fs.Bool("expired", false, "list the expired certificates")
@@ -168,12 +169,4 @@ func runCertShow(args []string) error {
 		return err
 	}
 	return showCert(os.Stdout, rest[0])
-}
-
-// runCertWebUI runs cert webui until it fails or is interrupted.
-func runCertWebUI(args []string) error {
-	return runWebUI(args, "cert webui", 8082, true,
-		"Serve a web page managing the certificates of the root CA of the CA in --ca-dir and of its\n"+
-			"issuing CAs, with its API below /api/: list them, create a certificate, sign a request,\n"+
-			"revoke a certificate and write the CRL, into the CA directories as the commands do.")
 }

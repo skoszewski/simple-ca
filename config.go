@@ -67,11 +67,12 @@ type serveConfig struct {
 }
 
 // tokensConfig holds the defaults of token create, each replaced by the option of the same name:
-// the validity, a duration such as 8h, the certificate types, the domains, the IP addresses,
-// localhost, and the client addresses and prefixes; and how long serve keeps an expired token, a
-// duration, kept until token purge without it.
+// the validity, a duration such as 8h, the scopes, the certificate types, the domains, the IP
+// addresses, localhost, and the client addresses and prefixes; and how long serve keeps an expired
+// token, a duration, kept until token purge without it.
 type tokensConfig struct {
 	Valid       string   `json:"valid,omitempty"`
+	Scopes      []string `json:"scopes,omitempty"`
 	Types       []string `json:"types,omitempty"`
 	Domains     []string `json:"domains,omitempty"`
 	IPs         []string `json:"ips,omitempty"`

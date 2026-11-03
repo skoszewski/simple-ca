@@ -8,7 +8,7 @@ one of `acme.domains` or below one of them, and whose challenge is met:
 
 - `http-01` - the server fetches `http://NAME/.well-known/acme-challenge/TOKEN` on port 80;
 - `dns-01` - the server looks up the TXT record `_acme-challenge.NAME` with the system resolver;
-  a wildcard name, `*.NAME`, is offered this challenge alone.
+  a wildcard name, `*.NAME`, is offered only this challenge.
 
 A certificate is of the type `server`, valid for `acme.days` of `simple-ca.json`, 90 days
 without it, with the first name of the order as the CN and all its names as DNS names; the key usages,

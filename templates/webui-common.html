@@ -1,10 +1,16 @@
-{{/* The parts token webui and cert webui share: the top of the page with the CA chooser, and the
-     dialogs asking for the key and for a confirmation. */}}
+{{/* The parts the token and certificate pages share: the top of the page with the CA chooser,
+     and the dialogs asking for the token and for a confirmation. */}}
 
 {{define "webui-top" -}}
-        <div class="rounded-t-2xl bg-head px-6 py-4 text-head-ink">
-          <h1 class="text-xl font-semibold">{{.}}</h1>
-          <p id="title" class="mt-1 text-sm text-head-muted">simple-ca</p>
+        <div class="flex items-start justify-between gap-4 rounded-t-2xl bg-head px-6 py-4 text-head-ink">
+          <div>
+            <h1 class="text-xl font-semibold">{{.}}</h1>
+            <p id="title" class="mt-1 text-sm text-head-muted">simple-ca</p>
+          </div>
+          <div id="user-row" class="hidden items-center gap-3 text-sm">
+            <span id="user" class="text-head-muted"></span>
+            <button id="sign-out" type="button" class="rounded-lg border border-head-muted px-2.5 py-1 text-xs font-medium">Sign out</button>
+          </div>
         </div>
         <div id="chooser-row" class="hidden items-center gap-3 border-b border-line px-6 py-4">
           <span id="ca-label" class="text-sm font-medium">CA</span>
@@ -19,10 +25,10 @@
       <form id="login-form" class="space-y-4 px-6 py-5">
         <p id="login-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink"></p>
         <label class="block space-y-1 text-sm">
-          <span class="block font-medium">Key</span>
-          <input id="login-key" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono">
+          <span class="block font-medium">Token</span>
+          <input id="login-token" type="password" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono">
         </label>
-        <p class="text-sm text-muted">Paste the key printed when the page was started.</p>
+        <p class="text-sm text-muted">Paste your token.</p>
         <div class="flex justify-end">
           <button type="submit" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Open</button>
         </div>

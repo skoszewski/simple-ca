@@ -38,7 +38,7 @@ func runCACreate(args []string) error {
 	baseURL := fs.String("ca-url", "", "base `URL` for AIA and CRL distribution point extensions")
 	fs.StringVar(baseURL, "ca-publish-base-url", "", "former name of --ca-url")
 	caDir := fs.String("ca-dir", "", "`directory` of the root CA")
-	writeConf := fs.Bool("write-conf", false, "also write openssl.cnf, a configuration of openssl ca, to the CA directory")
+	writeConf := fs.Bool("write-conf", false, "also write openssl.cnf for the openssl ca command to the CA directory")
 	rest, given, err := parseArgs(fs, args, 1, 1)
 	if err != nil {
 		return err
@@ -72,7 +72,7 @@ func runCACreate(args []string) error {
 // runCAShow runs ca show.
 func runCAShow(args []string) error {
 	fs := newFlagSet("ca show", "", "Show the CA in --ca-dir, its certificate counts and its CRL.")
-	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
 		return err
 	}

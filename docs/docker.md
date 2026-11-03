@@ -36,6 +36,13 @@ docker run -d -p 8443:8443 -v simple-ca:/data simple-ca serve --address 0.0.0.0 
   --tls-cert /data/servers/pki_cert.pem --tls-key /data/servers/pki_key.pem
 ```
 
+`SIMPLE_CA_TLS_CERT` and `SIMPLE_CA_TLS_KEY` name them in the environment instead:
+
+```sh
+docker run -d -p 8443:8443 -v simple-ca:/data -e SIMPLE_CA_TLS_CERT=/data/servers/pki_cert.pem \
+  -e SIMPLE_CA_TLS_KEY=/data/servers/pki_key.pem simple-ca serve --address 0.0.0.0 --port 8443
+```
+
 `request-cert` runs with `--entrypoint`. It writes the key, the certificate and the chain to its
 working directory, so a host directory is mounted there, with `--user` of its owner:
 

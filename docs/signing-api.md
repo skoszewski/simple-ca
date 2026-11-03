@@ -6,61 +6,78 @@ request a certificate at `/help/`.
 
 ## token create, list, renew, revoke and purge
 
-`token create` creates the token `NAME` of the [signing API](#requests-and-responses) of the CA in
-the CA directory, root or issuing CA, records it in `tokens-db.json` of that directory and prints
-it. The token is a JWT signed with the CA key (RS256), so it is valid for that CA alone; it is
-shown only once. It allows:
+`token create` creates the token `NAME` for the CA in the CA directory (root or issuing CA),
+records it in that directory's `tokens-db.json` and prints it. The token is a JWT signed with the
+CA key (RS256) and is valid only for that CA. It is shown only once, so copy it then.
 
-- the certificate types of `--type`, repeated for more, `server` by default;
-- the names that are a `--domain`, repeated for more, or below one; `--domain '*'` allows any
-  name, for a lab;
-- the IP addresses of `--ip`, repeated for more: an address, such as `192.0.2.10`, a prefix, such
-  as `10.0.0.0/8` or `2001:db8::/32`, or `*` for any address;
-- with `--localhost`, the name `localhost` and the IP address `127.0.0.1`, as
-  `--domain localhost --ip 127.0.0.1` do.
+`--scope` sets what the token opens; it may be specified multiple times, and defaults to `sign`:
 
-At least one `--domain`, `--ip` or `--localhost` is given. `--host ADDRESS`, repeated for more,
-and `--network PREFIXES`, a comma-separated list such as `192.168.1.0/24,10.0.0.0/8`, limit the
-clients the token is accepted from: a request from any other address is `403 Forbidden`. Without
-them, the token is accepted from any client. The client is the address the request comes from,
-or, behind a trusted proxy, the address its `X-Forwarded-For` header names; see
-[serve](serve.md).
+| Scope | Opens |
+|---|---|
+| `sign` | the [signing API](#requests-and-responses) and the [signing form](#signing-form) |
+| `tokens` | the [token page](#token-page) of `serve --webui` |
+| `certs` | the [certificate page](usage.md#certificate-page) of `serve --webui` |
+| `*` | all of them, given alone |
 
-The token is valid for `--valid`, a duration such as `30m`, `8h` or `720h`, one hour by default,
-and at least one second. `NAME` is a **kebab-case** name: words of lower-case letters and digits
-joined by hyphens, such as `web-deploy`; it is held by one token of a CA at a time.
+A root CA token opens the pages for every CA; an issuing CA token opens only its own CA.
 
-An option not given takes its default from `tokens` of [simple-ca.json](configuration.md): with
-`"tokens": {"domains": ["*"], "networks": ["192.168.1.0/24"]}`, `token create NAME` makes a lab
-token for any name used from 192.168.1.0/24, and `--domain example.com` narrows one token to
-`example.com`. `--host` and `--network` replace `hosts` and `networks` together, and
-`--localhost=false` turns off a `localhost` default.
+With the scope `sign`, these options set what the token may sign; each may be specified multiple
+times:
 
-`token list` lists the tokens of the CA, with their expiry, marked `(expired)` for a token not
-purged yet, or `revoked` for a revoked one, types, domains, IP prefixes, clients and the count of
-certificates issued with them. `token revoke` revokes the token `NAME`: its entry in
-`tokens-db.json` loses its JWT ID and expires at once, and the API refuses its JWT from then on.
-An entry without a JWT ID is a revoked token.
+- `--type` - the certificate types, or `*`, given alone, for every type of `simple-ca.json`,
+  also one added later; `server` by default;
+- `--domain` - the domains, with their subdomains; `--domain '*'` allows any name, for a lab;
+- `--ip` - the IP addresses: an address such as `192.0.2.10`, a prefix such as `10.0.0.0/8` or
+  `2001:db8::/32`, or `*` for any address;
+- `--localhost` - allows the name `localhost` and the IP address `127.0.0.1`, the same as
+  `--domain localhost --ip 127.0.0.1`.
 
-`token renew` renews the token `NAME`, revoked, expired or not, and prints it: the entry in
-`tokens-db.json` gets a new JWT ID and is valid from now, for `--valid`, else for as long as it was
-before or, revoked, for the default validity of `token create`, and it allows the types, names and
-addresses, and is used from the clients, it was before.
-The JWT the token had is refused from then on as an unknown token. The certificates issued with
-it are counted anew.
+A `sign` token needs at least one `--domain`, `--ip` or `--localhost`. Without `sign`, these
+options are refused.
 
-A revoked or expired token stays in `tokens-db.json`, to be renewed, and holds its name, until
-`token purge` removes it for good: `token purge` removes every revoked and expired token and prints
-their count, and `token purge NAME` the token `NAME` alone, which must be revoked or expired. With
-`tokens.keep_expired` of [simple-ca.json](configuration.md), a duration such as `720h`, `serve`
-also removes, for all its CAs, the tokens expired, or revoked, for longer than that, when it starts
-and every 5 minutes.
+`--host ADDRESS` and `--network PREFIXES` (a comma-separated list such as
+`192.168.1.0/24,10.0.0.0/8`) limit the clients the token is accepted from; both may be specified
+multiple times. A request from any other address gets `403 Forbidden`. Without them, any client
+may use the token. Behind a trusted proxy, the client is the address in the `X-Forwarded-For`
+header; see [serve](serve.md).
+
+`--valid` is how long the token is valid, such as `30m`, `8h` or `720h`: one hour by default, and
+at least one second. `NAME` is **kebab-case**: lower-case letters and digits joined by hyphens,
+such as `web-deploy`. A name is used by one token of a CA at a time.
+
+Options not given default to the `tokens` section of [simple-ca.json](configuration.md). For
+example, with `"tokens": {"domains": ["*"], "networks": ["192.168.1.0/24"]}`, `token create NAME`
+makes a lab token for any name, used from 192.168.1.0/24, and `--domain example.com` limits one
+token to `example.com`. `--host` and `--network` together replace both `hosts` and `networks`, and
+`--localhost=false` turns off a `localhost` default. The defaults of `--type`, `--domain`, `--ip`
+and `--localhost` apply only to tokens with the scope `sign`.
+
+`token list` lists the tokens of the CA: name, expiry (marked `(expired)`, or `revoked`), scopes,
+types, domains, IP prefixes, clients and the number of certificates issued. `-` marks what a token
+without `sign` does not have.
+
+`token revoke` revokes the token `NAME`: its JWT stops working at once, for the API and the web
+UIs. The token stays in `tokens-db.json`, without a JWT ID, so it can be renewed. An entry
+without `scopes` has the scope `sign`.
+
+`token renew` renews the token `NAME`, whether revoked, expired or still valid, and prints it. It
+gets a new JWT, valid from now, with the same scopes and limits; the old JWT stops working. It is
+valid for `--valid`, or else for as long as before; a revoked token gets the default validity of
+`token create`. Its certificate count starts again from zero.
+
+Revoked and expired tokens stay in `tokens-db.json`, and keep their names, until `token purge`
+removes them. `token purge` removes all of them and prints how many; `token purge NAME` removes
+only `NAME`, which must be revoked or expired. Removed tokens cannot be renewed. With
+`tokens.keep_expired` in [simple-ca.json](configuration.md), a duration such as `720h`, `serve`
+also removes tokens that have been expired or revoked for longer than that, for all its CAs, at
+start and every 5 minutes.
 
 ```sh
 simple-ca token create --ca-dir /tmp/ca/servers --valid 8h --type server --domain example.com deploy
 simple-ca token create --ca-dir /tmp/ca/servers --valid 720h --domain '*' --ip 10.0.0.0/8 lab
 simple-ca token create --ca-dir /tmp/ca/servers --valid 720h --host 192.168.1.4 --domain '*' builder
 simple-ca token create --ca-dir /tmp/ca/servers --localhost --network 192.168.1.0/24 dev
+simple-ca token create --ca-dir /tmp/ca --valid 720h --scope tokens --scope certs admin
 simple-ca token list --ca-dir /tmp/ca/servers
 simple-ca token renew --ca-dir /tmp/ca/servers --valid 8h deploy
 simple-ca token revoke --ca-dir /tmp/ca/servers deploy
@@ -68,107 +85,131 @@ simple-ca token purge --ca-dir /tmp/ca/servers deploy
 simple-ca token purge --ca-dir /tmp/ca/servers
 ```
 
-`builder` signs any name, for requests from 192.168.1.4 alone; `dev` signs `localhost`
-certificates for the clients of 192.168.1.0/24.
+`builder` signs any name, but only for requests from 192.168.1.4. `dev` signs `localhost`
+certificates for clients in 192.168.1.0/24. `admin` is a root CA token that opens the token and
+certificate pages for every CA.
 
 ```text
-NAME     EXPIRES                  TYPES   DOMAINS      IPS         CLIENTS         CERTS
-builder  2026-12-01 13:43:41 UTC  server  *            -           192.168.1.4     0
-deploy   2026-11-01 21:43:41 UTC  server  example.com  -           any             1
-dev      2026-11-01 14:43:41 UTC  server  localhost    127.0.0.1   192.168.1.0/24  0
-lab      2026-12-01 13:43:41 UTC  server  *            10.0.0.0/8  any             0
+NAME     EXPIRES                  SCOPES  TYPES   DOMAINS      IPS         CLIENTS         CERTS
+builder  2026-12-01 13:43:41 UTC  sign    server  *            -           192.168.1.4     0
+deploy   2026-11-01 21:43:41 UTC  sign    server  example.com  -           any             1
+dev      2026-11-01 14:43:41 UTC  sign    server  localhost    127.0.0.1   192.168.1.0/24  0
+lab      2026-12-01 13:43:41 UTC  sign    server  *            10.0.0.0/8  any             0
 ```
 
-The commands and `serve` change `tokens-db.json` under a lock, the file `tokens-db.json.lock` next
-to it, which holds the PID of the process that has it. One process at a time creates the file and
-removes it when done; any other waits for it up to 10 seconds, then fails with the PID. A lock
-left by a process that was killed is removed by hand once that process is gone.
+The commands and `serve` change `tokens-db.json` under a lock: the file `tokens-db.json.lock`
+next to it, holding the PID of the process that has the lock. Other processes wait up to 10
+seconds, then fail and name that PID. If the process was killed, remove the lock file by hand
+once the process is gone.
 
-## token webui
+## Token page
 
-`token webui` serves a web page managing the tokens of the root CA of the CA directory and of all
-its issuing CAs, until it is stopped with Ctrl-C. The page shows one CA, chosen in its CA
-selector, the root CA at first: it lists the tokens of the CA as `token list` does, renews a
-token as `token renew` does, asking first for a token still accepted, revokes a token, removes a
-revoked or expired token, or all of them, as `token purge` does, asking first, and creates a token
-with the options of `token create`, in a dialog whose form is filled with the
-`tokens` defaults of [simple-ca.json](configuration.md). A new or renewed token is shown once,
-in a dialog with a Copy button; it leaves the page when the dialog closes, with Close, Escape or a
-click beside it. A CA whose key is not in its directory has no form, as its tokens cannot be
-signed there.
+With `--webui`, `serve` serves a web page at `/tokens/` for managing the tokens of the root CA
+and all its issuing CAs; the index page links to it.
+
+The page asks for a token with the scope `tokens` and keeps it for the browser tab. It shows who
+is signed in, with a Sign out button. A root CA token sees every CA; an issuing CA token sees
+only its own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
+root CA. On it you can:
+
+- list the tokens, as `token list` does;
+- renew a token, as `token renew` does, confirming first if the token is still valid;
+- revoke a token, or remove a revoked or expired one, or all of them, as `token purge` does,
+  confirming first;
+- create a token with the options of `token create`, in a dialog filled with the `tokens`
+  defaults of [simple-ca.json](configuration.md).
+
+A new or renewed token is shown once, in a dialog with a Copy button, and is gone from the page
+when the dialog closes. A CA whose key is not in its directory has no create form, because its
+tokens cannot be signed there.
+
+A signed-in token can give new tokens the scope `sign` and its own scopes, but no others: a token
+with only `tokens` can create `sign` and `tokens` tokens, but not `certs` tokens. A token with the
+scope `*` can give every scope, `*` included. It can renew,
+revoke and remove only tokens whose scopes it has, apart from `sign`; removing all expired and
+revoked tokens skips the others. Make the first token with `token create` on the CA host:
 
 ```sh
-simple-ca token webui --ca-dir /etc/simple-ca
+simple-ca token create --ca-dir /etc/simple-ca --valid 720h --scope tokens admin
+simple-ca serve --ca-dir /etc/simple-ca --webui
 ```
 
-`--address` is the address of the interface it listens on, `127.0.0.1` by default, and `--port`
-the TCP port, 8081 by default. At the start it prints the URL of the page with a random key as
-its `?key=` query; the key is valid until `token webui` stops. The page reads the key from that
-URL, or asks for it, keeps it for the browser tab, and draws the tokens from the API of
-`token webui`, sending the key in the `Authorization` header. `--tls-cert` and `--tls-key`, as
-for `serve`, serve the page over HTTPS with the certificate chain and the key of those PEM files;
-without them it is served over plain HTTP, so on any address but a loopback one the key can be
-read on the network, which it warns of. Each request is logged to the standard error, as `serve`
-logs them.
+Tokens are accepted only from the clients they allow (`--host` and `--network` of
+`token create`); behind a trusted proxy of `serve`, the client is the address in the
+`X-Forwarded-For` header. Use `--tls-cert` and `--tls-key`: without them the page uses plain
+HTTP, and on any address but a loopback one the tokens can be read on the network, which `serve`
+warns about at start. Every change is logged with the name of the token that made it.
 
-The API answers with JSON, and takes the key as the bearer token of every request,
-`Authorization: Bearer KEY`; a request without it, or with another key, is `401 Unauthorized`.
-`CA` is the name of an issuing CA, or empty for the root CA; an error is `{"error": "..."}`.
+The API of the page, below `/tokens/api/`, answers with JSON and takes the token as the bearer
+token of every request: `Authorization: Bearer TOKEN`.
+
+
+- `401 Unauthorized` - no token, or an invalid, revoked, expired or unknown one;
+- `403 Forbidden` - a token without the scope `tokens`, a client the token does not allow, or
+  creating, renewing, revoking or removing a token with a scope the signed-in token does not have;
+- `404 Not Found` - a CA the token does not open.
+
+`CA` is the name of an issuing CA, or empty for the root CA. An error is `{"error": "..."}`.
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /api/cas` | | `title`, the root CA's CN; `cas`, each with `id`, `role`, `name`, the CN of its subject or else the whole subject, `subject`, `subject_attributes`, each a type and a value, `label` and `has_key`; `types`; `defaults`, from `tokens` of `simple-ca.json` |
-| `GET /api/tokens?ca=CA` | | `tokens`, each with `name`, `expires`, `revoked`, `expired`, `types`, `domains`, `ips`, `clients` and `certs` |
-| `POST /api/tokens` | `ca`, `name`, `valid`, `types`, `domains`, `ips`, `clients`, `localhost` | `201 Created`, `name` and `token`, the JWT |
-| `POST /api/tokens/renew` | `ca`, `name` | `name` and `token`, the new JWT |
-| `POST /api/tokens/revoke` | `ca`, `name` | `name` |
-| `POST /api/tokens/purge` | `ca`, and `name` for one token | `removed`, the count |
+| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, and `user_ca`, its CA; `cas`, the CAs the token opens, each with `id`, `role`, `name` (the CN of its subject, or else the whole subject), `subject`, `subject_attributes` (type and value pairs), `label` and `has_key`; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json` |
+| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `expires`, `revoked`, `expired`, `scopes`, `types`, `domains`, `ips`, `clients` and `certs` |
+| `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost` | `201 Created`, `name` and `token`, the JWT |
+| `POST /tokens/api/tokens/renew` | `ca`, `name` | `name` and `token`, the new JWT |
+| `POST /tokens/api/tokens/revoke` | `ca`, `name` | `name` |
+| `POST /tokens/api/tokens/purge` | `ca`, and `name` for one token | `removed`, the count |
 
 ```sh
-curl -s -H "Authorization: Bearer $KEY" 'http://127.0.0.1:8081/api/tokens?ca=servers'
+curl -s -H "Authorization: Bearer $TOKEN" 'https://pki.example.com:8443/tokens/api/tokens?ca=servers'
 ```
 
 ## Requests and responses
 
-`serve` signs certificate signing requests sent to `/api/sign` for the root CA and to
-`/NAME/api/sign` for the issuing CA `NAME`, for a CA whose key and `tokens-db.json` are in its
-directory; for any other it is `404 Not Found`. The index page shows the URL of each such CA. A
-request is a `POST` with a token of [token create](#token-create-list-renew-revoke-and-purge) of that
-CA as a bearer token, and a JSON body of at most 64 KiB:
+`serve` signs certificate signing requests sent to `/api/sign` for the root CA, and to
+`/NAME/api/sign` for the issuing CA `NAME`. The CA's key and `tokens-db.json` must be in its
+directory; otherwise the answer is `404 Not Found`. The index page shows the URL for each CA that
+signs. A request is a `POST` with a `sign` token of that CA as the bearer token, and a JSON body
+of at most 64 KiB:
 
 ```json
 {"csr": "-----BEGIN CERTIFICATE REQUEST-----\n...", "type": "server"}
 ```
 
-`csr` is the request in PEM. `type`, the first type of the token by
-default, is one of the types the token allows. The names of the request are checked by the name
-rules of the type, `names` of [simple-ca.json](configuration.md):
+`csr` is the request in PEM. `type` must be one of the types the token allows; it defaults to the
+token's first type, or `server` for a token with the type `*`. The names in the request are
+checked by the name rules of the type, `names` in [simple-ca.json](configuration.md):
 
-- the subject holds only a CN and `emailAddress`, and the SANs only DNS names, email addresses
+- the subject may hold only a CN and `emailAddress`, and the SANs only DNS names, email addresses
   and IP addresses;
-- `server` rules: the CN, when there is one, is a hostname, a wildcard or an IP address; the CN
-  and every DNS name and IP address are allowed by the domains and the IP addresses of the token;
-  at least one name or address is there, and no email address;
-- `user` rules: the domain of every email address is one the token allows; at least one is
-  there, and neither a DNS name nor an IP address; the CN is free text.
+- `server` rules: the CN, if any, is a hostname, a wildcard or an IP address; the token must allow
+  the CN and every DNS name and IP address; at least one name or address is required, and no
+  email address is allowed;
+- `user` rules: the token must allow the domain of every email address; at least one email
+  address is required, and no DNS name or IP address is allowed; the CN is free text.
 
-The certificate has the subject and the SANs of the request, and the key usages, extended key
-usages, AIA and CRL Distribution Point URLs of `cert create` for the type; it is valid for
-`days.cert` of `simple-ca.json`, 365 days without it. It is recorded in `index.txt`, and its
-serial number in the entry of the token in `tokens-db.json`. The response is JSON:
+The certificate gets the subject and the SANs of the request, and the key usages, extended key
+usages, AIA and CRL Distribution Point URLs that `cert create` gives the type. It is valid for
+`days.cert` of `simple-ca.json`, or 365 days. It is recorded in `index.txt`, and its serial
+number in the token's entry in `tokens-db.json`. The response is JSON:
 
 ```json
 {"serial": "542458ED...", "certificate": "-----BEGIN CERTIFICATE-----\n...", "chain": "..."}
 ```
 
-`chain` holds the certificate and, from an issuing CA, the issuing CA certificate. An error is
-`{"error": "..."}` with the status `400 Bad Request` for a malformed body or request,
-`401 Unauthorized` for a token that is missing, of another CA, revoked, expired or unknown, as the
-JWT a renewed token had is, `403 Forbidden` for a type or a name the token does not allow and for a client it is
-not accepted from, and `415 Unsupported Media Type` for a body that is not `application/json`.
-`tokens-db.json` is read on each request, so a token revoked by `token revoke` is refused at once.
-Like [ACME](acme.md), the API needs `serve` to write to the CA directories and read the CA keys; a
-token is sent in clear without `--tls-cert`.
+`chain` holds the certificate and, for an issuing CA, the issuing CA certificate. An error is
+`{"error": "..."}` with one of these statuses:
+
+- `400 Bad Request` - a malformed body or request;
+- `401 Unauthorized` - the token is missing, belongs to another CA, or is revoked, expired or
+  unknown (as the old JWT of a renewed token is);
+- `403 Forbidden` - the token has no scope `sign`, does not allow the type or a name, or is not
+  accepted from the client;
+- `415 Unsupported Media Type` - the body is not `application/json`.
+
+`tokens-db.json` is read on every request, so a revoked token is refused at once. Like
+[ACME](acme.md), the API needs `serve` to be able to write to the CA directories and read the CA
+keys. Without `--tls-cert`, tokens are sent in clear.
 
 ```sh
 TOKEN=$(simple-ca token create --ca-dir /tmp/ca/servers --domain example.com deploy)
@@ -179,19 +220,21 @@ jq -n --rawfile csr web.csr '{csr: $csr}' | curl -s -H "Authorization: Bearer $T
   jq -r .certificate > web_cert.pem
 ```
 
-[examples.md](examples.md) describes the clients of the API in `examples/` and
-`cmd/request-cert/`, in Python, Node.js, Go and the shell, which make a key and a request and
-write the key, the certificate and its chain.
+[examples.md](examples.md) describes the API clients in `examples/` and `cmd/request-cert/`, in
+Python, Node.js, Go and the shell. They make a key and a request, and write the key, the
+certificate and its chain.
 
 ## Signing form
 
-`/sign` for the root CA and `/NAME/sign` for the issuing CA `NAME` are a page with a form of the
-[signing API](#requests-and-responses); the index page links to it from each CA with tokens. For
-a CA without its key or without `tokens-db.json`, the page says so in place of the form, and a
-form sent to it is `403 Forbidden`; a `NAME` that is not an issuing CA is `404 Not Found`. The
-CSR is pasted in PEM, the certificate type is chosen from the types of `simple-ca.json`, the first
-type of the token by default, and the token is entered in a password field. The checks are those
-of the API. The signed certificate is downloaded as a PEM file named by the
-[file name rules](directory-layout.md), `web_cert.pem` for the CN `web.example.com`, or after its
-serial number for a request without a name. A refused request shows the form again with the
-error, the CSR and the type kept, and the token cleared.
+`/sign` for the root CA, and `/NAME/sign` for the issuing CA `NAME`, are pages with a form for the
+[signing API](#requests-and-responses); the index page links to them for each CA with tokens. For
+a CA without its key or without `tokens-db.json`, the page says so instead of showing the form,
+and a form sent to it gets `403 Forbidden`. A `NAME` that is not an issuing CA gets
+`404 Not Found`.
+
+Paste the CSR in PEM, choose the certificate type (by default the token's first type, or `server`
+for the type `*`), and enter the token in the password field. The checks are the same as the
+API's. The signed certificate downloads as a PEM file named by the
+[file name rules](directory-layout.md): `web_cert.pem` for the CN `web.example.com`, or the serial
+number for a request without a name. If the request is
+refused, the form shows the error again, keeping the CSR and the type and clearing the token.

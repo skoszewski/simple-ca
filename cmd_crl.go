@@ -34,7 +34,7 @@ import (
 // runCRLCreate runs crl create.
 func runCRLCreate(args []string) error {
 	fs := newFlagSet("crl create", "", "Generate the CRL of the CA in --ca-dir.")
-	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	days := fs.Int("days", 30, "CRL validity in `days`")
 	all := fs.Bool("all", false, "generate the CRLs of the root CA of --ca-dir and of all its issuing CAs")
 	_, given, err := parseArgs(fs, args, 0, 0)

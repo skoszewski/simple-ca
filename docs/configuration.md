@@ -35,13 +35,16 @@ writes it, and it can be written or edited by hand. A setting not described here
 - `days` - defaults for `--days`: `ca`, `cert`, `crl`.
 - `serve` - the settings of [serve](serve.md):
   - `trusted_proxies` - the addresses and prefixes of the proxies whose `X-Forwarded-For` header
-    names the client of the [signing API](signing-api.md); `serve --trusted-proxy` replaces them.
-- `tokens` - the defaults of [token create](signing-api.md#token-create-list-renew-revoke-and-purge),
-  each replaced by the option of the same name: `valid`, a duration such as `8h`, `types`,
-  `domains`, `ips`, `localhost`, `hosts` and `networks`, a list of prefixes; `--host` and
-  `--network` replace `hosts` and `networks` together. `keep_expired`, a duration such as
+    names the client of the [signing API](signing-api.md) and of the token and certificate
+    pages; `serve --trusted-proxy` replaces them.
+- `tokens` - the defaults of [token create](signing-api.md#token-create-list-renew-revoke-and-purge);
+  the option of the same name overrides each: `valid`, a duration such as `8h`, `scopes`,
+  `types`, `domains`, `ips`, `localhost`, `hosts`, and `networks`, a list of prefixes. `--host`
+  and `--network` together replace both `hosts` and `networks`. `types`, `domains`, `ips` and
+  `localhost` apply only to tokens with the scope `sign`; `scopes` and `types` may be `["*"]`,
+  every scope or every type. `keep_expired`, a duration such as
   `720h`, is how long `serve` keeps an expired or revoked token before removing it; without it,
-  such a token stays until `token purge` removes it.
+  such tokens stay until `token purge` removes them.
 - `types` - certificate types for `cert create --type` and `cert sign --type`, by **kebab-case**
   name: words of lower-case letters and digits joined by hyphens, such as `web-server`. A type
   named `server`, `user` or `none` redefines the built-in type, and any other name defines a new

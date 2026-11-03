@@ -65,6 +65,21 @@ func resolveCADir(flagVal string) string {
 	return cwd
 }
 
+// resolveTLS returns the --tls-cert and --tls-key values, each else $SIMPLE_CA_TLS_CERT or
+// $SIMPLE_CA_TLS_KEY, and an error when only one of the two is given.
+func resolveTLS(cert, key string) (string, string, error) {
+	if cert == "" {
+		cert = os.Getenv("SIMPLE_CA_TLS_CERT")
+	}
+	if key == "" {
+		key = os.Getenv("SIMPLE_CA_TLS_KEY")
+	}
+	if (cert == "") != (key == "") {
+		return "", "", errors.New("--tls-cert and --tls-key, or SIMPLE_CA_TLS_CERT and SIMPLE_CA_TLS_KEY, must be given together")
+	}
+	return cert, key, nil
+}
+
 // loadRootConfig loads simple-ca.json of the root CA of the CA in caDir.
 func loadRootConfig(caDir string) (*config, error) {
 	rootDir, _, err := locateCA(caDir)
@@ -97,20 +112,18 @@ var commands = []command{
 		{name: "revoke", summary: "Revoke a certificate.", run: runCertRevoke},
 		{name: "list", summary: "List the certificates a CA issued.", run: runCertList},
 		{name: "show", summary: "Show the certificates in a file.", run: runCertShow},
-		{name: "webui", summary: "Serve a web page managing the certificates of the CAs.", run: runCertWebUI},
 	}},
 	{name: "crl", summary: "Create certificate revocation lists.", sub: []command{
 		{name: "create", summary: "Create the CRL of a CA, or of a root CA and all its issuing CAs.", run: runCRLCreate},
 	}},
-	{name: "token", summary: "Manage the tokens of the signing API.", sub: []command{
-		{name: "create", summary: "Create a token of the signing API of a CA.", run: runTokenCreate},
-		{name: "list", summary: "List the tokens of the signing API of a CA.", run: runTokenList},
-		{name: "revoke", summary: "Revoke a token of the signing API of a CA.", run: runTokenRevoke},
-		{name: "renew", summary: "Renew a token of the signing API of a CA, expired or not.", run: runTokenRenew},
-		{name: "purge", summary: "Remove the expired and revoked tokens of the signing API of a CA.", run: runTokenPurge},
-		{name: "webui", summary: "Serve a web page managing the tokens of the CAs.", run: runTokenWebUI},
+	{name: "token", summary: "Manage the tokens of the signing API and the web pages of serve.", sub: []command{
+		{name: "create", summary: "Create a token of a CA.", run: runTokenCreate},
+		{name: "list", summary: "List the tokens of a CA.", run: runTokenList},
+		{name: "revoke", summary: "Revoke a token of a CA.", run: runTokenRevoke},
+		{name: "renew", summary: "Renew a token of a CA, expired or not.", run: runTokenRenew},
+		{name: "purge", summary: "Remove the expired and revoked tokens of a CA.", run: runTokenPurge},
 	}},
-	{name: "serve", summary: "Serve the CA certificates, CRLs, ACME and the signing API over HTTP.", run: runServe},
+	{name: "serve", summary: "Serve the CA certificates, CRLs, ACME, the signing API and the web pages over HTTP.", run: runServe},
 }
 
 // printUsage writes the usage of simple-ca to w, or of the group g when it is not nil.

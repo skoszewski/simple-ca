@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.6.0
+
+feat: serve --webui serves the token and certificate pages, which replace token webui and cert webui, tokens have the scopes sign, tokens and certs, and SIMPLE_CA_TLS_CERT and SIMPLE_CA_TLS_KEY name the HTTPS files.
+
+- `token webui` and `cert webui` are removed. `serve --webui` serves the token page at
+  `/tokens/` and the certificate page at `/certificates/`, with their APIs below `api/` of each,
+  and the index page links to them. Over plain HTTP beyond the loopback address, `serve` warns
+  that their tokens can be read on the network. `tokens` and `certificates` cannot be issuing CA
+  names.
+- `token create --scope SCOPE`, which may be specified multiple times, `sign` by default or
+  `tokens.scopes` of `simple-ca.json`, gives a token its scopes: `sign` for the signing API and
+  the signing form, `tokens` for the token page and `certs` for the certificate page. `--type`,
+  `--domain`, `--ip` and `--localhost` belong to `sign` and are refused without it. A token in
+  `tokens-db.json` without scopes has the scope `sign`.
+- `--scope *` gives a token every scope, and `--type *` lets it sign every certificate type of
+  `simple-ca.json`, also one added later, `server` by default; `*` is given alone. The token page
+  has a `*` box for each, and a token with the scope `*` can give every scope.
+- The pages ask for a token with their scope instead of a key printed at the start, show whose
+  it is and sign out. A root CA token opens every CA, an issuing CA token only its own CA. A
+  token is accepted from the clients it allows, behind the trusted proxies of `serve`. Changes
+  are logged with the token's name.
+- The token page creates tokens with `sign` and the scopes of its own token, and renews, revokes
+  and removes only the tokens whose scopes it has; it has a Scopes column and scope checkboxes.
+- `/api/sign` and the signing form refuse a token without `sign` with `403 Forbidden`.
+- `token list` has a SCOPES column.
+- `serve` takes the certificate and the key of HTTPS from `SIMPLE_CA_TLS_CERT` and
+  `SIMPLE_CA_TLS_KEY` without `--tls-cert` and `--tls-key`.
+- The help of the commands, the labels, questions and messages of the web pages, and the guides
+  of the signing API are worded more plainly.
+- The certificate page shows each certificate by the CN of its subject, with a popup of the
+  subject attributes, and a token of an issuing CA opens the page on its own CA.
+
 ## 1.5.14
 
 gap: token webui and cert webui serve their pages over HTTPS with --tls-cert and --tls-key.

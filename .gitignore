@@ -53,7 +53,12 @@ DerivedData/
 !/assets/markdown/.gitkeep
 
 # env file
-.env
+*.env
+*.env.sh
+
+# Token files
+*.token
+*.tokens
 
 # Editor/IDE
 # .idea/

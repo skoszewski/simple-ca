@@ -1,6 +1,6 @@
-// The parts the pages of token webui and cert webui and the index page and the signing form of
-// serve share: element, which makes elements, picker, the dropdown chooser, and withPopup, which
-// shows a popup by an element.
+// The parts the pages of serve share, the index page, the signing form and the token and
+// certificate pages: element, which makes elements, picker, the dropdown chooser, withPopup,
+// which shows a popup by an element, and named, the name of a subject with its attributes.
 
 // element returns a new element with the properties given and the children appended.
 function element(tag, props = {}, ...children) {
@@ -63,6 +63,19 @@ function withPopup(target, popup) {
   target.addEventListener("blur", hide);
   return target;
 }
+
+// named returns the name of a subject, with the popup of its attributes, each a type and a value,
+// and the popup, to be placed together.
+function named(name, attributes) {
+  const popup = element("div", { role: "tooltip",
+    className: "fixed z-20 hidden rounded-lg border border-line bg-card px-3 py-2 text-xs font-normal shadow-lg" },
+    element("dl", { className: "grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5" },
+      ...attributes.flatMap(([type, value]) => [
+        element("dt", { className: "text-muted", textContent: type }), element("dd", { textContent: value })])));
+  return [withPopup(element("span", { tabIndex: 0, textContent: name,
+    className: "cursor-help underline decoration-muted decoration-dotted underline-offset-4" }), popup), popup];
+}
+
 
 // A popup placed by the page's position is hidden once the page scrolls.
 addEventListener("scroll", () => {

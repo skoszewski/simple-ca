@@ -24,13 +24,14 @@ package main
 
 import (
 	"cmp"
-	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"maps"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,7 +39,14 @@ import (
 	"time"
 )
 
-// ---- token webui and cert webui ---------------------------------------------
+// ---- the token and certificate pages of serve -------------------------------
+
+// tokensPath is the route serve --webui shows the token page under, and certsPath the route of
+// the certificate page.
+const (
+	tokensPath = "/tokens/"
+	certsPath  = "/certificates/"
+)
 
 // webuiScripts are the scripts of the pages, served at their paths: picker.js and webui.js, which
 // both pages load, then tokens.js or certs.js; the signing form of serve loads picker.js and
@@ -58,32 +66,36 @@ var webuiScriptHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Re
 	http.ServeFileFS(w, r, webuiScripts, "assets/webui/"+file)
 })
 
-// webuiServer serves token webui, or cert webui with certs, for the root CA in rootDir and its
-// issuing CAs: the page at /, and its API below /api/, for the requests carrying key as their
-// bearer token.
+// webuiServer serves the token page, or the certificate page with certs, for the root CA in
+// rootDir and its issuing CAs, below tokensPath or certsPath with the prefix stripped: the page at
+// /, and its API below /api/, for the requests carrying a token with the
+// scope tokens, or certs, as their bearer token, from the clients the token allows, the address of
+// a client behind the trusted proxies read from X-Forwarded-For. A copy of it answers each request,
+// with the name, the CA ID and the scopes of the token of the request.
 type webuiServer struct {
-	rootDir string
-	key     string
-	certs   bool
+	rootDir    string
+	trusted    []netip.Prefix
+	certs      bool
+	user       string
+	userCA     string
+	userScopes []string
 }
 
-// webuiCA is a CA of the API: its ID, empty for the root CA, its role, its name, the CN of its
-// subject or else the whole subject, its subject and the attributes of it, each a type and a
-// value, its label in the selector, and whether its key is here to sign tokens.
+// webuiCA is a CA of the API: its ID, empty for the root CA, its role, its subject, its label in
+// the selector, and whether its key is here to sign tokens.
 type webuiCA struct {
-	ID                string      `json:"id"`
-	Role              string      `json:"role"`
-	Name              string      `json:"name"`
-	Subject           string      `json:"subject"`
-	SubjectAttributes [][2]string `json:"subject_attributes"`
-	Label             string      `json:"label"`
-	HasKey            bool        `json:"has_key"`
+	ID   string `json:"id"`
+	Role string `json:"role"`
+	subjectView
+	Label  string `json:"label"`
+	HasKey bool   `json:"has_key"`
 }
 
 // webuiDefaults are the values the form creating a token starts with, from tokens of
-// simple-ca.json.
+// simple-ca.json; the scopes are those of them the token of the request grants.
 type webuiDefaults struct {
 	Valid     string   `json:"valid"`
+	Scopes    []string `json:"scopes"`
 	Types     []string `json:"types"`
 	Domains   []string `json:"domains"`
 	IPs       []string `json:"ips"`
@@ -91,13 +103,15 @@ type webuiDefaults struct {
 	Localhost bool     `json:"localhost"`
 }
 
-// webuiToken is a token of the API: its name, its expiry, whether it was revoked or expired, what
-// it allows, the clients it is accepted from, and the count of certificates issued with it.
+// webuiToken is a token of the API: its name, its expiry, whether it was revoked or expired, its
+// scopes, what it allows, the clients it is accepted from, and the count of certificates issued
+// with it.
 type webuiToken struct {
 	Name    string    `json:"name"`
 	Expires time.Time `json:"expires"`
 	Revoked bool      `json:"revoked"`
 	Expired bool      `json:"expired"`
+	Scopes  []string  `json:"scopes"`
 	Types   []string  `json:"types"`
 	Domains []string  `json:"domains"`
 	IPs     []string  `json:"ips"`
@@ -106,12 +120,13 @@ type webuiToken struct {
 }
 
 // webuiRequest is the body of a request changing the tokens of the CA CA: the token Name, and,
-// to create it, its validity, its certificate types, domains, IP addresses and clients, and
-// localhost.
+// to create it, its validity, its scopes, its certificate types, domains, IP addresses and
+// clients, and localhost.
 type webuiRequest struct {
 	CA        string   `json:"ca"`
 	Name      string   `json:"name"`
 	Valid     string   `json:"valid"`
+	Scopes    []string `json:"scopes"`
 	Types     []string `json:"types"`
 	Domains   []string `json:"domains"`
 	IPs       []string `json:"ips"`
@@ -119,9 +134,24 @@ type webuiRequest struct {
 	Localhost bool     `json:"localhost"`
 }
 
+// caIDs returns the IDs of the root CA, empty, and of its issuing CAs.
+func (s *webuiServer) caIDs() []string {
+	ids := []string{""}
+	entries, _ := os.ReadDir(s.rootDir)
+	for _, e := range entries {
+		if e.IsDir() && kebabCaseRE.MatchString(e.Name()) && fileExists(filepath.Join(s.rootDir, e.Name(), "ca_cert.pem")) {
+			ids = append(ids, e.Name())
+		}
+	}
+	return ids
+}
+
 // caDir returns the directory of the CA id, the root CA when id is empty, or false for an id
-// that is not an issuing CA of the root CA.
+// that is not an issuing CA of the root CA, or is not the CA of an issuing CA token.
 func (s *webuiServer) caDir(id string) (string, bool) {
+	if s.userCA != "" && id != s.userCA {
+		return "", false
+	}
 	if id == "" {
 		return s.rootDir, true
 	}
@@ -131,8 +161,68 @@ func (s *webuiServer) caDir(id string) (string, bool) {
 	return filepath.Join(s.rootDir, id), true
 }
 
-// mux returns the routes of the webui: the page, which asks for the key and draws the tokens or
-// the certificates from the API, its scripts, the browser build of Tailwind CSS, and the API.
+// authenticate takes the bearer token of r, a token of the root CA or of one of its issuing CAs
+// with the scope of the webui, used from a client it allows, and keeps its name, its CA and its
+// scopes; for any other it answers with the error and returns false.
+func (s *webuiServer) authenticate(w http.ResponseWriter, r *http.Request) bool {
+	scope := "tokens"
+	if s.certs {
+		scope = "certs"
+	}
+	fail := func(status int, message string) bool {
+		if status == http.StatusUnauthorized {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="simple-ca webui"`)
+		}
+		webuiFail(w, status, message)
+		return false
+	}
+	given, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if given = strings.TrimSpace(given); given == "" {
+		return fail(http.StatusUnauthorized, "a token with the scope "+scope+" is required")
+	}
+	for _, id := range s.caIDs() {
+		dir := filepath.Join(s.rootDir, id)
+		caCert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
+		if err != nil {
+			continue
+		}
+		claims, err := verifyJWT(caCert, given)
+		if err != nil {
+			continue
+		}
+		db, err := loadTokens(dir)
+		if err != nil {
+			log.Printf("webui: %v", err)
+			return fail(http.StatusInternalServerError, "could not read the tokens")
+		}
+		name, tok, err := lookupToken(db, claims)
+		var refused *apiError
+		if errors.As(err, &refused) {
+			return fail(refused.status, refused.msg)
+		}
+		client := clientAddr(r, s.trusted)
+		switch {
+		case !tok.hasScope(scope):
+			return fail(http.StatusForbidden, "the token does not have the scope "+scope)
+		case !tok.clientAllowed(client):
+			return fail(http.StatusForbidden, "the token is not allowed from "+client.String())
+		}
+		s.user, s.userCA, s.userScopes = name, id, tok.scopes()
+		return true
+	}
+	return fail(http.StatusUnauthorized, "invalid token")
+}
+
+// grants reports whether the token of the request may grant the scopes: sign, and the scopes it
+// has itself, every scope with the scope *.
+func (s *webuiServer) grants(scopes []string) bool {
+	return !slices.ContainsFunc(scopes, func(scope string) bool {
+		return scope != "sign" && !allows(s.userScopes, scope)
+	})
+}
+
+// mux returns the routes of the page, which asks for the token and draws the tokens or the
+// certificates from the API, and of the API; serve serves the scripts and Tailwind CSS it loads.
 func (s *webuiServer) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -146,8 +236,6 @@ func (s *webuiServer) mux() *http.ServeMux {
 			log.Printf("webui: %v", err)
 		}
 	})
-	mux.Handle("GET "+tailwindPath, tailwindHandler)
-	mux.Handle("GET /assets/webui/{file}", webuiScriptHandler)
 	mux.HandleFunc("/api/", s.api)
 	return mux
 }
@@ -165,22 +253,21 @@ func webuiFail(w http.ResponseWriter, status int, message string) {
 	webuiReply(w, status, map[string]string{"error": message})
 }
 
-// api answers a request of the API carrying the key as its bearer token: GET /api/cas, the CAs
-// with what the forms of the page start with, and the requests of the tokens or the certificates.
+// api answers a request of the API carrying a token of the webui as its bearer token: GET
+// /api/cas, the CAs the token opens with what the forms of the page start with, and the requests
+// of the tokens or the certificates.
 func (s *webuiServer) api(w http.ResponseWriter, r *http.Request) {
-	given, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || subtle.ConstantTimeCompare([]byte(given), []byte(s.key)) != 1 {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="simple-ca webui"`)
-		webuiFail(w, http.StatusUnauthorized, "the key printed at the start is required")
+	ui := *s
+	if !ui.authenticate(w, r) {
 		return
 	}
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/cas":
-		s.listCAs(w)
-	case s.certs:
-		s.certAPI(w, r)
+		ui.listCAs(w)
+	case ui.certs:
+		ui.certAPI(w, r)
 	default:
-		s.tokenAPI(w, r)
+		ui.tokenAPI(w, r)
 	}
 }
 
@@ -228,6 +315,17 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 		webuiFail(w, http.StatusNotFound, "no such CA")
 		return
 	}
+	db, err := loadTokens(dir)
+	if err != nil {
+		log.Printf("webui: %v", err)
+		webuiFail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// A token is renewed, revoked or removed only by a token that may grant its scopes.
+	if t, ok := db.Tokens[req.Name]; ok && r.URL.Path != "/api/tokens" && !s.grants(t.scopes()) {
+		webuiFail(w, http.StatusForbidden, "your token cannot manage '"+req.Name+"': it has a scope your token does not have")
+		return
+	}
 	switch r.URL.Path {
 	case "/api/tokens":
 		valid, err := time.ParseDuration(strings.TrimSpace(req.Valid))
@@ -235,20 +333,30 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, http.StatusBadRequest, "valid: '"+req.Valid+"' is not a duration such as 8h")
 			return
 		}
-		domains, ips := req.Domains, req.IPs
-		if req.Localhost {
-			domains, ips = append(domains, "localhost"), append(ips, "127.0.0.1")
+		scopes := req.Scopes
+		if len(scopes) == 0 {
+			scopes = []string{"sign"}
 		}
-		types := req.Types
-		if len(types) == 0 {
-			types = []string{"server"}
+		if !s.grants(scopes) {
+			webuiFail(w, http.StatusForbidden, "your token can only grant the scopes sign, "+
+				strings.Join(s.userScopes, ", "))
+			return
 		}
-		token, err := makeToken(dir, req.Name, valid, types, domains, ips, req.Clients)
+		domains, ips, types := req.Domains, req.IPs, req.Types
+		if allows(scopes, "sign") {
+			if req.Localhost {
+				domains, ips = append(domains, "localhost"), append(ips, "127.0.0.1")
+			}
+			if len(types) == 0 {
+				types = []string{"server"}
+			}
+		}
+		token, err := makeToken(dir, req.Name, valid, scopes, types, domains, ips, req.Clients)
 		if err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Printf("token %s of %s created", req.Name, dir)
+		log.Printf("token %s of %s created by %s", req.Name, dir, s.user)
 		webuiReply(w, http.StatusCreated, map[string]string{"name": req.Name, "token": token})
 	case "/api/tokens/renew":
 		token, err := renewToken(dir, req.Name, 0)
@@ -256,13 +364,14 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Printf("token %s of %s renewed", req.Name, dir)
+		log.Printf("token %s of %s renewed by %s", req.Name, dir, s.user)
 		webuiReply(w, http.StatusOK, map[string]string{"name": req.Name, "token": token})
 	case "/api/tokens/revoke":
 		if err := revokeToken(dir, req.Name); err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		log.Printf("token %s of %s revoked by %s", req.Name, dir, s.user)
 		webuiReply(w, http.StatusOK, map[string]string{"name": req.Name})
 	case "/api/tokens/purge":
 		if req.Name != "" {
@@ -270,14 +379,22 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 				webuiFail(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			log.Printf("token %s of %s removed by %s", req.Name, dir, s.user)
 			webuiReply(w, http.StatusOK, map[string]int{"removed": 1})
 			return
 		}
-		n, err := purgeTokens(dir, 0)
-		if err != nil {
-			webuiFail(w, http.StatusInternalServerError, err.Error())
-			return
+		// Every expired or revoked token is removed that the token of the request may grant.
+		now, n := time.Now(), 0
+		for _, name := range slices.Sorted(maps.Keys(db.Tokens)) {
+			if t := db.Tokens[name]; !now.Before(t.Expires) && s.grants(t.scopes()) {
+				if err := purgeToken(dir, name); err != nil {
+					webuiFail(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				n++
+			}
 		}
+		log.Printf("%d tokens of %s removed by %s", n, dir, s.user)
 		webuiReply(w, http.StatusOK, map[string]int{"removed": n})
 	}
 }
@@ -297,23 +414,18 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		return
 	}
 
-	ids := []string{""}
-	entries, _ := os.ReadDir(s.rootDir)
-	for _, e := range entries {
-		if e.IsDir() && kebabCaseRE.MatchString(e.Name()) && fileExists(filepath.Join(s.rootDir, e.Name(), "ca_cert.pem")) {
-			ids = append(ids, e.Name())
-		}
-	}
 	var cas []webuiCA
-	for _, id := range ids {
-		dir, _ := s.caDir(id)
+	for _, id := range s.caIDs() {
+		dir, ok := s.caDir(id)
+		if !ok {
+			continue
+		}
 		cert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
 		if err != nil {
 			log.Printf("webui: %v", err)
 			continue
 		}
-		ca := webuiCA{ID: id, Role: "root CA", Name: cmp.Or(cert.Subject.CommonName, nameString(cert.Subject)),
-			Subject: nameString(cert.Subject), SubjectAttributes: subjectAttributes(cert.Subject),
+		ca := webuiCA{ID: id, Role: "root CA", subjectView: newSubjectView(nameString(cert.Subject)),
 			Label: "root CA: " + cert.Subject.CommonName, HasKey: fileExists(filepath.Join(dir, "ca_key.pem"))}
 		if id != "" {
 			ca.Role, ca.Label = "issuing CA "+id, "issuing CA "+id+": "+cert.Subject.CommonName
@@ -321,7 +433,8 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		cas = append(cas, ca)
 	}
 
-	answer := map[string]any{"title": rootCert.Subject.CommonName, "types": slices.Sorted(maps.Keys(types)), "cas": cas}
+	answer := map[string]any{"title": rootCert.Subject.CommonName, "types": slices.Sorted(maps.Keys(types)), "cas": cas,
+		"user": s.user, "user_ca": s.userCA}
 	if s.certs {
 		// The certificate page tells the name rules of each type, the revocation reasons, and the
 		// validity of a certificate and of a CRL in days.
@@ -342,7 +455,15 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		if len(defaults.Types) == 0 {
 			defaults.Types = []string{"server"}
 		}
-		answer["defaults"] = defaults
+		// The scopes the token of the request grants, and the default ones among them.
+		grantable := slices.DeleteFunc(append(slices.Clone(tokenScopes), "*"), func(scope string) bool { return !s.grants([]string{scope}) })
+		defaults.Scopes = slices.DeleteFunc(slices.Clone(cfg.Tokens.Scopes), func(scope string) bool {
+			return !slices.Contains(grantable, scope)
+		})
+		if len(defaults.Scopes) == 0 {
+			defaults.Scopes = []string{"sign"}
+		}
+		answer["scopes"], answer["defaults"] = grantable, defaults
 	}
 	webuiReply(w, http.StatusOK, answer)
 }
@@ -360,7 +481,7 @@ func (s *webuiServer) listTokens(w http.ResponseWriter, dir string) {
 	for _, name := range slices.Sorted(maps.Keys(db.Tokens)) {
 		t := db.Tokens[name]
 		tokens = append(tokens, webuiToken{Name: name, Expires: t.Expires, Revoked: t.revoked(),
-			Expired: !now.Before(t.Expires), Types: t.Types, Domains: t.Domains, IPs: showPrefixes(t.IPs),
+			Expired: !now.Before(t.Expires), Scopes: t.scopes(), Types: t.Types, Domains: t.Domains, IPs: showPrefixes(t.IPs),
 			Clients: showPrefixes(t.Clients), Certs: len(t.Certs)})
 	}
 	webuiReply(w, http.StatusOK, map[string][]webuiToken{"tokens": tokens})

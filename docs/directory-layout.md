@@ -12,7 +12,7 @@ CA_DIR/
   crl.pem                  root CA CRL (crl create)
   openssl.cnf              configuration of openssl ca (ca create --write-conf)
   acme.json                ACME accounts and orders of the root CA (serve)
-  tokens-db.json           signing API tokens of the root CA (token create)
+  tokens-db.json           tokens of the root CA (token create)
   tokens-db.json.lock      lock of tokens-db.json while it is changed
   {name}_cert.pem          certificate issued by the root CA
   {name}_key.pem           key of a certificate issued by the root CA
@@ -26,7 +26,7 @@ CA_DIR/
     crl.pem                issuing CA CRL (crl create)
     openssl.cnf            configuration of openssl ca (ca create --write-conf)
     acme.json              ACME accounts and orders of the issuing CA (serve)
-    tokens-db.json         signing API tokens of the issuing CA (token create)
+    tokens-db.json         tokens of the issuing CA (token create)
     tokens-db.json.lock    lock of tokens-db.json while it is changed
     {name}_cert.pem        certificate issued by the issuing CA
     {name}_key.pem         key of a certificate issued by the issuing CA

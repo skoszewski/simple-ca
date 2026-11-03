@@ -36,7 +36,7 @@ openssl verify -CAfile /tmp/ca/ca_bundle.pem /tmp/ca/web_cert.pem
 simple-ca serve --ca-dir /tmp/ca
 ```
 
-The commands are in groups, `ca`, `cert`, `crl` and `token`, and `serve` stands alone;
+The commands are in groups, `ca`, `cert`, `crl` and `token`, and `serve` is a command of its own;
 `simple-ca -h` lists them.
 
 ## Documentation

@@ -23,11 +23,11 @@
 package main
 
 import (
-	"cmp"
 	"crypto/sha256"
 	"crypto/x509"
 	"embed"
 	"encoding/asn1"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -108,28 +108,31 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 	return server.Serve(listener)
 }
 
-// templateFiles are the pages of serve, token webui and cert webui, in the style of Tailwind CSS
-// from its browser build: index.html, the list of the CAs; sign.html, the signing form;
-// tokens.html and certs.html, the tokens and the certificates of the CAs, with the parts they
-// share in webui-common.html; and theme.html, the colours all of them share.
+// templateFiles are the pages of serve, in the style of Tailwind CSS from its browser build:
+// index.html, the list of the CAs; sign.html, the signing form; tokens.html and certs.html, the
+// tokens and the certificates of the CAs, with the parts they share in webui-common.html; and
+// theme.html, the colours all of them share.
 //
 //go:embed templates/*.html
 var templateFiles embed.FS
 
-// pageTemplates are templateFiles parsed, each named after its file.
-var pageTemplates = template.Must(template.ParseFS(templateFiles, "templates/*.html"))
+// pageTemplates are templateFiles parsed, each named after its file, with the function json,
+// which writes a value as JSON.
+var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json": func(v any) (string, error) {
+	b, err := json.Marshal(v)
+	return string(b), err
+}}).ParseFS(templateFiles, "templates/*.html"))
 
-// indexCA is a CA of the index page: its name, the CN of its subject or else the whole subject,
-// the attributes of its subject, each a type and a value, the fields of its certificate, its role,
+// indexCA is a CA of the index page: its subject, the fields of its certificate, its role,
 // Root CA or Subordinate CA, its expiry as "expired" or the days left, whether fewer than 30 days
 // are left, its SHA-256 fingerprint in four groups of eight bytes, its CRL, the URL path of its
 // files, the URLs of its ACME directory and signing API, and the ID of its row, the name of an
 // issuing CA.
 type indexCA struct {
-	Name, Subject, Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME, API, ID string
-	SubjectAttributes                                                                               [][2]string
-	ExpiresSoon                                                                                     bool
-	Fingerprint                                                                                     []string
+	subjectView
+	Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME, API, ID string
+	ExpiresSoon                                                                      bool
+	Fingerprint                                                                      []string
 }
 
 // newServeMux returns the handler serving an index page at /, the files of servedFiles of the
@@ -138,8 +141,9 @@ type indexCA struct {
 // acme.domains in simple-ca.json, it also serves the ACME server of each CA whose key is there.
 // The signing API and form take the client of a request from the X-Forwarded-For header of the
 // trusted proxies. An executable built with serve-markdown's page assets shows the help of the
-// signing API at /help/ and, with docs, the guides at /docs/.
-func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeMux {
+// signing API at /help/ and, with docs, the guides at /docs/. With webui, it serves the token
+// page at tokensPath and the certificate page at certsPath.
+func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		var cas []indexCA
@@ -171,19 +175,17 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeM
 			}
 			fingerprint := sha256.Sum256(cert.Raw)
 			ca := indexCA{
-				Name:      cmp.Or(cert.Subject.CommonName, nameString(cert.Subject)),
-				Subject:   nameString(cert.Subject),
-				Role:      "Root CA",
-				Issuer:    nameString(cert.Issuer),
-				Serial:    serialHex(cert.SerialNumber),
-				NotBefore: cert.NotBefore.UTC().Format(displayTimeFormat),
-				NotAfter:  cert.NotAfter.UTC().Format(displayTimeFormat),
-				Expiry:    "expired",
-				Key:       keyDescription(cert),
+				subjectView: newSubjectView(nameString(cert.Subject)),
+				Role:        "Root CA",
+				Issuer:      nameString(cert.Issuer),
+				Serial:      serialHex(cert.SerialNumber),
+				NotBefore:   cert.NotBefore.UTC().Format(displayTimeFormat),
+				NotAfter:    cert.NotAfter.UTC().Format(displayTimeFormat),
+				Expiry:      "expired",
+				Key:         keyDescription(cert),
 				Fingerprint: []string{colonHex(fingerprint[:8]), colonHex(fingerprint[8:16]),
 					colonHex(fingerprint[16:24]), colonHex(fingerprint[24:])},
-				Path:              "/",
-				SubjectAttributes: subjectAttributes(cert.Subject),
+				Path: "/",
 			}
 			if left := time.Until(cert.NotAfter); left > 0 {
 				days := int(math.Ceil(left.Hours() / 24))
@@ -219,17 +221,20 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeM
 			cas = append(cas, ca)
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		help, guides := "", ""
+		help, guides, tokens, certs := "", "", "", ""
 		if helpSite != nil {
 			help = helpPath
 		}
 		if docs && docsSite != nil {
 			guides = docsPath
 		}
+		if webui {
+			tokens, certs = tokensPath, certsPath
+		}
 		if err := pageTemplates.ExecuteTemplate(w, "index.html", struct {
-			Title, Script, Help, Docs string
-			CAs                       []indexCA
-		}{title, tailwindPath, help, guides, cas}); err != nil {
+			Title, Script, Help, Docs, Tokens, Certs string
+			CAs                                      []indexCA
+		}{title, tailwindPath, help, guides, tokens, certs, cas}); err != nil {
 			log.Printf("%s: %v", r.URL.Path, err)
 		}
 	})
@@ -396,15 +401,18 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs bool) *http.ServeM
 		})
 	}
 
-	// The help at /help/ and the guides at /docs/ are served by a mux in front of the routes of
-	// the CAs.
-	if helpSite == nil {
-		return mux
-	}
+	// The help at /help/, the guides at /docs/ and the token and certificate pages are served by a
+	// mux in front of the routes of the CAs.
 	top := http.NewServeMux()
-	top.Handle(helpPath, helpSite)
+	if helpSite != nil {
+		top.Handle(helpPath, helpSite)
+	}
 	if docs && docsSite != nil {
 		top.Handle(docsPath, docsSite)
+	}
+	if webui {
+		top.Handle(tokensPath, http.StripPrefix(strings.TrimSuffix(tokensPath, "/"), (&webuiServer{rootDir: rootDir, trusted: trusted}).mux()))
+		top.Handle(certsPath, http.StripPrefix(strings.TrimSuffix(certsPath, "/"), (&webuiServer{rootDir: rootDir, trusted: trusted, certs: true}).mux()))
 	}
 	top.Handle("/", mux)
 	return top

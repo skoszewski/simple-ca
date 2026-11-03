@@ -1,4 +1,4 @@
-// The page of cert webui: the certificates and the CRL of the CA, and the dialog creating a
+// The certificate page of serve: the certificates and the CRL of the CA, and the dialog creating a
 // certificate or signing a request. The certificates and the CRL are written to the CA directory,
 // as the commands write them; the page offers no file.
 let signing = false;
@@ -15,7 +15,7 @@ async function showCA() {
   }
   const rows = answer.certs.map((c) => element("tr", {},
     cell(c.status === "valid" ? "valid" : badge(c.status), "whitespace-nowrap"),
-    cell(c.subject, "whitespace-nowrap"),
+    cell(element("span", {}, ...named(c.name, c.subject_attributes)), "whitespace-nowrap"),
     cell(time(c.expires), "whitespace-nowrap"),
     cell(c.revoked ? time(c.revoked) + (c.reason ? ", " + c.reason : "") : "-", "whitespace-nowrap"),
     element("td", { className: "py-1.5 text-right" }, element("div", { className: "flex justify-end gap-2" },
@@ -34,7 +34,7 @@ async function showCA() {
         className: "rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" }) : null),
     ca.has_key ? element("div", { className: "flex flex-wrap gap-2" },
       button("Create a certificate", () => openCert(false), true), button("Sign a request", () => openCert(true), true))
-      : element("p", { className: "text-sm text-muted", textContent: "The key of this CA is not here, so it cannot sign here." }));
+      : element("p", { className: "text-sm text-muted", textContent: "This CA's key is not on this server, so it cannot sign certificates here." }));
 }
 
 // show shows the fields of the certificate c in its dialog.
@@ -46,7 +46,7 @@ async function show(c) {
     failed(error);
     return;
   }
-  $("show-title").textContent = c.subject;
+  $("show-title").textContent = c.name;
   $("show-file").textContent = "From " + answer.file + " in the CA directory.";
   $("show-fields").replaceChildren(...answer.fields.flatMap(([name, value]) => [
     element("dt", { className: "font-medium text-muted", textContent: name }),
@@ -60,12 +60,12 @@ async function revoke(c) {
     choices: [["", "no reason"], ...info.reasons.map((r) => [r, r])], value: "" });
   const label = element("div", { className: "space-y-1 text-sm" },
     element("span", { id: "reason-label", className: "block font-medium", textContent: "Reason" }), reason);
-  if (!(await confirmed(`Revoke the certificate ${c.subject}, serial ${c.serial}?`, "Revoke", label))) {
+  if (!(await confirmed(`Revoke the certificate ${c.name}, serial ${c.serial}?`, "Revoke", label))) {
     return;
   }
   try {
     await api("POST", "/api/certs/revoke", { ca: caID, serial: c.serial, reason: reason.querySelector("input").value });
-    say(`Certificate ${c.subject} revoked. Write the CRL to publish it.`);
+    say(`Certificate ${c.name} revoked. Write the CRL to publish it.`);
   } catch (error) {
     failed(error);
   }
@@ -128,15 +128,15 @@ $("cert-form").addEventListener("submit", async (event) => {
   try {
     if (signing) {
       const answer = await api("POST", "/api/certs/sign", { ...common, name: fields.name.value.trim(), csr: fields.csr.value });
-      say(`Request signed; the certificate is in the CA directory as ${answer.file}.`);
+      say(`Request signed; the certificate was written to ${answer.file} in the CA directory.`);
     } else {
       const answer = await api("POST", "/api/certs", { ...common, subject: fields.subject.value.trim(), sans: list(fields.sans.value) });
-      say(`Certificate ${answer.subject} created, with its key, in the CA directory.`);
+      say(`Certificate ${answer.subject} and its key were written to the CA directory.`);
     }
     $("cert-dialog").close();
     showCA();
   } catch (error) {
-    if (error.message !== "no key") {
+    if (error.message !== "no token") {
       $("cert-error").textContent = error.message;
       $("cert-error").classList.remove("hidden");
     }

@@ -23,9 +23,7 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"net/netip"
 	"os"
 	"slices"
 	"strings"
@@ -37,37 +35,49 @@ import (
 // runTokenCreate runs token create.
 func runTokenCreate(args []string) error {
 	fs := newFlagSet("token create", "NAME",
-		"Create the token NAME of the signing API of the CA in --ca-dir, and print it.\n\n"+
-			"The token is a JWT signed with the CA key, valid for that CA alone. It allows the\n"+
-			"certificate types of --type, the names of the --domain domains and below them, and the IP\n"+
-			"addresses of --ip; at least one --domain, --ip or --localhost is given. With --host or\n"+
-			"--network, it is accepted only from those client addresses.\n\n"+
-			"An option not given takes its default from tokens of simple-ca.json, and the defaults\n"+
-			"below without it; --host and --network replace hosts and networks together.")
-	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+		"Create the token NAME of the CA in --ca-dir, and print it.\n\n"+
+			"The token is a JWT signed with the CA key and valid for that CA only. Scopes: sign (the\n"+
+			"signing API and the signing form of serve), tokens (the /tokens/ page of serve --webui),\n"+
+			"certs (its /certificates/ page). A root CA token opens the pages for every CA; an issuing\n"+
+			"CA token opens only its own CA.\n\n"+
+			"With the scope sign, the token allows the --type certificate types, the --domain domains\n"+
+			"and their subdomains, and the --ip addresses; at least one --domain, --ip or --localhost\n"+
+			"is required. With --host or --network, the token is accepted only from those clients.\n\n"+
+			"Options not given default to the tokens section of simple-ca.json, then to the defaults\n"+
+			"below. --host and --network together replace hosts and networks. The defaults of --type,\n"+
+			"--domain, --ip and --localhost apply only with the scope sign.")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := fs.Duration("valid", time.Hour, "validity `period` of the token, such as 30m, 8h or 720h")
-	localhost := fs.Bool("localhost", false, "allow certificates of localhost, with the IP SAN 127.0.0.1")
-	var certTypes, domains, ips, clients []string
-	fs.Func("type", "certificate `type` the token allows; repeated for more (default: server)", func(s string) error {
+	localhost := fs.Bool("localhost", false, "allow the name localhost and the IP address 127.0.0.1")
+	var scopes, certTypes, domains, ips, clients []string
+	fs.Func("scope", "`scope` of the token: sign, tokens, certs, or * for all; may be specified multiple times\n"+
+		"(default: sign)", func(s string) error {
+		scopes = append(scopes, s)
+		return nil
+	})
+	fs.Func("type", "certificate `type` the token allows, or * for any; may be specified multiple times\n"+
+		"(default: server)", func(s string) error {
 		certTypes = append(certTypes, s)
 		return nil
 	})
-	fs.Func("domain", "`domain` whose names, and the names below it, the token allows, or * for any name;\n"+
-		"repeated for more", func(s string) error {
+	fs.Func("domain", "`domain` the token allows, with its subdomains, or * for any name; may be specified\n"+
+		"multiple times", func(s string) error {
 		domains = append(domains, s)
 		return nil
 	})
-	fs.Func("ip", "IP `address` or prefix, such as 192.0.2.10 or 10.0.0.0/8, the IP SANs of the\n"+
-		"certificates may be in, or * for any address; repeated for more", func(s string) error {
+	fs.Func("ip", "IP `address` or prefix allowed in the certificate IP SANs, such as 192.0.2.10 or\n"+
+		"10.0.0.0/8, or * for any address; may be specified multiple times", func(s string) error {
 		ips = append(ips, s)
 		return nil
 	})
-	fs.Func("host", "client IP `address` the token is accepted from; repeated for more (default: any)", func(s string) error {
+	fs.Func("host", "client IP `address` the token is accepted from; may be specified multiple times\n"+
+		"(default: any)", func(s string) error {
 		clients = append(clients, s)
 		return nil
 	})
-	fs.Func("network", "comma-separated `prefixes`, such as 192.168.1.0/24,10.0.0.0/8, of the client\n"+
-		"addresses the token is accepted from; repeated for more (default: any)", func(s string) error {
+	fs.Func("network", "comma-separated client `prefixes` the token is accepted from, such as\n"+
+		"192.168.1.0/24,10.0.0.0/8; may be specified multiple times (default: any)", func(s string) error {
+
 		for _, p := range strings.Split(s, ",") {
 			if p = strings.TrimSpace(p); p == "" {
 				return fmt.Errorf("empty prefix in '%s'", s)
@@ -93,29 +103,37 @@ func runTokenCreate(args []string) error {
 			return fmt.Errorf("tokens.valid of %s: '%s' is not a duration such as 8h", cfg.path, defaults.Valid)
 		}
 	}
-	if !given["type"] {
-		certTypes = slices.Clone(defaults.Types)
+	if !given["scope"] {
+		scopes = slices.Clone(defaults.Scopes)
 	}
-	if !given["domain"] {
-		domains = slices.Clone(defaults.Domains)
+	if len(scopes) == 0 {
+		scopes = []string{"sign"}
 	}
-	if !given["ip"] {
-		ips = slices.Clone(defaults.IPs)
-	}
-	if !given["localhost"] {
-		*localhost = defaults.Localhost
+	if allows(scopes, "sign") {
+		if !given["type"] {
+			certTypes = slices.Clone(defaults.Types)
+		}
+		if !given["domain"] {
+			domains = slices.Clone(defaults.Domains)
+		}
+		if !given["ip"] {
+			ips = slices.Clone(defaults.IPs)
+		}
+		if !given["localhost"] {
+			*localhost = defaults.Localhost
+		}
+		if len(certTypes) == 0 {
+			certTypes = []string{"server"}
+		}
 	}
 	if !given["host"] && !given["network"] {
 		clients = append(slices.Clone(defaults.Hosts), defaults.Networks...)
-	}
-	if len(certTypes) == 0 {
-		certTypes = []string{"server"}
 	}
 	if *localhost {
 		domains = append(domains, "localhost")
 		ips = append(ips, "127.0.0.1")
 	}
-	token, err := makeToken(dir, rest[0], *valid, certTypes, domains, ips, clients)
+	token, err := makeToken(dir, rest[0], *valid, scopes, certTypes, domains, ips, clients)
 	if err != nil {
 		return err
 	}
@@ -125,8 +143,8 @@ func runTokenCreate(args []string) error {
 
 // runTokenList runs token list.
 func runTokenList(args []string) error {
-	fs := newFlagSet("token list", "", "List the tokens of the signing API of the CA in --ca-dir.")
-	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	fs := newFlagSet("token list", "", "List the tokens of the CA in --ca-dir.")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
 		return err
 	}
@@ -135,9 +153,9 @@ func runTokenList(args []string) error {
 
 // runTokenRevoke runs token revoke.
 func runTokenRevoke(args []string) error {
-	fs := newFlagSet("token revoke", "NAME", "Revoke the token NAME of the signing API of the CA in --ca-dir: its JWT is refused\n"+
-		"from then on, and the token is kept, to be renewed, until token purge removes it.")
-	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+	fs := newFlagSet("token revoke", "NAME", "Revoke the token NAME of the CA in --ca-dir. Its JWT stops working at once;\n"+
+		"the token stays listed, and can be renewed, until token purge removes it.")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	rest, _, err := parseArgs(fs, args, 1, 1)
 	if err != nil {
 		return err
@@ -145,56 +163,12 @@ func runTokenRevoke(args []string) error {
 	return revokeToken(resolveCADir(*caDir), rest[0])
 }
 
-// runTokenWebUI runs token webui until it fails or is interrupted.
-func runTokenWebUI(args []string) error {
-	return runWebUI(args, "token webui", 8081, false,
-		"Serve a web page managing the tokens of the signing API of the root CA of the CA in\n"+
-			"--ca-dir and of its issuing CAs, with its API below /api/: list, create, renew, revoke and\n"+
-			"purge them.")
-}
-
-// runWebUI runs token webui, or cert webui with certs, named command, on port by default, until it
-// fails or is interrupted; summary describes it.
-func runWebUI(args []string, command string, port int, certs bool, summary string) error {
-	fs := newFlagSet(command, "", summary+"\n\n"+
-		"The API takes the key printed at the start as the bearer token of each request, until\n"+
-		command+" stops; the page asks for it, or reads it from ?key= of its URL.")
-	caDir := fs.String("ca-dir", "", "`directory` of the root CA or of one of its issuing CAs")
-	address := fs.String("address", "127.0.0.1", "`address` of the interface to listen on")
-	fs.IntVar(&port, "port", port, "TCP `port` to listen on")
-	tlsCert := fs.String("tls-cert", "", "serve HTTPS with the certificate chain in this PEM `file`")
-	tlsKey := fs.String("tls-key", "", "private key of --tls-cert, a PEM `file`")
-	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
-		return err
-	}
-	if (*tlsCert == "") != (*tlsKey == "") {
-		return errors.New("--tls-cert and --tls-key must be given together")
-	}
-	rootDir, _, err := locateCA(resolveCADir(*caDir))
-	if err != nil {
-		return err
-	}
-	ui := &webuiServer{rootDir: rootDir, key: randomID(), certs: certs}
-	what := "tokens"
-	if certs {
-		what = "certificates"
-	}
-	return runHTTPServer(ui.mux(), *address, port, *tlsCert, *tlsKey, func(origin string) {
-		if ip, err := netip.ParseAddr(*address); *tlsCert == "" && (err != nil || !ip.IsLoopback()) {
-			fmt.Fprintln(os.Stderr, "warning: the page is served over plain HTTP beyond this machine; "+
-				"its key can be read on the network")
-		}
-		fmt.Printf("Managing the %s of the CAs of %s; open this URL, or give the page its key, valid\n"+
-			"until %s stops:\n  %s/?key=%s\n", what, rootDir, command, origin, ui.key)
-	})
-}
-
 // runTokenPurge runs token purge.
 func runTokenPurge(args []string) error {
 	fs := newFlagSet("token purge", "[NAME]",
-		"Remove the expired and revoked tokens of the signing API of the CA in --ca-dir, or the\n"+
-			"token NAME alone, expired or revoked, for good: a token removed cannot be renewed.")
-	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+		"Remove the expired and revoked tokens of the CA in --ca-dir, or only the token NAME,\n"+
+			"which must be expired or revoked. Removed tokens cannot be renewed.")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	rest, _, err := parseArgs(fs, args, 0, 1)
 	if err != nil {
 		return err
@@ -217,10 +191,9 @@ func runTokenPurge(args []string) error {
 // runTokenRenew runs token renew.
 func runTokenRenew(args []string) error {
 	fs := newFlagSet("token renew", "NAME",
-		"Renew the token NAME of the signing API of the CA in --ca-dir, expired or not, and print\n"+
-			"it: it gets a new JWT ID and is valid from now, allowing what it allowed before, and the\n"+
-			"JWT it had is refused from then on.")
-	caDir := fs.String("ca-dir", "", "`directory` of the CA, the root CA or an issuing CA")
+		"Renew the token NAME of the CA in --ca-dir, expired or not, and print it. It gets a new\n"+
+			"JWT, valid from now, with the same scopes and limits; the old JWT stops working.")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := fs.Duration("valid", 0, "validity `period` of the token, such as 30m, 8h or 720h (default: the period it had)")
 	rest, _, err := parseArgs(fs, args, 1, 1)
 	if err != nil {

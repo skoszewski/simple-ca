@@ -1,27 +1,28 @@
-// The parts token webui and cert webui share, after picker.js. The page draws one CA from the API,
-// sending the key, which the tab keeps, as its bearer token; the CA on the page is in the address
-// as ?ca=. The script of the page, loaded after this one, defines showCA, which draws the CA.
-const keyName = "simple-ca-webui-key";
+// The parts the token and certificate pages share, after picker.js. The page draws one CA from
+// the API, sending the token, which the tab keeps, as its bearer token; the CA on the page is in
+// the address as ?ca=. The script of the page, loaded after this one, defines showCA, which draws
+// the CA.
+const tokenName = "simple-ca-webui-token";
 const params = new URLSearchParams(location.search);
-if (params.has("key")) {
-  sessionStorage.setItem(keyName, params.get("key"));
-  params.delete("key");
-}
+const base = location.pathname.replace(/\/$/, "");
 let caID = params.get("ca") || "";
 let info = null;
 const $ = (id) => document.getElementById(id);
 
-// api sends a request of the API and returns its answer; a missing or wrong key asks for one.
+// api sends a request of the API of the page, below its path, and returns its answer; a token
+// refused asks for another.
 async function api(method, path, body) {
-  const headers = { Authorization: "Bearer " + (sessionStorage.getItem(keyName) || "") };
+  const headers = { Authorization: "Bearer " + (sessionStorage.getItem(tokenName) || "") };
   if (body) {
     headers["Content-Type"] = "application/json";
   }
-  const response = await fetch(path, { method, headers, body: body && JSON.stringify(body) });
+  const response = await fetch(base + path, { method, headers, body: body && JSON.stringify(body) });
   const answer = await response.json().catch(() => ({}));
-  if (response.status === 401) {
-    askKey(sessionStorage.getItem(keyName) ? "This key is wrong. Start the page again for a new key." : "");
-    throw new Error("no key");
+  if (response.status === 401 || (response.status === 403 && path === "/api/cas")) {
+    const refused = sessionStorage.getItem(tokenName) ? answer.error || response.statusText : "";
+    sessionStorage.removeItem(tokenName);
+    askToken(refused);
+    throw new Error("no token");
   }
   if (!response.ok) {
     throw new Error(answer.error || response.statusText);
@@ -29,8 +30,8 @@ async function api(method, path, body) {
   return answer;
 }
 
-// askKey shows the dialog asking for the key, with the error given.
-function askKey(failure) {
+// askToken shows the dialog asking for the token, with the error given.
+function askToken(failure) {
   $("login-error").textContent = failure;
   $("login-error").classList.toggle("hidden", !failure);
   if (!$("login").open) {
@@ -40,9 +41,15 @@ function askKey(failure) {
 $("login").addEventListener("cancel", (event) => event.preventDefault());
 $("login-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  sessionStorage.setItem(keyName, $("login-key").value.trim());
+  sessionStorage.setItem(tokenName, $("login-token").value.trim());
+  $("login-token").value = "";
   $("login").close();
   load();
+});
+$("sign-out").addEventListener("click", () => {
+  sessionStorage.removeItem(tokenName);
+  $("user-row").classList.replace("flex", "hidden");
+  askToken("");
 });
 
 // say shows a message, or an error, above the CA, and hides the other.
@@ -53,9 +60,9 @@ function say(message, failure = "") {
   $("error").classList.toggle("hidden", !failure);
 }
 
-// failed shows the error of a request, unless it is the missing key the page asks for.
+// failed shows the error of a request, unless it is the token the page asks for.
 function failed(error) {
-  if (error.message !== "no key") {
+  if (error.message !== "no token") {
     say("", error.message);
   }
 }
@@ -74,7 +81,7 @@ function confirmed(question, action, ...extra) {
   });
 }
 
-// A dialog other than the one asking for the key closes on a click beside it.
+// A dialog other than the one asking for the token closes on a click beside it.
 for (const dialog of document.querySelectorAll("dialog:not(#login)")) {
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) {
@@ -83,7 +90,7 @@ for (const dialog of document.querySelectorAll("dialog:not(#login)")) {
   });
 }
 
-// load reads the CAs and shows the one in the address, the root CA for one that is not there.
+// load reads the CAs and shows the one in the address, or the first CA the token opens.
 async function load() {
   try {
     info = await api("GET", "/api/cas");
@@ -92,8 +99,10 @@ async function load() {
     return;
   }
   $("title").textContent = info.title + ", managed by simple-ca";
+  $("user").textContent = "Signed in as " + info.user + (info.user_ca ? " of issuing CA " + info.user_ca : "");
+  $("user-row").classList.replace("hidden", "flex");
   if (!info.cas.some((ca) => ca.id === caID)) {
-    caID = "";
+    caID = info.cas[0].id;
   }
   $("chooser-row").classList.replace("hidden", "flex");
   await showCA();
@@ -109,7 +118,7 @@ function choose(id) {
 // currentCA puts the CA on the page in the address and the chooser, and returns it.
 function currentCA() {
   params.set("ca", caID);
-  history.replaceState(null, "", "/?" + params);
+  history.replaceState(null, "", base + "/?" + params);
   $("ca-picker").replaceChildren(picker({ name: "ca", id: "ca-chooser", labelledBy: "ca-label",
     choices: info.cas.map((ca) => [ca.id, ca.label]), value: caID, onchange: choose }));
   return info.cas.find((ca) => ca.id === caID);
@@ -123,15 +132,8 @@ const badge = (text) => element("span", { className: "rounded-full bg-bad px-2 p
 const cell = (content, extra = "") => element("td", { className: "py-1.5 pr-3 " + extra }, content);
 const time = (value) => new Date(value).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
 const heading = (ca) => {
-  const popup = element("div", { role: "tooltip",
-    className: "fixed z-20 hidden rounded-lg border border-line bg-card px-3 py-2 text-xs font-normal shadow-lg" },
-    element("dl", { className: "grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5" },
-      ...ca.subject_attributes.flatMap(([type, value]) => [
-        element("dt", { className: "text-muted", textContent: type }), element("dd", { textContent: value })])));
-  const name = withPopup(element("span", { tabIndex: 0, textContent: ca.name,
-    className: "cursor-help underline decoration-muted decoration-dotted underline-offset-4" }), popup);
   return element("div", { className: "flex flex-wrap items-baseline justify-between gap-2" },
-    element("h2", { className: "text-lg font-semibold" }, name, popup),
+    element("h2", { className: "text-lg font-semibold" }, ...named(ca.name, ca.subject_attributes)),
     element("span", { className: "rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium text-subtle-ink", textContent: ca.role }));
 };
 const table = (headings, rows) => element("div", { className: "overflow-x-auto" }, element("table", { className: "w-full text-left text-sm" },
@@ -142,9 +144,9 @@ const list = (text) => text.split(/[\s,]+/).filter(Boolean);
 
 // start loads the page once the script of the page has defined showCA.
 function start() {
-  if (sessionStorage.getItem(keyName)) {
+  if (sessionStorage.getItem(tokenName)) {
     load();
   } else {
-    askKey("");
+    askToken("");
   }
 }

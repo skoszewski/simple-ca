@@ -77,14 +77,34 @@ func nameString(name pkix.Name) string {
 	return b.String()
 }
 
-// subjectAttributes returns the attributes of name, each its type, as nameString writes it, and
-// its value.
-func subjectAttributes(name pkix.Name) [][2]string {
-	var attributes [][2]string
-	for _, attr := range name.Names {
-		attributes = append(attributes, [2]string{cmp.Or(nameAttributes[attr.Type.String()], attr.Type.String()), fmt.Sprint(attr.Value)})
+// nameStringRE matches the start of an attribute of the one-line form nameString writes: a
+// slash, a type of nameAttributes or an OID, and an equals sign.
+var nameStringRE = regexp.MustCompile(`/(CN|serialNumber|C|L|ST|O|OU|emailAddress|[0-9]+(?:\.[0-9]+)+)=`)
+
+// subjectView is a subject as the pages show it: its name, the CN or else the whole subject, the
+// subject in the one-line form nameString writes, and the attributes of it, each a type and a
+// value, which the pages show in a popup of the name.
+type subjectView struct {
+	Name              string      `json:"name"`
+	Subject           string      `json:"subject"`
+	SubjectAttributes [][2]string `json:"subject_attributes"`
+}
+
+// newSubjectView returns the view of subject, a name in the one-line form nameString writes.
+func newSubjectView(subject string) subjectView {
+	view := subjectView{Name: subject, Subject: subject}
+	starts := nameStringRE.FindAllStringSubmatchIndex(subject, -1)
+	for i, m := range starts {
+		end := len(subject)
+		if i+1 < len(starts) {
+			end = starts[i+1][0]
+		}
+		view.SubjectAttributes = append(view.SubjectAttributes, [2]string{subject[m[2]:m[3]], subject[m[1]:end]})
+		if subject[m[2]:m[3]] == "CN" && view.Name == subject {
+			view.Name = subject[m[1]:end]
+		}
 	}
-	return attributes
+	return view
 }
 
 // parseIP returns s as an IPv4 or IPv6 address without a zone.

@@ -37,3 +37,29 @@ downloads nothing: a root CA fetched
 over the network can be replaced on the way, and adding a replaced root CA to the trust store is
 the compromise the store exists to prevent, so the guide tells to compare the fingerprint of a
 copied root CA with the one `simple-ca ca show` prints.
+
+## One kind of token, with scopes, opens the signing API and the web pages
+
+A token of `token create` carries scopes, `sign`, `tokens` and `certs`, and the token and
+certificate pages take it as their bearer token. The pages need access that survives restarts, stays out of the logs,
+names who made a change and can be withdrawn from one person; the signing tokens already do all
+of that, signed with the CA key and recorded, revocable, in `tokens-db.json`, with the Go
+standard library alone. An OIDC login was too heavy for simple-ca, and a second kind of
+credential would duplicate the commands that create, renew, revoke and purge tokens.
+
+The CA whose key signs a token bounds what it opens: a root CA token every CA, an issuing CA
+token that CA alone, so the root CA key can stay offline while the operators of an issuing CA
+use the pages.
+
+The token page grants `sign` and the scopes of its own token, and manages only the tokens whose
+scopes it grants, so a user of the page cannot widen their own access, as a token with `tokens`
+alone could otherwise make itself one with `certs`.
+
+## The token and certificate pages are part of serve
+
+`serve --webui` serves the token page at `/tokens/` and the certificate page at `/certificates/`,
+next to the index page, the signing form and the help, instead of commands of their own. One
+server, one port and one certificate cover every page, the tokens that open the pages make a
+per-process key unnecessary, and the pages share its trusted proxies and its logging. The pages
+are off by default, as they change the CA directories, and their paths are names an issuing CA
+cannot take, as `/help/` and `/docs/` are.

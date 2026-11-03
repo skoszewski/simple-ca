@@ -34,13 +34,13 @@ import (
 	"time"
 )
 
-// ---- cert webui -------------------------------------------------------------
+// ---- the certificate page of serve ------------------------------------------
 
 // webuiCert is a certificate of the API, as index.txt of its CA records it: its serial number, its
 // subject, its status, valid, revoked or expired, its expiry, and when and why it was revoked.
 type webuiCert struct {
-	Serial  string     `json:"serial"`
-	Subject string     `json:"subject"`
+	Serial string `json:"serial"`
+	subjectView
 	Status  string     `json:"status"`
 	Expires time.Time  `json:"expires"`
 	Revoked *time.Time `json:"revoked"`
@@ -218,7 +218,7 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 			webuiFail(w, http.StatusInternalServerError, "invalid expiry of serial "+e.serial)
 			return
 		}
-		c := webuiCert{Serial: e.serial, Subject: e.subject, Status: status, Expires: expires}
+		c := webuiCert{Serial: e.serial, subjectView: newSubjectView(e.subject), Status: status, Expires: expires}
 		if e.revoked != "" {
 			if t, err := parseIndexTime(e.revoked); err == nil {
 				c.Revoked = &t

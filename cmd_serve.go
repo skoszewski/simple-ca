@@ -37,16 +37,20 @@ import (
 // runServe runs serve until it fails or is interrupted.
 func runServe(args []string) error {
 	fs := newFlagSet("serve", "", "Serve the certificates and CRLs of the root CA of the CA in --ca-dir, and of its\n"+
-		"issuing CAs, over HTTP.")
-	caDir := fs.String("ca-dir", "", "`directory` of the root CA or of one of its issuing CAs")
+		"issuing CAs, over HTTP.\n\n"+
+		"With --webui, it also serves the token page at /tokens/ and the certificate page at\n"+
+		"/certificates/. Sign in with a token that has the scope tokens or certs; a root CA token\n"+
+		"opens every CA, an issuing CA token only its own CA.")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	address := fs.String("address", "127.0.0.1", "`address` of the interface to listen on; 0.0.0.0 for all interfaces")
 	port := fs.Int("port", 8080, "TCP `port` to listen on")
-	tlsCert := fs.String("tls-cert", "", "serve HTTPS with the certificate chain in this PEM `file`")
-	tlsKey := fs.String("tls-key", "", "private key of --tls-cert, a PEM `file`")
+	tlsCert := fs.String("tls-cert", "", "serve HTTPS with the certificate chain in this PEM `file` (default: $SIMPLE_CA_TLS_CERT)")
+	tlsKey := fs.String("tls-key", "", "private key of --tls-cert, a PEM `file` (default: $SIMPLE_CA_TLS_KEY)")
 	docs := fs.Bool("docs", false, "serve the guides of simple-ca at /docs/")
+	webui := fs.Bool("webui", false, "serve the token page at /tokens/ and the certificate page at /certificates/")
 	var proxies []string
-	fs.Func("trusted-proxy", "`address` or prefix of a proxy whose X-Forwarded-For names the client of the\n"+
-		"signing API; repeated for more (default: serve.trusted_proxies of simple-ca.json)", func(s string) error {
+	fs.Func("trusted-proxy", "`address` or prefix of a proxy trusted to name the client in X-Forwarded-For; may be\n"+
+		"specified multiple times (default: serve.trusted_proxies of simple-ca.json)", func(s string) error {
 		proxies = append(proxies, s)
 		return nil
 	})
@@ -54,8 +58,8 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	if (*tlsCert == "") != (*tlsKey == "") {
-		return errors.New("--tls-cert and --tls-key must be given together")
+	if *tlsCert, *tlsKey, err = resolveTLS(*tlsCert, *tlsKey); err != nil {
+		return err
 	}
 	if *docs && docsSite == nil {
 		return errors.New("--docs needs the browser files of serve-markdown's page, which this executable " +
@@ -87,8 +91,15 @@ func runServe(args []string) error {
 			return fmt.Errorf("tokens.keep_expired of %s: '%s' is not a duration such as 720h", cfg.path, cfg.Tokens.KeepExpired)
 		}
 	}
-	return runHTTPServer(newServeMux(rootDir, trusted, *docs), *address, *port, *tlsCert, *tlsKey, func(origin string) {
+	return runHTTPServer(newServeMux(rootDir, trusted, *docs, *webui), *address, *port, *tlsCert, *tlsKey, func(origin string) {
 		fmt.Printf("Serving the CAs of %s on %s/\n", rootDir, origin)
+		if *webui {
+			if ip, err := netip.ParseAddr(*address); *tlsCert == "" && (err != nil || !ip.IsLoopback()) {
+				fmt.Fprintln(os.Stderr, "warning: the token and certificate pages are served over plain HTTP beyond "+
+					"this machine; their tokens can be read on the network")
+			}
+			fmt.Printf("Token page: %s%s\nCertificate page: %s%s\n", origin, tokensPath, origin, certsPath)
+		}
 
 		// With tokens.keep_expired, the tokens of the root CA and its issuing CAs expired for
 		// longer are removed on start and every tokensPurgeInterval.

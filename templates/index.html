@@ -13,13 +13,17 @@
         <div class="bg-head px-6 py-4 text-head-ink">
           <h1 class="text-xl font-semibold">{{.Title}}</h1>
           <p class="mt-1 text-sm text-head-muted">CA certificates and certificate revocation lists, served by simple-ca</p>
-          {{- if or .Help .Docs}}
+          {{- if or .Help .Docs .Tokens}}
           <div class="mt-2 flex flex-wrap gap-4">
             {{- if .Help}}
             <a class="text-sm text-head-link hover:underline" href="{{.Help}}">Signing help</a>
             {{- end}}
             {{- if .Docs}}
             <a class="text-sm text-head-link hover:underline" href="{{.Docs}}">Documentation</a>
+            {{- end}}
+            {{- if .Tokens}}
+            <a class="text-sm text-head-link hover:underline" href="{{.Tokens}}">Tokens</a>
+            <a class="text-sm text-head-link hover:underline" href="{{.Certs}}">Certificates</a>
             {{- end}}
           </div>
           {{- end}}
@@ -48,15 +52,7 @@
               {{- range $i, $ca := .CAs}}
               <tr{{if .ID}} id="{{.ID}}"{{end}}>
                 <td class="py-2 pr-3 font-medium whitespace-nowrap">
-                  <span tabindex="0" data-subject="subject-{{$i}}" aria-describedby="subject-{{$i}}" class="cursor-help underline decoration-muted decoration-dotted underline-offset-4">{{.Name}}</span>
-                  <div id="subject-{{$i}}" role="tooltip" class="fixed z-20 hidden rounded-lg border border-line bg-card px-3 py-2 text-xs font-normal shadow-lg">
-                    <dl class="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5">
-                      {{- range .SubjectAttributes}}
-                      <dt class="text-muted">{{index . 0}}</dt>
-                      <dd>{{index . 1}}</dd>
-                      {{- end}}
-                    </dl>
-                  </div>
+                  <span data-subject="{{json .SubjectAttributes}}">{{.Name}}</span>
                 </td>
                 <td class="py-2 pr-3"><span class="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-subtle-ink">{{.Role}}</span></td>
                 <td class="py-2 pr-3 whitespace-nowrap">{{.NotAfter}}

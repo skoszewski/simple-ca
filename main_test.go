@@ -1021,7 +1021,7 @@ func TestWriteOpenSSLConf(t *testing.T) {
 
 func TestServe(t *testing.T) {
 	caDir := t.TempDir()
-	server := httptest.NewServer(newServeMux(caDir, nil, false))
+	server := httptest.NewServer(newServeMux(caDir, nil, false, false))
 	defer server.Close()
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
@@ -1078,7 +1078,7 @@ func TestServe(t *testing.T) {
 	}
 	fingerprint := sha256.Sum256(issuing.Raw)
 	for _, s := range []string{"<title>Test CA - simple-ca</title>", `font-semibold">Test CA</h1>`, "served by simple-ca",
-		"<dd>/CN=Issuing CA</dd>", `underline-offset-4">Issuing CA</span>`, `<dt class="text-muted">CN</dt>`,
+		"<dd>/CN=Issuing CA</dd>", `<span data-subject="[[&#34;CN&#34;,&#34;Issuing CA&#34;]]">Issuing CA</span>`,
 		`font-semibold">Issuing CA</h2>`, `text-subtle-ink">Root CA</span>`, `text-subtle-ink">Subordinate CA</span>`,
 		"<dd>/CN=Test CA</dd>", serialHex(issuing.SerialNumber),
 		`<span class="whitespace-nowrap">` + colonHex(fingerprint[:8]) + `:</span><span class="whitespace-nowrap">` +
@@ -1243,7 +1243,7 @@ func TestACME(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	server := &http.Server{Handler: newServeMux(caDir, nil, false), ErrorLog: log.New(io.Discard, "", 0)}
+	server := &http.Server{Handler: newServeMux(caDir, nil, false, false), ErrorLog: log.New(io.Discard, "", 0)}
 	go server.ServeTLS(listener, filepath.Join(tlsDir, "localhost_cert.pem"), filepath.Join(tlsDir, "localhost_key.pem"))
 	defer server.Close()
 
@@ -1573,7 +1573,7 @@ func TestTokens(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	token, err := makeToken(caDir, "deploy", time.Hour, []string{"server", "user"}, []string{"Example.COM."}, nil, nil)
+	token, err := makeToken(caDir, "deploy", time.Hour, nil, []string{"server", "user"}, []string{"Example.COM."}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
@@ -1605,24 +1605,43 @@ func TestTokens(t *testing.T) {
 		{"other", []string{"server"}, nil},
 		{"other", []string{"server"}, []string{"192.0.2.1"}},
 	} {
-		if _, err := makeToken(caDir, c.name, time.Hour, c.types, c.domains, nil, nil); err == nil {
+		if _, err := makeToken(caDir, c.name, time.Hour, nil, c.types, c.domains, nil, nil); err == nil {
 			t.Fatalf("makeToken %q %v %v succeeded, want an error", c.name, c.types, c.domains)
 		}
 	}
 
 	// --ip takes addresses, kept as prefixes, prefixes, kept masked, and *.
 	for _, ips := range [][]string{{"300.1.2.3"}, {"10.0.0.0/33"}, {"fe80::1%en0"}, {"example.com"}} {
-		if _, err := makeToken(caDir, "ips", time.Hour, []string{"server"}, nil, ips, nil); err == nil {
+		if _, err := makeToken(caDir, "ips", time.Hour, nil, []string{"server"}, nil, ips, nil); err == nil {
 			t.Fatalf("makeToken --ip %v succeeded, want an error", ips)
 		}
-		if _, err := makeToken(caDir, "ips", time.Hour, []string{"server"}, []string{"*"}, nil, ips); err == nil {
+		if _, err := makeToken(caDir, "ips", time.Hour, nil, []string{"server"}, []string{"*"}, nil, ips); err == nil {
 			t.Fatalf("makeToken --host %v succeeded, want an error", ips)
 		}
 	}
-	if _, err := makeToken(caDir, "ips", time.Hour, []string{"server"}, []string{"*"}, nil, []string{"*"}); err == nil {
+	if _, err := makeToken(caDir, "ips", time.Hour, nil, []string{"server"}, []string{"*"}, nil, []string{"*"}); err == nil {
 		t.Fatal("makeToken --host * succeeded, want an error")
 	}
-	if _, err := makeToken(caDir, "ips", time.Hour, []string{"server"}, []string{"*"},
+	if _, err := makeToken(caDir, "scoped", time.Hour, []string{"admin"}, nil, nil, nil, nil); err == nil {
+		t.Fatal("makeToken with an unknown scope succeeded, want an error")
+	}
+	if _, err := makeToken(caDir, "scoped", time.Hour, []string{"tokens"}, nil, []string{"example.com"}, nil, nil); err == nil {
+		t.Fatal("makeToken with --domain without the scope sign succeeded, want an error")
+	}
+	for _, c := range []struct{ scopes, types []string }{
+		{[]string{"*", "tokens"}, nil}, {nil, []string{"*", "server"}}, {[]string{"*"}, nil},
+	} {
+		if _, err := makeToken(caDir, "all", time.Hour, c.scopes, c.types, nil, nil, nil); err == nil {
+			t.Fatalf("makeToken --scope %v --type %v succeeded, want an error", c.scopes, c.types)
+		}
+	}
+	if _, err := makeToken(caDir, "all", time.Hour, []string{"*"}, []string{"*"}, []string{"example.com"}, nil, nil); err != nil {
+		t.Fatalf("makeToken --scope * --type *: %v", err)
+	}
+	if db, err := loadTokens(caDir); err != nil || !db.Tokens["all"].hasScope("certs") || !allows(db.Tokens["all"].Types, "user") {
+		t.Fatalf("the token all: %+v, %v, want every scope and every type", db.Tokens["all"], err)
+	}
+	if _, err := makeToken(caDir, "ips", time.Hour, nil, []string{"server"}, []string{"*"},
 		[]string{"192.0.2.10", "10.1.2.3/8", "2001:db8::/32", "*"}, nil); err != nil {
 		t.Fatalf("makeToken with * and IP addresses: %v", err)
 	}
@@ -1669,13 +1688,13 @@ func TestTokens(t *testing.T) {
 		time.Now().Before(db.Tokens["deploy"].Expires) || time.Since(db.Tokens["deploy"].Expires) > time.Minute {
 		t.Fatalf("tokens after revoking: %v, want deploy kept without its JWT ID, expired when revoked", err)
 	}
-	if _, err := makeToken(caDir, "deploy", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil); err == nil {
+	if _, err := makeToken(caDir, "deploy", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil); err == nil {
 		t.Fatal("makeToken with the name of a revoked token succeeded, want an error")
 	}
 	if err := purgeToken(caDir, "deploy"); err != nil {
 		t.Fatalf("purgeToken of the revoked token: %v", err)
 	}
-	if _, err := makeToken(caDir, "deploy", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil); err != nil {
+	if _, err := makeToken(caDir, "deploy", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil); err != nil {
 		t.Fatalf("makeToken with the name of a purged token: %v", err)
 	}
 	if err := purgeToken(caDir, "deploy"); err == nil || !strings.Contains(err.Error(), "revoke it first") {
@@ -1693,12 +1712,12 @@ func TestTokens(t *testing.T) {
 		db.Tokens["deploy"].Expires.Sub(db.Tokens["deploy"].Issued) != time.Hour {
 		t.Fatalf("renewed revoked token %+v, %v, want it valid for an hour, not revoked", db.Tokens["deploy"], err)
 	}
-	if _, err := makeToken(caDir, "short", time.Millisecond, []string{"server"}, []string{"example.com"}, nil, nil); err == nil {
+	if _, err := makeToken(caDir, "short", time.Millisecond, nil, []string{"server"}, []string{"example.com"}, nil, nil); err == nil {
 		t.Fatal("makeToken valid for 1ms succeeded, want an error")
 	}
 
 	// purgeTokens removes the expired and revoked tokens alone.
-	oldJWT, err := makeToken(caDir, "old", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil)
+	oldJWT, err := makeToken(caDir, "old", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken old: %v", err)
 	}
@@ -1787,28 +1806,36 @@ func TestAPISign(t *testing.T) {
 		t.Fatalf("makeCA plain: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")
-	token, err := makeToken(issuingDir, "deploy", time.Hour, []string{"server", "user"}, []string{"example.com"}, nil, nil)
+	token, err := makeToken(issuingDir, "deploy", time.Hour, nil, []string{"server", "user"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
-	rootToken, err := makeToken(caDir, "root", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil)
+	rootToken, err := makeToken(caDir, "root", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken root: %v", err)
 	}
-	serverOnly, err := makeToken(issuingDir, "server-only", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil)
+	serverOnly, err := makeToken(issuingDir, "server-only", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken server-only: %v", err)
 	}
-	expired, err := makeToken(issuingDir, "expired", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil)
+	expired, err := makeToken(issuingDir, "expired", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken expired: %v", err)
 	}
-	revoked, err := makeToken(issuingDir, "revoked", time.Hour, []string{"server"}, []string{"example.com"}, nil, nil)
+	revoked, err := makeToken(issuingDir, "revoked", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken revoked: %v", err)
 	}
 	if err := revokeToken(issuingDir, "revoked"); err != nil {
 		t.Fatalf("revokeToken: %v", err)
+	}
+	webuiOnly, err := makeToken(issuingDir, "webui-only", time.Hour, []string{"tokens", "certs"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken webui-only: %v", err)
+	}
+	anyType, err := makeToken(issuingDir, "any-type", time.Hour, nil, []string{"*"}, []string{"example.com"}, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken any-type: %v", err)
 	}
 	if _, err := renewToken(issuingDir, "revoked", 0); err != nil {
 		t.Fatalf("renewToken of the revoked token: %v", err)
@@ -1844,7 +1871,7 @@ func TestAPISign(t *testing.T) {
 	withIP := csr("ip", "-subj", "/CN=web.example.com", "-addext", "subjectAltName=IP:192.0.2.1")
 	withO := csr("org", "-subj", "/O=Example/CN=web.example.com")
 
-	server := httptest.NewServer(newServeMux(caDir, nil, false))
+	server := httptest.NewServer(newServeMux(caDir, nil, false, false))
 	defer server.Close()
 	post := func(path, token, contentType, body string) (int, map[string]string) {
 		t.Helper()
@@ -1921,6 +1948,8 @@ func TestAPISign(t *testing.T) {
 		{"email in server", "/issuing-ca/api/sign", token, "application/json", request(alice, "server"), http.StatusForbidden},
 		{"DNS in user", "/issuing-ca/api/sign", token, "application/json", request(web, "user"), http.StatusForbidden},
 		{"type not allowed", "/issuing-ca/api/sign", serverOnly, "application/json", request(alice, "user"), http.StatusForbidden},
+		{"no scope sign", "/issuing-ca/api/sign", webuiOnly, "application/json", request(web, ""), http.StatusForbidden},
+		{"type * passes", "/issuing-ca/api/sign", anyType, "application/json", request(web, "nonexistent"), http.StatusBadRequest},
 		{"bad csr", "/issuing-ca/api/sign", token, "application/json", request("nonsense", ""), http.StatusBadRequest},
 		{"unknown field", "/issuing-ca/api/sign", token, "application/json", `{"csr":"x","days":5}`, http.StatusBadRequest},
 		{"content type", "/issuing-ca/api/sign", token, "text/plain", request(web, ""), http.StatusUnsupportedMediaType},
@@ -2016,15 +2045,15 @@ func TestAPISign(t *testing.T) {
 	}
 
 	// A domain * allows any name, and --ip prefixes or * allow IP addresses, of the SANs and the CN.
-	anyName, err := makeToken(issuingDir, "any-name", time.Hour, []string{"server"}, []string{"*"}, nil, nil)
+	anyName, err := makeToken(issuingDir, "any-name", time.Hour, nil, []string{"server"}, []string{"*"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken any-name: %v", err)
 	}
-	ipRange, err := makeToken(issuingDir, "ip-range", time.Hour, []string{"server"}, nil, []string{"10.0.0.0/8", "2001:db8::/32"}, nil)
+	ipRange, err := makeToken(issuingDir, "ip-range", time.Hour, nil, []string{"server"}, nil, []string{"10.0.0.0/8", "2001:db8::/32"}, nil)
 	if err != nil {
 		t.Fatalf("makeToken ip-range: %v", err)
 	}
-	lab, err := makeToken(issuingDir, "lab", time.Hour, []string{"server"}, []string{"*"}, []string{"*"}, nil)
+	lab, err := makeToken(issuingDir, "lab", time.Hour, nil, []string{"server"}, []string{"*"}, []string{"*"}, nil)
 	if err != nil {
 		t.Fatalf("makeToken lab: %v", err)
 	}
@@ -2083,7 +2112,7 @@ func TestAPISign(t *testing.T) {
 		{"here", []string{"127.0.0.1"}, http.StatusOK},
 		{"elsewhere", []string{"192.0.2.0/24"}, http.StatusForbidden},
 	} {
-		token, err := makeToken(issuingDir, c.name, time.Hour, []string{"server"}, []string{"localhost"},
+		token, err := makeToken(issuingDir, c.name, time.Hour, nil, []string{"server"}, []string{"localhost"},
 			[]string{"127.0.0.1"}, c.clients)
 		if err != nil {
 			t.Fatalf("makeToken %s: %v", c.name, err)
@@ -2096,12 +2125,12 @@ func TestAPISign(t *testing.T) {
 
 	// Behind a trusted proxy, the client is the one its X-Forwarded-For names; the header of a
 	// peer that is not trusted is not read.
-	proxied, err := makeToken(issuingDir, "proxied", time.Hour, []string{"server"}, []string{"localhost"},
+	proxied, err := makeToken(issuingDir, "proxied", time.Hour, nil, []string{"server"}, []string{"localhost"},
 		[]string{"127.0.0.1"}, []string{"192.0.2.50"})
 	if err != nil {
 		t.Fatalf("makeToken proxied: %v", err)
 	}
-	behindProxy := httptest.NewServer(newServeMux(caDir, []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, false))
+	behindProxy := httptest.NewServer(newServeMux(caDir, []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, false, false))
 	defer behindProxy.Close()
 	for _, c := range []struct {
 		url, forwarded string
@@ -2228,7 +2257,7 @@ func TestKebabCaseNames(t *testing.T) {
 		if err := makeCA(caDir, "Bad CA", 3650, name, ""); err == nil || !strings.Contains(err.Error(), "kebab-case") {
 			t.Fatalf("makeCA --issuing-ca %q: %v, want a kebab-case error", name, err)
 		}
-		if _, err := makeToken(caDir, name, time.Hour, []string{"server"}, []string{"example.com"}, nil, nil); err == nil ||
+		if _, err := makeToken(caDir, name, time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil); err == nil ||
 			!strings.Contains(err.Error(), "kebab-case") {
 			t.Fatalf("makeToken %q: %v, want a kebab-case error", name, err)
 		}
@@ -2296,7 +2325,7 @@ func TestHelpPage(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	for _, name := range []string{"help", "docs"} {
+	for _, name := range []string{"help", "docs", "tokens", "certificates"} {
 		if err := makeCA(caDir, "Pages CA", 3650, name, ""); err == nil || !strings.Contains(err.Error(), "taken") {
 			t.Fatalf("makeCA --issuing-ca %s: %v, want it refused", name, err)
 		}
@@ -2319,7 +2348,7 @@ func TestHelpPage(t *testing.T) {
 	saved := helpSite
 	t.Cleanup(func() { helpSite = saved })
 	helpSite = nil
-	without := httptest.NewServer(newServeMux(caDir, nil, false))
+	without := httptest.NewServer(newServeMux(caDir, nil, false, false))
 	defer without.Close()
 	if status, _ := get(without, "/help/"); status != http.StatusNotFound {
 		t.Errorf("/help/ without the assets: status %d, want 404", status)
@@ -2330,6 +2359,26 @@ func TestHelpPage(t *testing.T) {
 		}
 	}
 
+	// The token and certificate pages are served, and linked from the index page, with webui alone.
+	for _, path := range []string{tokensPath, certsPath} {
+		if status, _ := get(without, path); status != http.StatusNotFound {
+			t.Errorf("%s without webui: status %d, want 404", path, status)
+		}
+		if _, body := get(without, "/"); strings.Contains(body, `href="`+path+`"`) {
+			t.Errorf("the index page links to %s without webui", path)
+		}
+	}
+	withWebUI := httptest.NewServer(newServeMux(caDir, nil, false, true))
+	defer withWebUI.Close()
+	for _, path := range []string{tokensPath, certsPath} {
+		if status, _ := get(withWebUI, path); status != http.StatusOK {
+			t.Errorf("%s with webui: status %d, want the page", path, status)
+		}
+		if _, body := get(withWebUI, "/"); !strings.Contains(body, `href="`+path+`"`) {
+			t.Errorf("the index page does not link to %s with webui", path)
+		}
+	}
+
 	// With them, the help is a page at /help/, linked from the index page and the form.
 	pages, err := fs.Sub(helpPages, "help")
 	if err != nil {
@@ -2337,7 +2386,7 @@ func TestHelpPage(t *testing.T) {
 	}
 	helpSite = render.New(pages, render.Options{Prefix: helpPath, Search: render.IndexSearch{"index.md"},
 		Assets: fstest.MapFS{"page.js": {Data: []byte("// page")}}})
-	with := httptest.NewServer(newServeMux(caDir, nil, false))
+	with := httptest.NewServer(newServeMux(caDir, nil, false, false))
 	defer with.Close()
 	if status, page := get(with, "/help/"); status != http.StatusOK || !strings.Contains(page, `src="/help/_/assets/page.js"`) {
 		t.Errorf("/help/: status %d, want the page shell:\n%s", status, page)
@@ -2371,7 +2420,7 @@ func TestHelpPage(t *testing.T) {
 	t.Cleanup(func() { docsSite = savedDocs })
 	docsSite = render.New(guides, render.Options{Prefix: docsPath, Search: render.IndexSearch{"usage.md"},
 		Menu: docsMenu, List: render.DefaultList, Assets: fstest.MapFS{"page.js": {Data: []byte("// page")}}})
-	withDocs := httptest.NewServer(newServeMux(caDir, nil, true))
+	withDocs := httptest.NewServer(newServeMux(caDir, nil, true, false))
 	defer withDocs.Close()
 	status, page := get(withDocs, "/docs/")
 	if status != http.StatusOK || !strings.Contains(page, `<a href="/docs/usage.md" class="current">Usage</a>`) ||
@@ -2399,7 +2448,12 @@ func TestTokenWebUI(t *testing.T) {
 	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	server := httptest.NewServer((&webuiServer{rootDir: caDir, key: "the-key"}).mux())
+	key, err := makeToken(caDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	server := httptest.NewServer(newServeMux(caDir, nil, false, true))
+	prefix := "/tokens"
 	defer server.Close()
 	call := func(key, method, path string, body any) (int, map[string]any) {
 		t.Helper()
@@ -2408,7 +2462,7 @@ func TestTokenWebUI(t *testing.T) {
 			b, _ := json.Marshal(body)
 			reader = bytes.NewReader(b)
 		}
-		req, err := http.NewRequest(method, server.URL+path, reader)
+		req, err := http.NewRequest(method, server.URL+prefix+path, reader)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2425,9 +2479,9 @@ func TestTokenWebUI(t *testing.T) {
 		return resp.StatusCode, answer
 	}
 
-	// The page and its scripts are served to anyone; the API takes the key alone, for as long as
-	// it runs.
-	resp, err := http.Get(server.URL + "/")
+	// The page and its scripts are served to anyone; the API takes a token with the scope tokens
+	// alone.
+	resp, err := http.Get(server.URL + prefix + "/")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /: %v, %v, want the page", resp, err)
 	}
@@ -2451,11 +2505,19 @@ func TestTokenWebUI(t *testing.T) {
 	}
 	for _, key := range []string{"", "wrong"} {
 		if status, answer := call(key, "GET", "/api/cas", nil); status != http.StatusUnauthorized || answer["error"] == nil {
-			t.Errorf("GET /api/cas with the key %q: %d %v, want 401 with an error", key, status, answer)
+			t.Errorf("GET /api/cas with the token %q: %d %v, want 401 with an error", key, status, answer)
 		}
 	}
+	signOnly, err := makeToken(caDir, "sign-only", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	if status, answer := call(signOnly, "GET", "/api/cas", nil); status != http.StatusForbidden ||
+		!strings.Contains(fmt.Sprint(answer["error"]), "scope tokens") {
+		t.Errorf("GET /api/cas with a token without the scope tokens: %d %v, want 403 naming the scope", status, answer)
+	}
 	for range 2 {
-		status, answer := call("the-key", "GET", "/api/cas", nil)
+		status, answer := call(key, "GET", "/api/cas", nil)
 		cas, _ := answer["cas"].([]any)
 		if status != http.StatusOK || answer["title"] != "Test CA" || len(cas) != 2 ||
 			cas[1].(map[string]any)["label"] != "issuing CA issuing-ca: Issuing CA" || cas[1].(map[string]any)["name"] != "Issuing CA" ||
@@ -2465,46 +2527,76 @@ func TestTokenWebUI(t *testing.T) {
 	}
 
 	// A token is created, listed, renewed with a new JWT ID, revoked, kept, and purged.
-	if status, answer := call("the-key", "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "Bad_Name",
+	if status, answer := call(key, "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "Bad_Name",
 		"valid": "1h", "domains": []string{"example.com"}}); status != http.StatusBadRequest ||
 		!strings.Contains(fmt.Sprint(answer["error"]), "kebab-case") {
 		t.Errorf("create with a bad name: %d %v, want 400 with the error", status, answer)
 	}
-	status, answer := call("the-key", "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "web-deploy",
+	status, answer := call(key, "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "web-deploy",
 		"valid": "8h", "domains": []string{"example.com"}, "clients": []string{"192.168.1.0/24"}, "types": []string{"server"}})
 	if status != http.StatusCreated || !strings.HasPrefix(fmt.Sprint(answer["token"]), "eyJ") {
 		t.Fatalf("create: %d %v, want 201 with the token", status, answer)
 	}
-	status, answer = call("the-key", "GET", "/api/tokens?ca=issuing-ca", nil)
+	status, answer = call(key, "GET", "/api/tokens?ca=issuing-ca", nil)
 	tokens, _ := answer["tokens"].([]any)
 	if status != http.StatusOK || len(tokens) != 1 || tokens[0].(map[string]any)["name"] != "web-deploy" ||
 		fmt.Sprint(tokens[0].(map[string]any)["clients"]) != "[192.168.1.0/24]" {
 		t.Fatalf("GET /api/tokens: %d %v, want web-deploy from 192.168.1.0/24", status, answer)
 	}
 	created, _ := loadTokens(filepath.Join(caDir, "issuing-ca"))
-	if status, answer := call("the-key", "POST", "/api/tokens/renew", map[string]any{"ca": "issuing-ca", "name": "web-deploy"}); status != http.StatusOK ||
+	if status, answer := call(key, "POST", "/api/tokens/renew", map[string]any{"ca": "issuing-ca", "name": "web-deploy"}); status != http.StatusOK ||
 		!strings.HasPrefix(fmt.Sprint(answer["token"]), "eyJ") {
 		t.Errorf("renew: %d %v, want the renewed token", status, answer)
 	}
 	if db, _ := loadTokens(filepath.Join(caDir, "issuing-ca")); db.Tokens["web-deploy"].ID == created.Tokens["web-deploy"].ID {
 		t.Error("the renewed token has no new JWT ID")
 	}
-	if status, _ := call("the-key", "POST", "/api/tokens/revoke", map[string]any{"ca": "../x", "name": "web-deploy"}); status != http.StatusNotFound {
+	if status, _ := call(key, "POST", "/api/tokens/revoke", map[string]any{"ca": "../x", "name": "web-deploy"}); status != http.StatusNotFound {
 		t.Errorf("revoke of a CA outside the root: %d, want 404", status)
 	}
-	if status, _ := call("the-key", "POST", "/api/tokens/revoke", map[string]any{"ca": "issuing-ca", "name": "web-deploy"}); status != http.StatusOK {
+	if status, _ := call(key, "POST", "/api/tokens/revoke", map[string]any{"ca": "issuing-ca", "name": "web-deploy"}); status != http.StatusOK {
 		t.Errorf("revoke: %d, want 200", status)
 	}
-	status, answer = call("the-key", "GET", "/api/tokens?ca=issuing-ca", nil)
+	status, answer = call(key, "GET", "/api/tokens?ca=issuing-ca", nil)
 	if tokens, _ := answer["tokens"].([]any); status != http.StatusOK || len(tokens) != 1 || tokens[0].(map[string]any)["revoked"] != true {
 		t.Errorf("GET /api/tokens after revoking: %d %v, want web-deploy kept, revoked", status, answer)
 	}
-	if status, answer := call("the-key", "POST", "/api/tokens/purge", map[string]any{"ca": "issuing-ca"}); status != http.StatusOK ||
+	if status, answer := call(key, "POST", "/api/tokens/purge", map[string]any{"ca": "issuing-ca"}); status != http.StatusOK ||
 		answer["removed"] != float64(1) {
 		t.Errorf("purge: %d %v, want 1 removed", status, answer)
 	}
-	if status, _ := call("the-key", "POST", "/api/tokens/purge", map[string]any{"ca": "issuing-ca", "bogus": true}); status != http.StatusBadRequest {
+	if status, _ := call(key, "POST", "/api/tokens/purge", map[string]any{"ca": "issuing-ca", "bogus": true}); status != http.StatusBadRequest {
 		t.Errorf("purge with an unknown field: %d, want 400", status)
+	}
+
+	// A token grants sign and its own scopes, and manages the tokens whose scopes it grants.
+	if status, _ := call(key, "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "operator",
+		"valid": "1h", "scopes": []string{"certs"}}); status != http.StatusForbidden {
+		t.Errorf("creating a token with a scope the token lacks: %d, want 403", status)
+	}
+	if status, answer := call(key, "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "helper",
+		"valid": "1h", "scopes": []string{"tokens"}}); status != http.StatusCreated {
+		t.Errorf("creating a token with the scope tokens: %d %v, want 201", status, answer)
+	}
+	if _, err := makeToken(filepath.Join(caDir, "issuing-ca"), "operator", time.Hour, []string{"certs"}, nil, nil, nil, nil); err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	if status, _ := call(key, "POST", "/api/tokens/revoke", map[string]any{"ca": "issuing-ca", "name": "operator"}); status != http.StatusForbidden {
+		t.Errorf("revoking a token with a scope the token lacks: %d, want 403", status)
+	}
+
+	// An issuing CA token opens that CA alone.
+	issuingKey, err := makeToken(filepath.Join(caDir, "issuing-ca"), "issuing-admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	status, answer = call(issuingKey, "GET", "/api/cas", nil)
+	if cas, _ := answer["cas"].([]any); status != http.StatusOK || len(cas) != 1 || cas[0].(map[string]any)["id"] != "issuing-ca" ||
+		answer["user"] != "issuing-admin" || answer["user_ca"] != "issuing-ca" {
+		t.Errorf("GET /api/cas with an issuing CA token: %d %v, want the issuing CA alone", status, answer)
+	}
+	if status, _ := call(issuingKey, "GET", "/api/tokens?ca=", nil); status != http.StatusNotFound {
+		t.Errorf("GET /api/tokens of the root CA with an issuing CA token: %d, want 404", status)
 	}
 }
 
@@ -2519,7 +2611,16 @@ func TestCertWebUI(t *testing.T) {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")
-	server := httptest.NewServer((&webuiServer{rootDir: caDir, key: "the-key", certs: true}).mux())
+	key, err := makeToken(caDir, "operator", time.Hour, []string{"certs"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	tokensOnly, err := makeToken(caDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	server := httptest.NewServer(newServeMux(caDir, nil, false, true))
+	prefix := "/certificates"
 	defer server.Close()
 	call := func(key, method, path string, body any) (int, map[string]any) {
 		t.Helper()
@@ -2528,7 +2629,7 @@ func TestCertWebUI(t *testing.T) {
 			b, _ := json.Marshal(body)
 			reader = bytes.NewReader(b)
 		}
-		req, err := http.NewRequest(method, server.URL+path, reader)
+		req, err := http.NewRequest(method, server.URL+prefix+path, reader)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2546,7 +2647,7 @@ func TestCertWebUI(t *testing.T) {
 	}
 
 	// The page loads the shared script and its own.
-	resp, err := http.Get(server.URL + "/")
+	resp, err := http.Get(server.URL + prefix + "/")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /: %v, %v, want the page", resp, err)
 	}
@@ -2558,31 +2659,35 @@ func TestCertWebUI(t *testing.T) {
 		}
 	}
 
-	// The API takes the key alone; the CAs come with the name rules, the reasons and the days.
+	// The API takes a token with the scope certs alone; the CAs come with the name rules, the
+	// reasons and the days.
 	if status, _ := call("wrong", "GET", "/api/certs?ca=issuing-ca", nil); status != http.StatusUnauthorized {
-		t.Errorf("GET /api/certs with a wrong key: %d, want 401", status)
+		t.Errorf("GET /api/certs with a wrong token: %d, want 401", status)
 	}
-	status, answer := call("the-key", "GET", "/api/cas", nil)
+	if status, _ := call(tokensOnly, "GET", "/api/cas", nil); status != http.StatusForbidden {
+		t.Errorf("GET /api/cas with a token without the scope certs: %d, want 403", status)
+	}
+	status, answer := call(key, "GET", "/api/cas", nil)
 	if names, _ := answer["names"].(map[string]any); status != http.StatusOK || names["user"] != "user" ||
 		fmt.Sprint(answer["defaults"]) != "map[crl_days:30 days:365]" {
 		t.Fatalf("GET /api/cas: %d %v, want the name rules and the days", status, answer)
 	}
-	if status, _ := call("the-key", "POST", "/api/tokens", map[string]any{"ca": ""}); status != http.StatusNotFound {
-		t.Errorf("a token request of cert webui: %d, want 404", status)
+	if status, _ := call(key, "POST", "/api/tokens", map[string]any{"ca": ""}); status != http.StatusNotFound {
+		t.Errorf("a token request of the certificate page: %d, want 404", status)
 	}
 
 	// A certificate is created into the CA directory, once; a second create of the name is refused.
 	body := map[string]any{"ca": "issuing-ca", "type": "server", "subject": "web.example.com", "sans": []string{"192.0.2.10"}, "days": 30}
-	if status, answer := call("the-key", "POST", "/api/certs", body); status != http.StatusCreated {
+	if status, answer := call(key, "POST", "/api/certs", body); status != http.StatusCreated {
 		t.Fatalf("create: %d %v, want 201", status, answer)
 	}
 	if !fileExists(filepath.Join(issuingDir, "web_cert.pem")) || !fileExists(filepath.Join(issuingDir, "web_key.pem")) {
 		t.Fatal("create wrote no certificate and key to the CA directory")
 	}
-	if status, _ := call("the-key", "POST", "/api/certs", body); status != http.StatusConflict {
+	if status, _ := call(key, "POST", "/api/certs", body); status != http.StatusConflict {
 		t.Errorf("create of an existing name: %d, want 409", status)
 	}
-	if status, answer := call("the-key", "POST", "/api/certs", map[string]any{"ca": "issuing-ca", "type": "server",
+	if status, answer := call(key, "POST", "/api/certs", map[string]any{"ca": "issuing-ca", "type": "server",
 		"subject": "not a host", "days": 30}); status != http.StatusBadRequest || answer["error"] == nil {
 		t.Errorf("create with a bad CN: %d %v, want 400 with the error", status, answer)
 	}
@@ -2594,18 +2699,18 @@ func TestCertWebUI(t *testing.T) {
 		t.Fatalf("openssl req: %v\n%s", err, out)
 	}
 	csr, _ := os.ReadFile(csrPath)
-	status, answer = call("the-key", "POST", "/api/certs/sign", map[string]any{"ca": "issuing-ca", "type": "server",
+	status, answer = call(key, "POST", "/api/certs/sign", map[string]any{"ca": "issuing-ca", "type": "server",
 		"name": "api server", "csr": string(csr), "days": 30})
 	if status != http.StatusCreated || answer["file"] != "api_server_cert.pem" || !fileExists(filepath.Join(issuingDir, "api_server_cert.pem")) {
 		t.Fatalf("sign: %d %v, want api_server_cert.pem in the CA directory", status, answer)
 	}
-	if status, _ := call("the-key", "POST", "/api/certs/sign", map[string]any{"ca": "issuing-ca", "type": "server",
+	if status, _ := call(key, "POST", "/api/certs/sign", map[string]any{"ca": "issuing-ca", "type": "server",
 		"name": "../x", "csr": string(csr), "days": 30}); status != http.StatusBadRequest {
 		t.Errorf("sign with a name holding a directory: %d, want 400", status)
 	}
 
 	// The certificates are listed; one is revoked for a reason, and the CRL lists it.
-	status, answer = call("the-key", "GET", "/api/certs?ca=issuing-ca", nil)
+	status, answer = call(key, "GET", "/api/certs?ca=issuing-ca", nil)
 	certs, _ := answer["certs"].([]any)
 	if status != http.StatusOK || len(certs) != 2 || certs[0].(map[string]any)["status"] != "valid" {
 		t.Fatalf("GET /api/certs: %d %v, want the two certificates, valid", status, answer)
@@ -2613,37 +2718,37 @@ func TestCertWebUI(t *testing.T) {
 	serial := certs[0].(map[string]any)["serial"]
 
 	// A certificate is shown from its file, as cert show writes it; the root CA shows its issuing CAs.
-	status, answer = call("the-key", "GET", "/api/certs/show?ca=issuing-ca&serial="+serial.(string), nil)
+	status, answer = call(key, "GET", "/api/certs/show?ca=issuing-ca&serial="+serial.(string), nil)
 	fields, _ := answer["fields"].([]any)
 	if status != http.StatusOK || answer["file"] != "web_cert.pem" ||
 		!slices.ContainsFunc(fields, func(f any) bool { return fmt.Sprint(f) == "[IP address 192.0.2.10]" }) {
 		t.Errorf("GET /api/certs/show: %d %v, want web_cert.pem with its IP address", status, answer)
 	}
-	if status, answer := call("the-key", "GET", "/api/certs/show?ca=issuing-ca&serial=00", nil); status != http.StatusNotFound || answer["error"] == nil {
+	if status, answer := call(key, "GET", "/api/certs/show?ca=issuing-ca&serial=00", nil); status != http.StatusNotFound || answer["error"] == nil {
 		t.Errorf("GET /api/certs/show of an unknown serial: %d %v, want 404 with an error", status, answer)
 	}
-	_, answer = call("the-key", "GET", "/api/certs?ca=", nil)
+	_, answer = call(key, "GET", "/api/certs?ca=", nil)
 	rootCerts, _ := answer["certs"].([]any)
 	if len(rootCerts) != 1 {
 		t.Fatalf("GET /api/certs of the root CA: %v, want the issuing CA", answer)
 	}
-	if status, answer := call("the-key", "GET", "/api/certs/show?ca=&serial="+rootCerts[0].(map[string]any)["serial"].(string), nil); status != http.StatusOK || answer["file"] != "issuing-ca/ca_cert.pem" {
+	if status, answer := call(key, "GET", "/api/certs/show?ca=&serial="+rootCerts[0].(map[string]any)["serial"].(string), nil); status != http.StatusOK || answer["file"] != "issuing-ca/ca_cert.pem" {
 		t.Errorf("GET /api/certs/show of the issuing CA: %d %v, want issuing-ca/ca_cert.pem", status, answer)
 	}
 
-	if status, _ := call("the-key", "POST", "/api/certs/revoke", map[string]any{"ca": "issuing-ca", "serial": serial, "reason": "nonsense"}); status != http.StatusBadRequest {
+	if status, _ := call(key, "POST", "/api/certs/revoke", map[string]any{"ca": "issuing-ca", "serial": serial, "reason": "nonsense"}); status != http.StatusBadRequest {
 		t.Errorf("revoke with an unknown reason: %d, want 400", status)
 	}
-	if status, answer := call("the-key", "POST", "/api/certs/revoke", map[string]any{"ca": "issuing-ca", "serial": serial, "reason": "superseded"}); status != http.StatusOK {
+	if status, answer := call(key, "POST", "/api/certs/revoke", map[string]any{"ca": "issuing-ca", "serial": serial, "reason": "superseded"}); status != http.StatusOK {
 		t.Fatalf("revoke: %d %v, want 200", status, answer)
 	}
-	if status, _ := call("the-key", "POST", "/api/certs/revoke", map[string]any{"ca": "issuing-ca", "serial": serial}); status != http.StatusBadRequest {
+	if status, _ := call(key, "POST", "/api/certs/revoke", map[string]any{"ca": "issuing-ca", "serial": serial}); status != http.StatusBadRequest {
 		t.Errorf("revoke twice: %d, want 400", status)
 	}
-	if status, answer := call("the-key", "POST", "/api/crl", map[string]any{"ca": "issuing-ca", "days": 7}); status != http.StatusOK {
+	if status, answer := call(key, "POST", "/api/crl", map[string]any{"ca": "issuing-ca", "days": 7}); status != http.StatusOK {
 		t.Fatalf("crl: %d %v, want 200", status, answer)
 	}
-	status, answer = call("the-key", "GET", "/api/certs?ca=issuing-ca", nil)
+	status, answer = call(key, "GET", "/api/certs?ca=issuing-ca", nil)
 	certs, _ = answer["certs"].([]any)
 	crl, _ := answer["crl"].(map[string]any)
 	if status != http.StatusOK || certs[0].(map[string]any)["status"] != "revoked" || certs[0].(map[string]any)["reason"] != "superseded" ||
