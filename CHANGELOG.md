@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.1
+
+fix: the tests are split from main_test.go into a test file beside each source file they test, and the tests of the audit log and of theme.json no longer print the output of the commands and the errors they cause on purpose.
+
+- The tests of `main_test.go` are in a test file for each source file they test, such as
+  `ca_test.go`, `api_test.go` and `audit_test.go`; `main_test.go` keeps `TestMain`, the shared
+  helpers and the tests of the command line.
+- The audit test drops what the commands it runs print, such as `Token deploy revoked`.
+- The `theme.json` test silences the errors it causes with a broken and an invalid file.
+
 ## 1.9.0
 
 feat: the commands and serve write an audit log of every change to a CA and every credential handed out or refused, which serve also sends to the systemd journal or its standard error, audit list reads, and the audit page of serve --webui shows; serve logs everything in the format of the audit records, and logs requests only with --request-log.
