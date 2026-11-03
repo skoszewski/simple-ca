@@ -138,6 +138,7 @@ status, and `jq -r .error web.json` prints from the answer saved above:
 | `403 Forbidden` | the token does not allow a name, an address or the type, whose error names the types it allows, or your address |
 | `404 Not Found` | the CA does not sign requests here |
 | `415 Unsupported Media Type` | the `Content-Type` header is not `application/json` |
+| `429 Too Many Requests` | too many refused tokens or codes from your address; retry after the seconds of `Retry-After` |
 
 ## Without the command line
 

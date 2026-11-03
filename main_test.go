@@ -40,6 +40,12 @@ import (
 	"github.com/skoszewski/serve-markdown/v3/render"
 )
 
+// TestMain runs the tests without holding back refused clients; TestAuthGuard holds them back.
+func TestMain(m *testing.M) {
+	authFreeFailures = 1 << 30
+	os.Exit(m.Run())
+}
+
 func verifyCert(t *testing.T, bundle, cert string) {
 	t.Helper()
 	out, err := exec.Command("openssl", "verify", "-CAfile", bundle, cert).CombinedOutput()
@@ -1031,7 +1037,7 @@ func TestWriteOpenSSLConf(t *testing.T) {
 
 func TestServe(t *testing.T) {
 	caDir := t.TempDir()
-	server := httptest.NewServer(newServeMux(caDir, nil, false, false))
+	server := httptest.NewServer(newServeMux(caDir, false, false))
 	defer server.Close()
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
@@ -1253,7 +1259,7 @@ func TestACME(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	server := &http.Server{Handler: newServeMux(caDir, nil, false, false), ErrorLog: log.New(io.Discard, "", 0)}
+	server := &http.Server{Handler: newServeMux(caDir, false, false), ErrorLog: log.New(io.Discard, "", 0)}
 	go server.ServeTLS(listener, filepath.Join(tlsDir, "localhost_cert.pem"), filepath.Join(tlsDir, "localhost_key.pem"))
 	defer server.Close()
 
@@ -1882,7 +1888,7 @@ func TestAPISign(t *testing.T) {
 	withIP := csr("ip", "-subj", "/CN=web.example.com", "-addext", "subjectAltName=IP:192.0.2.1")
 	withO := csr("org", "-subj", "/O=Example/CN=web.example.com")
 
-	server := httptest.NewServer(newServeMux(caDir, nil, false, false))
+	server := httptest.NewServer(newServeMux(caDir, false, false))
 	defer server.Close()
 	post := func(path, token, contentType, body string) (int, map[string]string) {
 		t.Helper()
@@ -2141,18 +2147,22 @@ func TestAPISign(t *testing.T) {
 	if err != nil {
 		t.Fatalf("makeToken proxied: %v", err)
 	}
-	behindProxy := httptest.NewServer(newServeMux(caDir, []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}, false, false))
-	defer behindProxy.Close()
+	t.Cleanup(func() { trustedProxies = nil })
 	for _, c := range []struct {
-		url, forwarded string
-		want           int
+		trusted   bool
+		forwarded string
+		want      int
 	}{
-		{behindProxy.URL, "192.0.2.50", http.StatusOK},
-		{behindProxy.URL, "", http.StatusForbidden},
-		{behindProxy.URL, "192.0.2.51", http.StatusForbidden},
-		{server.URL, "192.0.2.50", http.StatusForbidden},
+		{true, "192.0.2.50", http.StatusOK},
+		{true, "", http.StatusForbidden},
+		{true, "192.0.2.51", http.StatusForbidden},
+		{false, "192.0.2.50", http.StatusForbidden},
 	} {
-		req, err := http.NewRequest(http.MethodPost, c.url+"/issuing-ca/api/sign", strings.NewReader(request(local, "")))
+		trustedProxies = nil
+		if c.trusted {
+			trustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
+		}
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/issuing-ca/api/sign", strings.NewReader(request(local, "")))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2167,13 +2177,14 @@ func TestAPISign(t *testing.T) {
 		}
 		resp.Body.Close()
 		if resp.StatusCode != c.want {
-			t.Fatalf("X-Forwarded-For %q to %s: %d, want %d", c.forwarded, c.url, resp.StatusCode, c.want)
+			t.Fatalf("X-Forwarded-For %q, proxy trusted %t: %d, want %d", c.forwarded, c.trusted, resp.StatusCode, c.want)
 		}
 	}
 }
 
 func TestClientAddr(t *testing.T) {
-	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	trustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	t.Cleanup(func() { trustedProxies = nil })
 	for _, c := range []struct {
 		peer    string
 		headers []string
@@ -2194,14 +2205,15 @@ func TestClientAddr(t *testing.T) {
 		for _, h := range c.headers {
 			r.Header.Add("X-Forwarded-For", h)
 		}
-		if got := clientAddr(r, trusted).String(); got != c.want {
+		if got := clientAddr(r).String(); got != c.want {
 			t.Fatalf("clientAddr from %s with %q = %s, want %s", c.peer, c.headers, got, c.want)
 		}
 	}
 	r := httptest.NewRequest(http.MethodPost, "/api/sign", nil)
 	r.RemoteAddr = "10.0.0.1:5000"
 	r.Header.Set("X-Forwarded-For", "203.0.113.7")
-	if got := clientAddr(r, nil).String(); got != "10.0.0.1" {
+	trustedProxies = nil
+	if got := clientAddr(r).String(); got != "10.0.0.1" {
 		t.Fatalf("clientAddr without trusted proxies = %s, want the peer 10.0.0.1", got)
 	}
 }
@@ -2359,7 +2371,7 @@ func TestHelpPage(t *testing.T) {
 	saved := helpSite
 	t.Cleanup(func() { helpSite = saved })
 	helpSite = nil
-	without := httptest.NewServer(newServeMux(caDir, nil, false, false))
+	without := httptest.NewServer(newServeMux(caDir, false, false))
 	defer without.Close()
 	if status, _ := get(without, "/help/"); status != http.StatusNotFound {
 		t.Errorf("/help/ without the assets: status %d, want 404", status)
@@ -2379,7 +2391,7 @@ func TestHelpPage(t *testing.T) {
 			t.Errorf("the index page links to %s without webui", path)
 		}
 	}
-	withWebUI := httptest.NewServer(newServeMux(caDir, nil, false, true))
+	withWebUI := httptest.NewServer(newServeMux(caDir, false, true))
 	defer withWebUI.Close()
 	for _, path := range []string{tokensPath, certsPath} {
 		if status, body := get(withWebUI, path); status != http.StatusOK || !strings.Contains(body, `href="/">All CAs</a>`) {
@@ -2397,7 +2409,7 @@ func TestHelpPage(t *testing.T) {
 	}
 	helpSite = render.New(pages, render.Options{Prefix: helpPath, Search: render.IndexSearch{"index.md"},
 		Assets: fstest.MapFS{"page.js": {Data: []byte("// page")}}})
-	with := httptest.NewServer(newServeMux(caDir, nil, false, false))
+	with := httptest.NewServer(newServeMux(caDir, false, false))
 	defer with.Close()
 	if status, page := get(with, "/help/"); status != http.StatusOK || !strings.Contains(page, `src="/help/_/assets/page.js"`) {
 		t.Errorf("/help/: status %d, want the page shell:\n%s", status, page)
@@ -2431,7 +2443,7 @@ func TestHelpPage(t *testing.T) {
 	t.Cleanup(func() { docsSite = savedDocs })
 	docsSite = render.New(guides, render.Options{Prefix: docsPath, Search: render.IndexSearch{"usage.md"},
 		Menu: docsMenu, List: render.DefaultList, Assets: fstest.MapFS{"page.js": {Data: []byte("// page")}}})
-	withDocs := httptest.NewServer(newServeMux(caDir, nil, true, false))
+	withDocs := httptest.NewServer(newServeMux(caDir, true, false))
 	defer withDocs.Close()
 	status, page := get(withDocs, "/docs/")
 	if status != http.StatusOK || !strings.Contains(page, `<a href="/docs/usage.md" class="current">Usage</a>`) ||
@@ -2463,7 +2475,7 @@ func TestTokenWebUI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
-	server := httptest.NewServer(newServeMux(caDir, nil, false, true))
+	server := httptest.NewServer(newServeMux(caDir, false, true))
 	prefix := "/tokens"
 	defer server.Close()
 	call := func(key, method, path string, body any) (int, map[string]any) {
@@ -2630,7 +2642,7 @@ func TestCertWebUI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
-	server := httptest.NewServer(newServeMux(caDir, nil, false, true))
+	server := httptest.NewServer(newServeMux(caDir, false, true))
 	prefix := "/certificates"
 	defer server.Close()
 	call := func(key, method, path string, body any) (int, map[string]any) {
@@ -2807,7 +2819,7 @@ func TestSetupCode(t *testing.T) {
 	}
 
 	// The code is exchanged once, in any letter case and without dashes, for a JWT that signs.
-	server := httptest.NewServer(newServeMux(caDir, nil, false, false))
+	server := httptest.NewServer(newServeMux(caDir, false, false))
 	defer server.Close()
 	exchange := func(code string) (int, map[string]any) {
 		t.Helper()
@@ -2901,15 +2913,14 @@ func TestSetupCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("addToken --otc: %v", err)
 	}
-	var mu sync.Mutex
 	client := netip.MustParseAddr("127.0.0.1")
-	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", &mu, false); err == nil {
+	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", false); err == nil {
 		t.Error("signWithToken of a setup code without setupCodes succeeded, want an error")
 	}
-	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.org"), "", &mu, true); err == nil {
+	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.org"), "", true); err == nil {
 		t.Error("signWithToken of a setup code for a name the token does not allow succeeded, want an error")
 	}
-	cert, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", &mu, true)
+	cert, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", true)
 	if err != nil {
 		t.Fatalf("signWithToken of a setup code: %v", err)
 	}
@@ -2917,7 +2928,7 @@ func TestSetupCode(t *testing.T) {
 	if tok := db.Tokens["once"]; !tok.revoked() || !slices.Equal(tok.Certs, []string{serialHex(cert.SerialNumber)}) {
 		t.Errorf("the token of the setup code: %+v, want it revoked, with the certificate", tok)
 	}
-	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", &mu, true); err == nil {
+	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", true); err == nil {
 		t.Error("signWithToken of a used setup code succeeded, want an error")
 	}
 
@@ -3023,7 +3034,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 		}
 	}
 
-	server := httptest.NewServer(newServeMux(rootDir, nil, false, true))
+	server := httptest.NewServer(newServeMux(rootDir, false, true))
 	defer server.Close()
 	do := func(method, target, token, contentType, body string) (int, map[string]any) {
 		t.Helper()
@@ -3353,8 +3364,7 @@ func TestOIDC(t *testing.T) {
 		t.Fatalf("makeCA clients: %v", err)
 	}
 
-	// The provider serves its discovery document and a JWKS, which can gain keys, counting the
-	// fetches of the JWKS.
+	// A test provider, counting the JWKS fetches.
 	b64 := base64.RawURLEncoding.EncodeToString
 	newKey := func() *rsa.PrivateKey {
 		k, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -3387,8 +3397,7 @@ func TestOIDC(t *testing.T) {
 	}))
 	defer idp.Close()
 
-	// idToken returns an ID token of the provider for the claims, over the defaults of a valid one
-	// with a new nonce, signed by key with the key ID kid.
+	// idToken returns a valid ID token with claims overridden, signed by key as kid.
 	idToken := func(kid string, key *rsa.PrivateKey, claims map[string]any) string {
 		t.Helper()
 		now := time.Now().Unix()
@@ -3411,7 +3420,7 @@ func TestOIDC(t *testing.T) {
 		return c
 	}
 
-	server := httptest.NewServer(newServeMux(rootDir, nil, false, true))
+	server := httptest.NewServer(newServeMux(rootDir, false, true))
 	defer server.Close()
 	do := func(method, target, token string, body any) (int, map[string]any) {
 		t.Helper()
@@ -3478,8 +3487,7 @@ func TestOIDC(t *testing.T) {
 		t.Errorf("GET /api/oidc: %d %v, want the settings of the Entra ID sign-in", status, answer)
 	}
 
-	// A user of a rule gets the token of its profile, which opens the token page, and once a token
-	// is given, its ID token is refused.
+	// A user of a rule gets the token of its profile, and the ID token works once.
 	alice := idToken("k1", key1, user("alice@example.com", nil))
 	status, answer = signIn(alice)
 	if status != http.StatusOK || answer["ca"] != "" || answer["name"] != "alice-example-com" ||
@@ -3496,8 +3504,7 @@ func TestOIDC(t *testing.T) {
 		t.Errorf("a used ID token: %d, want 401", status)
 	}
 
-	// A sign-in with an active token of the user names it and replaces nothing, and the same ID
-	// token then replaces it; reusing it needs reuse_token.
+	// An active token is reported, then replaced or reused.
 	again := idToken("k1", key1, user("alice@example.com", nil))
 	status, answer = signIn(again)
 	if active, _ := answer["active"].(map[string]any); status != http.StatusConflict || active["name"] != "alice-example-com" ||
@@ -3561,7 +3568,7 @@ func TestOIDC(t *testing.T) {
 		t.Error("the renewed token of alice lost its OIDC user")
 	}
 
-	// A rule matching a group comes before the roles, and its token signs at its CA alone.
+	// A group rule comes before the roles.
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -3585,8 +3592,7 @@ func TestOIDC(t *testing.T) {
 		t.Errorf("POST /api/sign of the root CA with the token of bob: %d, want 401", status)
 	}
 
-	// Without a rule, a role names the profile, the first in the file of those named; a profile
-	// whose token is not used from the client, and a user without a profile, are refused.
+	// Profiles by role, a disallowed client, and a user without a profile.
 	status, answer = signIn(idToken("k1", key1, user("carol@example.com", map[string]any{"roles": []string{"viewer", "web-signer", "other"}})))
 	if status != http.StatusOK || answer["ca"] != "clients" || fmt.Sprint(answer["scopes"]) != "[sign]" {
 		t.Errorf("sign-in of carol with the roles viewer and web-signer: %d %v, want web-signer", status, answer)
@@ -3604,9 +3610,7 @@ func TestOIDC(t *testing.T) {
 		t.Errorf("sign-in of henry, whose token name is taken: %d, want 409", status)
 	}
 
-	// The ID tokens refused: signed by another key, by an unknown key, issued by another issuer,
-	// for another client, authorized for another, expired, issued in the future, and without a
-	// nonce.
+	// Invalid ID tokens.
 	now := time.Now().Unix()
 	for name, raw := range map[string]string{
 		"another key":    idToken("k1", stranger, user("alice@example.com", nil)),
@@ -3624,7 +3628,7 @@ func TestOIDC(t *testing.T) {
 		}
 	}
 
-	// A new key of the provider is fetched once the JWKS has been kept for oidcKeysRefetch.
+	// A new JWKS key is fetched after oidcKeysRefetch.
 	mu.Lock()
 	keys = append(keys, jwk("k2", key2))
 	before := fetches
@@ -3648,7 +3652,7 @@ func TestOIDC(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// Keycloak's roles are the realm roles and the roles of the client.
+	// Keycloak realm and client roles.
 	write(configFile, `{"oidc": {"provider": "keycloak", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
 	status, answer = signIn(idToken("k1", key1, user("frank", map[string]any{"realm_access": map[string]any{"roles": []string{"web-signer"}}})))
 	if status != http.StatusOK || answer["ca"] != "clients" || answer["name"] != "frank" {
@@ -3660,7 +3664,7 @@ func TestOIDC(t *testing.T) {
 		t.Errorf("sign-in of grace with the client role ca-admin: %d %v, want ca-admin", status, answer)
 	}
 
-	// The settings and the profiles refused at the start of serve.
+	// Invalid settings and profiles.
 	for name, c := range map[string]string{
 		"an unknown provider": `{"oidc": {"provider": "other", "issuer": "https://idp.example.com", "client_id": "x"}}`,
 		"no client ID":        `{"oidc": {"issuer": "https://idp.example.com"}}`,
@@ -3688,6 +3692,111 @@ func TestOIDC(t *testing.T) {
 		if err := checkOIDC(rootDir, cfg); err == nil {
 			t.Errorf("checkOIDC with %s in %s succeeded, want an error", name, oidcUsersFile)
 		}
+	}
+}
+
+func TestAuthGuard(t *testing.T) {
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	free := authFreeFailures
+	authFreeFailures = 2
+	t.Cleanup(func() { authFreeFailures = free })
+
+	// A client is counted by its address, an IPv6 client by its /64.
+	for _, c := range [][2]string{{"192.0.2.10", "192.0.2.10/32"}, {"2001:db8:1:2:aaaa::1", "2001:db8:1:2::/64"}} {
+		if key := guardKey(netip.MustParseAddr(c[0])); key.String() != c[1] {
+			t.Errorf("guardKey(%s) = %s, want %s", c[0], key, c[1])
+		}
+	}
+
+	// The hold doubles with each refusal past the free ones, up to authMaxWait.
+	g := newAuthGuard()
+	client := netip.MustParseAddr("192.0.2.10")
+	other := netip.MustParseAddr("2001:db8:1:2:bbbb::2")
+	refusedErr := apiErr(http.StatusUnauthorized, "invalid token")
+	for i, want := range []time.Duration{0, 0, time.Second, 2 * time.Second, 4 * time.Second} {
+		g.record(client, refusedErr)
+		if hold := time.Until(g.clients[guardKey(client)].until); hold > want || (want > 0 && hold < want-time.Second) {
+			t.Errorf("refusal %d: hold %s, want %s", i+1, hold, want)
+		}
+	}
+	for range 40 {
+		g.record(client, refusedErr)
+	}
+	if hold := time.Until(g.clients[guardKey(client)].until); hold > authMaxWait {
+		t.Errorf("hold %s after many refusals, want at most %s", hold, authMaxWait)
+	}
+	w := httptest.NewRecorder()
+	if err := g.check(w, client); err == nil || w.Header().Get("Retry-After") == "" {
+		t.Errorf("check of a held client: %v, Retry-After %q, want 429 and Retry-After", err, w.Header().Get("Retry-After"))
+	}
+	if err := g.check(httptest.NewRecorder(), other); err != nil {
+		t.Errorf("check of another client: %v, want none", err)
+	}
+	g.record(client, apiErr(http.StatusForbidden, "the token does not have the scope tokens"))
+	if g.clients[guardKey(client)] == nil {
+		t.Error("an error other than 401 forgot the refusals, want them kept")
+	}
+	g.record(client, nil)
+	if err := g.check(httptest.NewRecorder(), client); err != nil {
+		t.Errorf("check after a success: %v, want none", err)
+	}
+
+	// The routes checking credentials share the guard, fresh of the refusals of the other tests.
+	shared := guard
+	guard = newAuthGuard()
+	t.Cleanup(func() { guard = shared })
+	rootDir := t.TempDir()
+	if err := makeCA(rootDir, "Root CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	admin, err := makeToken(rootDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(newServeMux(rootDir, false, true))
+	defer server.Close()
+	call := func(method, path, token, body string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+	forged := admin[:len(admin)-4] + "AAAA"
+	for i, want := range []int{http.StatusUnauthorized, http.StatusUnauthorized, http.StatusUnauthorized} {
+		if resp := call("GET", "/tokens/api/cas", forged, ""); resp.StatusCode != want {
+			t.Errorf("forged token %d: %d, want %d", i+1, resp.StatusCode, want)
+		}
+	}
+	for _, c := range []struct{ name, method, path, token, body string }{
+		{"the token page with its token", "GET", "/tokens/api/cas", admin, ""},
+		{"the signing API", "POST", "/api/sign", forged, `{"csr": ""}`},
+		{"a setup code", "POST", "/api/token-setup", "", `{"code": "AAAA-BBBB-CCCC-DDDD"}`},
+	} {
+		if resp := call(c.method, c.path, c.token, c.body); resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") == "" {
+			t.Errorf("%s while held back: %d, Retry-After %q, want 429", c.name, resp.StatusCode, resp.Header.Get("Retry-After"))
+		}
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if resp := call("GET", "/tokens/api/cas", admin, ""); resp.StatusCode != http.StatusOK {
+		t.Errorf("the token page after the hold: %d, want 200", resp.StatusCode)
+	}
+	if resp := call("GET", "/tokens/api/cas", forged, ""); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("a forged token after a success: %d, want 401", resp.StatusCode)
+	}
+	if resp := call("GET", "/tokens/api/cas", "", ""); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("no token: %d, want 401", resp.StatusCode)
 	}
 }
 

@@ -87,12 +87,8 @@ type tokensConfig struct {
 	KeepExpired string   `json:"keep_expired,omitempty"`
 }
 
-// oidcConfig holds the OIDC sign-in of serve, off without an issuer: the provider, generic,
-// keycloak or entra, whose defaults fill the label and the claims left out; the issuer and the
-// client ID of the public client the pages sign in with; the scopes they ask for, openid, profile
-// and email by default; the label of the sign-in button; the claims naming the user, the first of
-// them present, and holding the groups and the roles, each a dotted path into the ID token; and
-// whether a sign-in may take the active token of its user again in place of replacing it.
+// oidcConfig is the oidc section of simple-ca.json, the OIDC sign-in of serve, off without an
+// issuer.
 type oidcConfig struct {
 	Provider    string     `json:"provider,omitempty"`
 	Issuer      string     `json:"issuer,omitempty"`
@@ -122,8 +118,7 @@ func (p *claimPaths) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// oidcProviders are the providers of oidcConfig with the label and the claims they default to; in
-// a claim, the segment CLIENT_ID stands for the client ID.
+// oidcProviders are the label and claim defaults of each provider.
 var oidcProviders = map[string]struct {
 	label               string
 	user, groups, roles claimPaths
@@ -133,9 +128,7 @@ var oidcProviders = map[string]struct {
 	"entra":    {"Entra ID", claimPaths{"preferred_username"}, claimPaths{"groups"}, claimPaths{"roles"}},
 }
 
-// resolved returns the OIDC sign-in of the config at path with the defaults of its provider, and
-// false when it is off; it refuses an unknown provider, an issuer that is not an HTTP or HTTPS
-// URL, and a missing client ID.
+// resolved returns c validated, with the defaults of its provider, and false when it is off.
 func (c oidcConfig) resolved(path string) (oidcConfig, bool, error) {
 	if c.Issuer == "" {
 		return c, false, nil
@@ -174,22 +167,17 @@ func (c oidcConfig) resolved(path string) (oidcConfig, bool, error) {
 	return c, true, nil
 }
 
-// oidcUsersFile is the file of the root CA directory giving the users of the OIDC sign-in their
-// tokens, an oidcUsers.
+// oidcUsersFile is the file of the root CA directory holding an oidcUsers.
 const oidcUsersFile = "oidc-users.json"
 
-// oidcUsers are the token profiles of the OIDC sign-in and the rules giving them to users: a user
-// gets the profile of the first rule matching the user or one of the user's groups, or else the
-// first profile named by one of the user's roles.
+// oidcUsers are the token profiles of the OIDC sign-in and the rules giving them to users.
 type oidcUsers struct {
 	path     string
 	Profiles []oidcProfile `json:"profiles"`
 	Rules    []oidcRule    `json:"rules"`
 }
 
-// oidcProfile is a token profile: its name, kebab-case, which a role of the same value gives; the
-// CA of its tokens, empty for the root CA; and the token, with the settings of the tokens section
-// of simple-ca.json, those left out taking their values there, without keep_expired.
+// oidcProfile is a token profile: its name, its CA, empty for the root CA, and its token settings.
 type oidcProfile struct {
 	Name  string       `json:"name"`
 	CA    string       `json:"ca"`
@@ -203,9 +191,7 @@ type oidcRule struct {
 	Profile string   `json:"profile"`
 }
 
-// loadOIDCUsers reads oidc-users.json of rootDir, refusing unknown settings, a profile name that is
-// not kebab-case or given twice, keep_expired, and a rule without users and groups or naming an
-// unknown profile; without the file, it has no profiles.
+// loadOIDCUsers reads and validates oidc-users.json of rootDir, empty when it does not exist.
 func loadOIDCUsers(rootDir string) (*oidcUsers, error) {
 	users := &oidcUsers{path: filepath.Join(rootDir, oidcUsersFile)}
 	b, err := os.ReadFile(users.path)

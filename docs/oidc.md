@@ -96,8 +96,8 @@ A claim is a dotted path into the ID token, such as `realm_access.roles`, and th
 `serve` accepts an ID token signed with RS256, ES256, ES384, ES512 or EdDSA by a key of the JWKS
 of the provider. Its `iss` must be the issuer and its `aud` must hold the client ID. Its `azp`,
 when present, must be the client ID too. It must have a subject and must not have expired. Its
-`nonce` gives one token: an ID token that has given a token is refused after that. The JWKS is fetched again for a key it does not have, at most once a
-minute.
+`nonce` gives one token: an ID token that has given a token is refused after that. The JWKS is
+fetched again for a key it does not have, at most once a minute.
 
 ## oidc-users.json
 
@@ -107,13 +107,42 @@ refused, and a setting not described here is an error.
 ```json
 {
   "profiles": [
-    {"name": "ca-admin", "token": {"valid": "8h", "scopes": ["tokens", "certs"]}},
-    {"name": "web-signer", "ca": "servers", "token": {"scopes": ["sign"], "domains": ["lab.example.org"]}},
-    {"name": "cert-viewer", "ca": "servers", "token": {"scopes": ["certs"], "networks": ["192.168.1.0/24"]}}
+    {
+      "name": "ca-admin",
+      "token": {
+        "valid": "8h",
+        "scopes": [
+          "tokens",
+          "certs"
+        ]
+      }
+    },
+    {
+      "name": "web-signer",
+      "ca": "servers",
+      "token": {
+        "scopes": ["sign"],
+        "domains": ["lab.example.org"]
+      }
+    },
+    {
+      "name": "cert-viewer",
+      "ca": "servers",
+      "token": {
+        "scopes": ["certs"],
+        "networks": ["192.168.1.0/24"]
+      }
+    }
   ],
   "rules": [
-    {"users": ["alice@example.com"], "profile": "ca-admin"},
-    {"groups": ["web-team"], "profile": "web-signer"}
+    {
+      "users": ["alice@example.com"],
+      "profile": "ca-admin"
+    },
+    {
+      "groups": ["web-team"],
+      "profile": "web-signer"
+    }
   ]
 }
 ```
@@ -161,11 +190,20 @@ apart from one user.
 sign-in is off, and `502 Bad Gateway` when the discovery document of the provider cannot be read:
 
 ```json
-{"provider": "keycloak", "label": "Keycloak", "client_id": "simple-ca",
- "scopes": ["openid", "profile", "email"],
- "authorization_endpoint": "https://sso.example.com/realms/lab/protocol/openid-connect/auth",
- "token_endpoint": "https://sso.example.com/realms/lab/protocol/openid-connect/token",
- "redirect_path": "/oidc-callback", "reuse_token": false}
+{
+  "provider": "keycloak",
+  "label": "Keycloak",
+  "client_id": "simple-ca",
+  "scopes": [
+    "openid",
+    "profile",
+    "email"
+  ],
+  "authorization_endpoint": "https://sso.example.com/realms/lab/protocol/openid-connect/auth",
+  "token_endpoint": "https://sso.example.com/realms/lab/protocol/openid-connect/token",
+  "redirect_path": "/oidc-callback",
+  "reuse_token": false
+}
 ```
 
 `POST /api/oidc-token` takes a JSON body of at most 64 KiB, `{"id_token": "eyJ..."}`, and
@@ -176,9 +214,15 @@ When the user has an active token there, the answer is `409 Conflict` naming it,
 made:
 
 ```json
-{"error": "the token alice-example-com of this user is active",
- "active": {"ca": "servers", "name": "alice-example-com",
-            "issued": "2026-11-03T21:10:00Z", "expires": "2026-11-04T05:10:00Z"}}
+{
+  "error": "the token alice-example-com of this user is active",
+  "active": {
+    "ca": "servers",
+    "name": "alice-example-com",
+    "issued": "2026-11-03T21:10:00Z",
+    "expires": "2026-11-04T05:10:00Z"
+  }
+}
 ```
 
 The ID token is not used up by that answer, so the same body can be sent again with one of:
@@ -194,7 +238,9 @@ Any other error is `{"error": "..."}` with the status:
   profile is not accepted from;
 - `404 Not Found` - the sign-in is off;
 - `409 Conflict` without `active` - the name of the token belongs to another token;
-- `415 Unsupported Media Type` - a body that is not `application/json`.
+- `415 Unsupported Media Type` - a body that is not `application/json`;
+- `429 Too Many Requests` - a client held back after refused ID tokens, as described in
+  [Refused credentials](signing-api.md#refused-credentials).
 
 Every token made is logged with the OIDC user and the client.
 
@@ -276,8 +322,22 @@ have no overage limit, unlike groups, which makes them the way to match Entra ID
 ```json
 {
   "profiles": [
-    {"name": "ca-admin", "token": {"valid": "8h", "scopes": ["*"], "domains": ["example.com"]}},
-    {"name": "web-signer", "ca": "servers", "token": {"scopes": ["sign"], "domains": ["lab.example.org"]}}
+    {
+      "name": "ca-admin",
+      "token": {
+        "valid": "8h",
+        "scopes": ["*"],
+        "domains": ["example.com"]
+      }
+    },
+    {
+      "name": "web-signer",
+      "ca": "servers",
+      "token": {
+        "scopes": ["sign"],
+        "domains": ["lab.example.org"]
+      }
+    }
   ],
   "rules": []
 }

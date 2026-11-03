@@ -31,22 +31,22 @@
           <div id="create-scopes" class="flex flex-wrap gap-x-4 gap-y-1"></div>
         </fieldset>
         <fieldset id="sign-fields" class="contents">
-          <label class="space-y-1"><span class="block font-medium">Allowed domains, with subdomains, or * for any</span>
+          <label class="space-y-1"><span class="block font-medium">Allowed domains</span>
             <input name="domains" placeholder="example.com, lab.example.org" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
-          <label class="space-y-1"><span class="block font-medium">Allowed IP addresses or prefixes, or * for any</span>
+          <label class="space-y-1"><span class="block font-medium">Allowed IP addresses</span>
             <input name="ips" placeholder="192.0.2.10, 10.0.0.0/8" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
           <fieldset class="space-y-1"><legend class="font-medium">Certificate types</legend>
             <div id="create-types" class="flex flex-wrap gap-x-4 gap-y-1"></div>
           </fieldset>
           <label class="flex items-center gap-1.5"><input type="checkbox" name="localhost"> Allow localhost and 127.0.0.1</label>
         </fieldset>
-        <label class="space-y-1"><span class="block font-medium">Allowed clients: addresses or prefixes; empty for any</span>
+        <label class="space-y-1"><span class="block font-medium">Allowed clients</span>
           <input name="clients" placeholder="192.168.1.4, 192.168.1.0/24" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
-        <label class="flex items-center gap-1.5 sm:col-span-2"><input type="checkbox" name="otc"> One-time setup code: hand out a code, exchanged once for the token</label>
+        <label class="flex items-center gap-1.5 sm:col-span-2"><input type="checkbox" name="otc"> One-time setup code</label>
         <fieldset id="otc-fields" class="contents">
           <label class="space-y-1"><span class="block font-medium">Code valid for</span>
             <input name="otc_valid" placeholder="15m, 1h" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
-          <label class="space-y-1"><span class="block font-medium">Code usable from: addresses or prefixes; empty for any</span>
+          <label class="space-y-1"><span class="block font-medium">Code usable from</span>
             <input name="otc_networks" placeholder="192.168.1.0/24" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
         </fieldset>
         <div class="flex justify-end gap-2 sm:col-span-2">

@@ -128,10 +128,14 @@ type acmeState struct {
 	Certs    map[string]string       `json:"certs"`
 }
 
+// issueMu serializes the certificates serve issues, by ACME, the signing API and the signing form,
+// and guards the ACME states.
+var issueMu sync.Mutex
+
 // acmeServer is the ACME server of the CAs of serve, for the CAs whose root CA's simple-ca.json
-// lists acme.domains; mu guards the states, which are loaded on first use, and nonceMu the nonces.
+// lists acme.domains; issueMu guards the states, which are loaded on first use, and nonceMu the
+// nonces.
 type acmeServer struct {
-	mu      sync.Mutex
 	states  map[string]*acmeState
 	nonceMu sync.Mutex
 	nonces  map[string]time.Time
@@ -149,7 +153,7 @@ func randomID() string {
 }
 
 // state returns the state of the CA in caDir, dropping the orders and authorizations that
-// expired; s.mu must be held.
+// expired; issueMu must be held.
 func (s *acmeServer) state(caDir string) (*acmeState, error) {
 	st, ok := s.states[caDir]
 	if !ok {
@@ -191,7 +195,7 @@ func (s *acmeServer) state(caDir string) (*acmeState, error) {
 	return st, nil
 }
 
-// save writes the state of the CA in caDir to its acme.json; s.mu must be held.
+// save writes the state of the CA in caDir to its acme.json; issueMu must be held.
 func (s *acmeServer) save(caDir string) error {
 	b, err := json.MarshalIndent(s.states[caDir], "", "  ")
 	if err != nil {
@@ -444,13 +448,13 @@ func (ca *acmeCA) verify(r *http.Request, jwkAllowed bool) (*acmeRequest, error)
 	switch {
 	case header.Kid != "" && header.JWK == nil:
 		id, ok := strings.CutPrefix(header.Kid, ca.base+"/acct/")
-		ca.mu.Lock()
+		issueMu.Lock()
 		st, err := ca.state(ca.dir)
 		var acct *acmeAccount
 		if err == nil {
 			acct = st.Accounts[id]
 		}
-		ca.mu.Unlock()
+		issueMu.Unlock()
 		if err != nil {
 			return nil, err
 		}
@@ -531,8 +535,8 @@ func (ca *acmeCA) newAccount(w http.ResponseWriter, req *acmeRequest) error {
 			return problem(http.StatusBadRequest, "unsupportedContact", "contact %q is not a mailto: URL", c)
 		}
 	}
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
@@ -572,8 +576,8 @@ func (ca *acmeCA) account(w http.ResponseWriter, req *acmeRequest, id string) er
 			return problem(http.StatusBadRequest, "malformed", "the payload is not an account object")
 		}
 	}
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
@@ -602,8 +606,8 @@ func (ca *acmeCA) accountOrders(w http.ResponseWriter, req *acmeRequest, id stri
 	if id != req.account {
 		return problem(http.StatusUnauthorized, "unauthorized", "the request is not signed by this account")
 	}
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
@@ -661,8 +665,8 @@ func (ca *acmeCA) newOrder(w http.ResponseWriter, req *acmeRequest) error {
 		}
 	}
 
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
@@ -691,7 +695,7 @@ func (ca *acmeCA) newOrder(w http.ResponseWriter, req *acmeRequest) error {
 }
 
 // orderObject returns the order object of the order oid, updating its status from its
-// authorizations; ca.mu must be held.
+// authorizations; issueMu must be held.
 func (ca *acmeCA) orderObject(st *acmeState, oid string, o *acmeOrder) map[string]any {
 	if o.Status == "pending" {
 		ready := true
@@ -733,7 +737,7 @@ func (ca *acmeCA) orderObject(st *acmeState, oid string, o *acmeOrder) map[strin
 	return obj
 }
 
-// ownOrder returns the order oid of the account of req; ca.mu must be held.
+// ownOrder returns the order oid of the account of req; issueMu must be held.
 func (ca *acmeCA) ownOrder(st *acmeState, req *acmeRequest, oid string) (*acmeOrder, error) {
 	o := st.Orders[oid]
 	if o == nil {
@@ -747,8 +751,8 @@ func (ca *acmeCA) ownOrder(st *acmeState, req *acmeRequest, oid string) (*acmeOr
 
 // order returns the order oid.
 func (ca *acmeCA) order(w http.ResponseWriter, req *acmeRequest, oid string) error {
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
@@ -791,7 +795,7 @@ func (ca *acmeCA) challengeObject(aid string, c acmeChallenge) map[string]any {
 	return obj
 }
 
-// ownAuthz returns the authorization aid of the account of req; ca.mu must be held.
+// ownAuthz returns the authorization aid of the account of req; issueMu must be held.
 func (ca *acmeCA) ownAuthz(st *acmeState, req *acmeRequest, aid string) (*acmeAuthz, error) {
 	a := st.Authzs[aid]
 	if a == nil {
@@ -811,8 +815,8 @@ func (ca *acmeCA) authz(w http.ResponseWriter, req *acmeRequest, aid string) err
 			return problem(http.StatusBadRequest, "malformed", "the payload is not an authorization object")
 		}
 	}
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
@@ -838,8 +842,8 @@ func (ca *acmeCA) authz(w http.ResponseWriter, req *acmeRequest, aid string) err
 // challenge starts the validation of the challenge typ of the authorization aid, when it is
 // pending, and returns it.
 func (ca *acmeCA) challenge(w http.ResponseWriter, req *acmeRequest, aid, typ string) error {
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
@@ -901,8 +905,8 @@ func (ca *acmeCA) validate(aid, typ, name, keyAuth string) {
 		}
 	}
 
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		log.Printf("ACME %s: %v", ca.dir, err)
@@ -948,8 +952,8 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 		return problem(http.StatusBadRequest, "badCSR", "the csr does not parse or its signature is invalid")
 	}
 
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
@@ -1015,8 +1019,8 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 
 // certificate returns the certificate chain of the valid order oid.
 func (ca *acmeCA) certificate(w http.ResponseWriter, req *acmeRequest, oid string) error {
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
@@ -1067,8 +1071,8 @@ func (ca *acmeCA) revoke(w http.ResponseWriter, req *acmeRequest) error {
 		reason = crlReasons[*p.Reason].name
 	}
 
-	ca.mu.Lock()
-	defer ca.mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err

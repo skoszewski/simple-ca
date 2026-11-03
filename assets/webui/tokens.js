@@ -11,13 +11,12 @@ function showToken(answer) {
   }
 }
 
-// tokenStatus returns the status of the token t: revoked, expired, pending while it waits for its
-// setup code, or active.
+// tokenStatus returns the status of the token t: revoked, expired, pending or active.
 const tokenStatus = (t) => t.revoked ? "revoked" : t.expired ? "expired" : t.pending ? "pending" : "active";
 // allowsScope reports whether the scopes give the scope, named or by *.
 const allowsScope = (scopes, scope) => scopes.includes(scope) || scopes.includes("*");
 
-// showCA draws the tokens of the CA on the page, with the search and the filters of their list.
+// showCA draws the tokens of the CA on the page.
 async function showCA() {
   const ca = currentCA();
   let tokens;
@@ -59,11 +58,11 @@ async function showCA() {
         text: (t) => [t.name, t.oidc ? t.oidc.user : "", tokenStatus(t), ...t.scopes, ...(t.types || []), ...(t.domains || []),
           ...(t.ips || []).map(address), ...(t.clients || []).map(address), ...t.certs],
         filters: [
-          { name: "status", label: "Status", match: (t, value) => tokenStatus(t) === value,
+          { name: "status", label: "Status", multiple: true, match: (t, values) => values.includes(tokenStatus(t)),
             choices: [["", "all"], ["active", "active"], ["pending", "waiting for a setup code"], ["expired", "expired"], ["revoked", "revoked"]] },
-          { name: "scope", label: "Scope", match: (t, value) => allowsScope(t.scopes, value),
+          { name: "scope", label: "Scope", multiple: true, match: (t, values) => values.every((scope) => allowsScope(t.scopes, scope)),
             choices: [["", "all"], ...["sign", "tokens", "certs"].map((s) => [s, s])] },
-          { name: "kind", label: "Made by", match: (t, value) => (value === "oidc") === Boolean(t.oidc),
+          { name: "kind", label: "Made by", match: (t, [value]) => (value === "oidc") === Boolean(t.oidc),
             choices: [["", "all"], ["oidc", "OIDC sign-in"], ["other", "other"]] },
         ] }),
     tokens.length === 0 ? null : element("div", {}, element("button", { type: "button",
@@ -71,7 +70,7 @@ async function showCA() {
       textContent: "Remove expired and revoked tokens",
       onclick: () => change("purge", "", "Remove all expired and revoked tokens of this CA? They can no longer be renewed.", "Remove") })),
     ca.has_key ? element("div", {}, button("Create a token", openCreate, true))
-      : element("p", { className: "text-sm text-muted", textContent: "This CA's key is not on this server, so tokens cannot be created for it here." }),
+      : element("p", { className: "text-sm text-muted", textContent: "No key of this CA on this server" }),
   ].filter((child) => child !== null));
 }
 
@@ -87,10 +86,13 @@ async function renew(name, ended) {
     element("span", { className: "block font-medium", textContent: text }), input);
   const question = ended ? `Renew the token ${name}?`
     : `Renew the token ${name}? It gets a new JWT, and the JWT it has is refused from then on.`;
+  // The fields of the setup code show while its box is checked.
+  const otcFields = element("div", { className: "hidden space-y-3" }, label("Code valid for", otcValid),
+    label("Code usable from", otcNetworks));
+  otc.addEventListener("change", () => otcFields.classList.toggle("hidden", !otc.checked));
   if (!(await confirmed(question, "Renew", element("div", { className: "space-y-3" },
-    element("label", { className: "flex items-center gap-1.5 text-sm" }, otc,
-      " One-time setup code: hand out a code, exchanged once for the token"),
-    label("Code valid for", otcValid), label("Code usable from: addresses or prefixes; empty for any", otcNetworks))))) {
+    element("label", { className: "flex items-center gap-1.5 text-sm" }, otc, " One-time setup code"),
+    otcFields)))) {
     return;
   }
   try {
@@ -123,9 +125,6 @@ async function change(what, name, question, action) {
   showCA();
 }
 
-// scopeHints tell what each scope opens.
-const scopeHints = { sign: "request certificates", tokens: "this page", certs: "the certificate page", "*": "all scopes" };
-
 // openCreate opens the form creating a token, filled with the defaults of simple-ca.json.
 function openCreate() {
   const fields = $("create-form").elements;
@@ -143,19 +142,22 @@ function openCreate() {
   fields.otc_networks.value = "";
   $("create-scopes").replaceChildren(...info.scopes.map((scope) => element("label", { className: "flex items-center gap-1.5" },
     element("input", { type: "checkbox", name: "scope", value: scope, checked: info.defaults.scopes.includes(scope),
-      onchange: signFields }), " " + scope + ": " + scopeHints[scope])));
+      onchange: signFields }), " " + scope)));
   $("create-types").replaceChildren(...[...info.types, "*"].map((type) => element("label", { className: "flex items-center gap-1.5" },
     element("input", { type: "checkbox", name: "type", value: type, checked: info.defaults.types.includes(type),
-      onchange: signFields }), " " + (type === "*" ? "*: all types" : type))));
+      onchange: signFields }), " " + type)));
   signFields();
   $("create-dialog").showModal();
 }
 
 // signFields turns the fields of the scope sign on with that scope or *, and off without them; a
 // checked * of the scopes or the types turns the other boxes of its group off; the fields of the
-// setup code are on with its box.
+// setup code show with its box.
 function signFields() {
-  $("otc-fields").disabled = !$("create-form").elements.otc.checked;
+  const otc = $("create-form").elements.otc.checked;
+  $("otc-fields").disabled = !otc;
+  $("otc-fields").classList.toggle("contents", otc);
+  $("otc-fields").classList.toggle("hidden", !otc);
   for (const name of ["scope", "type"]) {
     const all = $("create-form").querySelector(`input[name="${name}"][value="*"]`);
     for (const box of $("create-form").querySelectorAll(`input[name="${name}"]:not([value="*"])`)) {

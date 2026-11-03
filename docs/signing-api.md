@@ -175,11 +175,17 @@ root CA. On it you can:
 
 - list the tokens, as `token list` does, and find them with the search and the filters. The search
   shows the tokens holding every word of it, in any letter case, in their name, OIDC user,
-  status, scopes, types, domains, IP addresses, clients or certificate serials. The filters pick
-  the status (active, waiting for a setup code, expired or revoked), a scope, the token having it
-  by name or by `*`, and whether the OIDC sign-in made it. A count tells how many are shown, and
-  the search and the filters are kept in the address, as `?q=`, `?status=`, `?scope=` and
-  `?kind=`, so a reload or a link keeps them;
+  status, scopes, types, domains, IP addresses, clients or certificate serials. The filters
+  are:
+  - **Status**: active, waiting for a setup code, expired or revoked, one or more, showing the
+    tokens of any status ticked;
+  - **Scope**: sign, tokens or certs, one or more, showing the tokens having every scope ticked,
+    by name or by `*`;
+  - **Made by**: the OIDC sign-in or another way.
+
+  A count tells how many are shown. The search and the filters are kept in the address, as `?q=`,
+  `?status=`, `?scope=` and `?kind=`, several values separated by commas, so a reload or a link
+  keeps them;
 - renew a token, as `token renew` does, confirming first, with a setup code in place of its JWT
   when "One-time setup code" is checked in the question;
 - revoke a token, or remove a revoked or expired one, or all of them, as `token purge` does,
@@ -218,7 +224,9 @@ token of every request: `Authorization: Bearer TOKEN`.
 - `401 Unauthorized` - no token, or an invalid, revoked, expired or unknown one;
 - `403 Forbidden` - a token without the scope `tokens`, a client the token does not allow, or
   creating, renewing, revoking or removing a token with a scope the signed-in token does not have;
-- `404 Not Found` - a CA the token does not open.
+- `404 Not Found` - a CA the token does not open;
+- `429 Too Many Requests` - a client held back after refused tokens, see
+  [Refused credentials](#refused-credentials).
 
 `CA` is the name of an issuing CA, or empty for the root CA. An error is `{"error": "..."}`.
 
@@ -232,7 +240,8 @@ token of every request: `Authorization: Bearer TOKEN`.
 | `POST /tokens/api/tokens/purge` | `ca`, and `name` for one token | `removed`, the count |
 
 ```sh
-curl -s -H "Authorization: Bearer $TOKEN" 'https://pki.example.com:8443/tokens/api/tokens?ca=servers'
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'https://pki.example.com:8443/tokens/api/tokens?ca=servers'
 ```
 
 ## Setup code exchange
@@ -242,15 +251,17 @@ its issuing CAs for the token at `/api/token-setup`, with `--webui` or without i
 `POST` with a JSON body of at most 64 KiB, and needs no token:
 
 ```json
-{"code": "K7QF-M2XA-JP4D-W5ZR"}
+{
+  "code": "K7QF-M2XA-JP4D-W5ZR"
+}
 ```
 
 The answer is `{"ca": "servers", "name": "builder", "token": "eyJ...", "scopes": ["sign"]}`: the
 issuing CA of the token, empty for the root CA, its name, its JWT, valid for the `--valid` of
 `token create` from now, and its scopes. The code works once. An error is `{"error": "..."}` with
 the status `401 Unauthorized` for an unknown, used or expired code, `403 Forbidden` for a client
-outside `--otc-network`, and `415 Unsupported Media Type` for a body that is not
-`application/json`.
+outside `--otc-network`, `415 Unsupported Media Type` for a body that is not
+`application/json`, and `429 Too Many Requests` for a client held back after refused codes.
 
 ```sh
 TOKEN=$(jq -n --arg code K7QF-M2XA-JP4D-W5ZR '{code: $code}' | curl -s \
@@ -272,7 +283,10 @@ signs. A request is a `POST` with a `sign` token of that CA as the bearer token,
 of at most 64 KiB:
 
 ```json
-{"csr": "-----BEGIN CERTIFICATE REQUEST-----\n...", "type": "server"}
+{
+  "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...",
+  "type": "server"
+}
 ```
 
 `csr` is the request in PEM. `type` must be one of the types the token allows; it defaults to the
@@ -293,7 +307,11 @@ usages, AIA and CRL Distribution Point URLs that `cert create` gives the type. I
 number in the token's entry in `tokens-db.json`. The response is JSON:
 
 ```json
-{"serial": "542458ED...", "certificate": "-----BEGIN CERTIFICATE-----\n...", "chain": "..."}
+{
+  "serial": "542458ED...",
+  "certificate": "-----BEGIN CERTIFICATE-----\n...",
+  "chain": "..."
+}
 ```
 
 `chain` holds the certificate and, for an issuing CA, the issuing CA certificate. An error is
@@ -304,7 +322,9 @@ number in the token's entry in `tokens-db.json`. The response is JSON:
   unknown (as the old JWT of a renewed token is);
 - `403 Forbidden` - the token has no scope `sign`, does not allow the type or a name, or is not
   accepted from the client;
-- `415 Unsupported Media Type` - the body is not `application/json`.
+- `415 Unsupported Media Type` - the body is not `application/json`;
+- `429 Too Many Requests` - the client is held back after refused tokens, see
+  [Refused credentials](#refused-credentials).
 
 `tokens-db.json` is read on every request, so a revoked token is refused at once. Like
 [ACME](acme.md), the API needs `serve` to be able to write to the CA directories and read the CA
@@ -322,6 +342,24 @@ jq -n --rawfile csr web.csr '{csr: $csr}' | curl -s -H "Authorization: Bearer $T
 [examples.md](examples.md) describes the API clients in `examples/` and `cmd/request-cert/`, in
 Python, Node.js, Go and the shell. They make a key and a request, and write the key, the
 certificate and its chain.
+
+## Refused credentials
+
+`serve` counts the tokens, setup codes and OIDC ID tokens it refuses with
+`401 Unauthorized` for each client, an IPv6 client by its /64 prefix. This applies to the
+signing API, the signing forms, `/api/token-setup`, `/token-setup`, `/api/oidc-token` and the
+API of the token and certificate pages. After 5 refusals in a row:
+
+- the client is held back for 1 second, a time that doubles with each further refusal, up to
+  15 minutes;
+- while held back, every request of the client that carries a credential is answered with
+  `429 Too Many Requests` and a `Retry-After` header, the seconds left, without checking the
+  credential, even a valid one;
+- a request without a credential is not counted.
+
+A credential accepted forgets the refusals of its client, and so do 60 minutes without a
+refusal. The count is kept in memory and starts again with `serve`. Behind a reverse proxy, name
+it with `--trusted-proxy`, or every client counts as the proxy.
 
 ## Signing form
 

@@ -25,14 +25,13 @@
         <p id="cert-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-bad-ink sm:col-span-2"></p>
         <div class="space-y-1"><span id="cert-type-label" class="block font-medium">Type</span>
           <div id="cert-type"></div></div>
-        <label class="space-y-1"><span class="block font-medium">Valid for, in days</span>
+        <label class="space-y-1"><span class="block font-medium">Validity in days</span>
           <input name="days" type="number" min="1" required class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
         <div data-create class="space-y-1 sm:col-span-2"><label for="cert-subject" class="block font-medium">Subject</label>
-          <input id="cert-subject" name="subject" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono">
-          <p id="cert-rules" class="text-muted"></p></div>
-        <label data-create class="space-y-1 sm:col-span-2"><span class="block font-medium">More names, comma- or space-separated</span>
+          <input id="cert-subject" name="subject" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></div>
+        <label data-create class="space-y-1 sm:col-span-2"><span class="block font-medium">More names</span>
           <input name="sans" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
-        <label data-sign class="space-y-1 sm:col-span-2"><span class="block font-medium">Certificate file name, written as NAME_cert.pem</span>
+        <label data-sign class="space-y-1 sm:col-span-2"><span class="block font-medium">Certificate file name</span>
           <input name="name" placeholder="web" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
         <label data-sign class="space-y-1 sm:col-span-2"><span class="block font-medium">Certificate signing request (PEM)</span>
           <textarea name="csr" rows="8" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="-----BEGIN CERTIFICATE REQUEST-----" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-xs"></textarea></label>

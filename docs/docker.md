@@ -62,8 +62,10 @@ the service:
 ./build.mjs docker
 docker compose -f examples/compose.yaml run --rm simple-ca ca create \
   --ca-url http://pki.example.com:8080 "My Root CA"
-docker compose -f examples/compose.yaml run --rm simple-ca ca create --issuing-ca servers "My Servers CA"
-docker compose -f examples/compose.yaml run --rm simple-ca token create --scope tokens --scope certs admin
+docker compose -f examples/compose.yaml run --rm simple-ca ca create \
+  --issuing-ca servers "My Servers CA"
+docker compose -f examples/compose.yaml run --rm simple-ca token create \
+  --scope tokens --scope certs admin
 docker compose -f examples/compose.yaml up -d
 ```
 
@@ -97,7 +99,10 @@ With the port forwarded, the index page is at `http://127.0.0.1:8080/`. A token 
 certificate pages is made when one is needed, in the running container:
 
 ```sh
-kubectl exec deployment/simple-ca -- simple-ca token create --valid 8h --scope tokens --scope certs alice
-``` The nodes of the cluster must have both images; for images
+kubectl exec deployment/simple-ca -- \
+  simple-ca token create --valid 8h --scope tokens --scope certs alice
+```
+
+The nodes of the cluster must have both images; for images
 of a registry, `image` names them, and `--build-arg IMAGE=registry.example.com/simple-ca:latest`
 builds the init image on the image of the registry.

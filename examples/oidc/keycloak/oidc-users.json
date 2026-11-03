@@ -1,11 +1,42 @@
 {
   "profiles": [
-    {"name": "ca-admin", "token": {"valid": "8h", "scopes": ["tokens", "certs"]}},
-    {"name": "web-signer", "ca": "servers", "token": {"valid": "1h", "scopes": ["sign"], "domains": ["lab.example.org"]}},
-    {"name": "cert-viewer", "ca": "servers", "token": {"valid": "8h", "scopes": ["certs"], "networks": ["192.168.1.0/24"]}}
+    {
+      "name": "ca-admin",
+      "token": {
+        "valid": "8h",
+        "scopes": [
+          "tokens",
+          "certs"
+        ]
+      }
+    },
+    {
+      "name": "web-signer",
+      "ca": "servers",
+      "token": {
+        "valid": "1h",
+        "scopes": ["sign"],
+        "domains": ["lab.example.org"]
+      }
+    },
+    {
+      "name": "cert-viewer",
+      "ca": "servers",
+      "token": {
+        "valid": "8h",
+        "scopes": ["certs"],
+        "networks": ["192.168.1.0/24"]
+      }
+    }
   ],
   "rules": [
-    {"users": ["admin"], "profile": "ca-admin"},
-    {"groups": ["/web-team"], "profile": "web-signer"}
+    {
+      "users": ["admin"],
+      "profile": "ca-admin"
+    },
+    {
+      "groups": ["/web-team"],
+      "profile": "web-signer"
+    }
   ]
 }

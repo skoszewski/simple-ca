@@ -75,10 +75,12 @@ request-cert --token-file FILE [options] API_URL CN [DNS_NAME ...]
   > deploy.token)
 export SIMPLE_CA_TOKEN_FILE=deploy.token
 
-examples/request_cert.py https://pki.example.com:8443/servers/api/sign web.example.com www.example.com
+examples/request_cert.py https://pki.example.com:8443/servers/api/sign \
+  web.example.com www.example.com
 examples/request-cert.mjs https://pki.example.com:8443/servers/api/sign api.example.com
 examples/request-cert.sh https://pki.example.com:8443/servers/api/sign '*.apps.example.com'
-go run ./cmd/request-cert --out-dir /etc/ssl/db https://pki.example.com:8443/servers/api/sign db.example.com
+go run ./cmd/request-cert --out-dir /etc/ssl/db \
+  https://pki.example.com:8443/servers/api/sign db.example.com
 ```
 
 With a setup code, the administrator hands out the code of `token create --otc`, and the first
@@ -89,7 +91,8 @@ simple-ca token create --ca-dir /etc/simple-ca/servers --otc --domain example.co
 
 SIMPLE_CA_TOKEN_FILE=web.token request-cert --setup-code K7QF-M2XA-JP4D-W5ZR \
   https://pki.example.com:8443/servers/api/sign web.example.com
-SIMPLE_CA_TOKEN_FILE=web.token request-cert https://pki.example.com:8443/servers/api/sign www.example.com
+SIMPLE_CA_TOKEN_FILE=web.token request-cert \
+  https://pki.example.com:8443/servers/api/sign www.example.com
 ```
 
 The commands run from the repository root. `./build.mjs` builds the Go program as `request-cert`

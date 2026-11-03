@@ -36,7 +36,6 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -152,13 +151,13 @@ type indexCA struct {
 // root CA in rootDir at /NAME, those of each of its issuing CAs at /CA/NAME, and ca_bundle.pem of
 // the root CA, also as the PKCS#7 file ca_bundle.p7b. The files are read on each request. With
 // acme.domains in simple-ca.json, it also serves the ACME server of each CA whose key is there.
-// The signing API and form take the client of a request from the X-Forwarded-For header of the
-// trusted proxies. An executable built with serve-markdown's page assets shows the help of the
+// The signing API and form take the client of a request from the X-Forwarded-For header of
+// trustedProxies. An executable built with serve-markdown's page assets shows the help of the
 // signing API at /help/ and, with docs, the guides at /docs/. With webui, it serves the token
 // page at tokensPath and the certificate page at certsPath. The setup codes of the tokens are
 // exchanged for them at /api/token-setup and on the page /token-setup, and with oidc in
 // simple-ca.json, the ID tokens of the OIDC sign-in at /api/oidc-token.
-func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http.ServeMux {
+func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		var cas []indexCA
@@ -375,28 +374,24 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http
 	// The exchange of the setup codes of the tokens of all the CAs at /api/token-setup, and on the
 	// page /token-setup.
 	mux.HandleFunc("POST /api/token-setup", func(w http.ResponseWriter, r *http.Request) {
-		apiTokenSetup(w, r, rootDir, trusted)
+		apiTokenSetup(w, r, rootDir)
 	})
 	mux.HandleFunc("GET /token-setup", func(w http.ResponseWriter, r *http.Request) {
-		tokenSetupPage(w, r, rootDir, trusted)
+		tokenSetupPage(w, r, rootDir)
 	})
 	mux.HandleFunc("POST /token-setup", func(w http.ResponseWriter, r *http.Request) {
-		tokenSetupPage(w, r, rootDir, trusted)
+		tokenSetupPage(w, r, rootDir)
 	})
 
-	// The OIDC sign-in of the pages: its settings at /api/oidc, the exchange of an ID token for the
-	// token of its user at /api/oidc-token, and the page the provider sends the browser back to.
+	// The OIDC sign-in.
 	oidc := newOIDCClient(rootDir)
 	mux.HandleFunc("GET /api/oidc", oidc.apiSettings)
-	mux.HandleFunc("POST /api/oidc-token", func(w http.ResponseWriter, r *http.Request) {
-		oidc.apiToken(w, r, trusted)
-	})
+	mux.HandleFunc("POST /api/oidc-token", oidc.apiToken)
 	mux.HandleFunc("GET "+oidcCallbackPath, oidc.callbackPage)
 
-	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign, under
-	// the lock of the ACME server.
+	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign.
 	mux.HandleFunc("POST /api/sign", func(w http.ResponseWriter, r *http.Request) {
-		apiSign(w, r, rootDir, trusted, &acme.mu)
+		apiSign(w, r, rootDir)
 	})
 	mux.HandleFunc("GET /api/sign", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", http.MethodPost)
@@ -408,7 +403,7 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http
 			http.NotFound(w, r)
 			return
 		}
-		apiSign(w, r, filepath.Join(rootDir, ca), trusted, &acme.mu)
+		apiSign(w, r, filepath.Join(rootDir, ca))
 	})
 
 	// /CA and /CA/ of an issuing CA redirect to its section of the index page.
@@ -426,7 +421,7 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http
 	// The signing form of the root CA at /sign and of each issuing CA at /CA/sign.
 	for _, method := range []string{"GET", "POST"} {
 		mux.HandleFunc(method+" /sign", func(w http.ResponseWriter, r *http.Request) {
-			signPage(w, r, rootDir, "/sign", trusted, &acme.mu)
+			signPage(w, r, rootDir, "/sign")
 		})
 		mux.HandleFunc(method+" /{ca}/sign", func(w http.ResponseWriter, r *http.Request) {
 			ca := r.PathValue("ca")
@@ -434,7 +429,7 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http
 				http.NotFound(w, r)
 				return
 			}
-			signPage(w, r, filepath.Join(rootDir, ca), "/"+ca+"/sign", trusted, &acme.mu)
+			signPage(w, r, filepath.Join(rootDir, ca), "/"+ca+"/sign")
 		})
 	}
 
@@ -448,8 +443,8 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http
 		top.Handle(docsPath, docsSite)
 	}
 	if webui {
-		top.Handle(tokensPath, http.StripPrefix(strings.TrimSuffix(tokensPath, "/"), (&webuiServer{rootDir: rootDir, trusted: trusted}).mux()))
-		top.Handle(certsPath, http.StripPrefix(strings.TrimSuffix(certsPath, "/"), (&webuiServer{rootDir: rootDir, trusted: trusted, certs: true}).mux()))
+		top.Handle(tokensPath, http.StripPrefix(strings.TrimSuffix(tokensPath, "/"), (&webuiServer{rootDir: rootDir}).mux()))
+		top.Handle(certsPath, http.StripPrefix(strings.TrimSuffix(certsPath, "/"), (&webuiServer{rootDir: rootDir, certs: true}).mux()))
 	}
 	top.Handle("/", mux)
 	return top

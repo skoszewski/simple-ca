@@ -1,7 +1,5 @@
-// The signing form of serve, after picker.js and oidc.js: the certificate type is chosen with a
-// picker made of the options of the form's type select, which it replaces. With the OIDC sign-in,
-// the request and the type are kept while the browser is at the provider, and the token of the
-// sign-in fills the token field once it is back.
+// The signing form of serve, after picker.js and oidc.js: the type picker, and the OIDC sign-in,
+// which fills the token field and keeps the request and the type.
 const formKey = "simple-ca-sign-form";
 const select = document.getElementById("type");
 if (select) {

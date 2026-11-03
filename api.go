@@ -49,7 +49,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"text/tabwriter"
 	"time"
 )
@@ -107,8 +106,7 @@ type apiToken struct {
 	OIDC    *tokenOIDC  `json:"oidc,omitempty"`
 }
 
-// tokenOIDC is the OIDC user a token is made for at the sign-in: the issuer and the subject of the
-// user's ID token, and the user as its user claim names the user.
+// tokenOIDC is the OIDC user a token was made for: issuer, subject and user claim.
 type tokenOIDC struct {
 	Issuer  string `json:"issuer"`
 	Subject string `json:"subject"`
@@ -380,8 +378,7 @@ func addToken(caDir, name string, valid time.Duration, scopes, certTypes, domain
 	return result, nil
 }
 
-// prepareToken returns the token name of the CA in caDir as addToken makes it, issued now with a
-// new JWT ID, without storing it, and the CA key that signs it.
+// prepareToken validates and returns the token name of the CA in caDir, unsaved, and the CA key.
 func prepareToken(caDir, name string, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (*apiToken, *rsa.PrivateKey, error) {
 	if valid < time.Second {
 		return nil, nil, errors.New("--valid must be at least 1s")
@@ -453,8 +450,7 @@ func prepareToken(caDir, name string, valid time.Duration, scopes, certTypes, do
 		Clients: clientPrefixes, Issued: now, Expires: now.Add(valid)}, caKey, nil
 }
 
-// active reports whether the token is accepted at the time now: neither revoked, pending nor
-// expired.
+// active reports whether the token is neither revoked, pending nor expired at now.
 func (t *apiToken) active(now time.Time) bool {
 	return !t.revoked() && !t.pending() && now.Before(t.Expires)
 }
@@ -464,11 +460,8 @@ func (t *apiToken) ownedBy(owner *tokenOIDC) bool {
 	return t.OIDC != nil && t.OIDC.Issuer == owner.Issuer && t.OIDC.Subject == owner.Subject
 }
 
-// oidcToken stores tok, made by prepareToken for the OIDC user of its OIDC, as the token name of
-// tokens-db.json of caDir, and returns its JWT, signed with caKey, and the token. An active token
-// of the user there is replaced with replace, or kept with reuse, which returns its JWT again;
-// without either, the error has the status 409, as it has when the name belongs to a token not
-// made for that user.
+// oidcToken stores tok as the token name of caDir and returns its JWT and the token given; an
+// active token of the same user is replaced with replace, or returned with reuse.
 func oidcToken(caDir, name string, tok *apiToken, caKey *rsa.PrivateKey, replace, reuse bool) (string, *apiToken, error) {
 	unlock, err := lockTokens(caDir)
 	if err != nil {
@@ -661,7 +654,7 @@ func describeToken(name string, t *apiToken, limits bool) [][2]string {
 	attributes := [][2]string{{"Name", name}, {"Status", status}, {"Issued", at(t.Issued)},
 		{"Scopes", list(t.scopes(), "-")}}
 	if t.OIDC != nil {
-		attributes = append(attributes, [2]string{"OIDC user", t.OIDC.User + " of " + t.OIDC.Issuer})
+		attributes = append(attributes, [2]string{"OIDC user", t.OIDC.User}, [2]string{"OIDC issuer", t.OIDC.Issuer})
 	}
 	if !limits {
 		return attributes
@@ -782,7 +775,7 @@ func exchangeSetupCode(rootDir, code string, client netip.Addr) (caID, name, jwt
 // apiTokenSetup answers POST /api/token-setup, a JSON body {"code": "..."} of at most acmeMaxBody
 // bytes from a client behind the trusted proxies, with the CA ID, the name, the JWT and the scopes
 // of the token the setup code is exchanged for.
-func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string, trusted []netip.Prefix) {
+func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string) {
 	var req struct {
 		Code string `json:"code"`
 	}
@@ -796,8 +789,12 @@ func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string, trust
 		webuiFail(w, http.StatusBadRequest, "the body is not a JSON object with the setup code")
 		return
 	}
-	client := clientAddr(r, trusted)
-	id, name, jwt, err := exchangeSetupCode(rootDir, req.Code, client)
+	client := clientAddr(r)
+	var id, name, jwt string
+	err := guard.attempt(w, client, func() (err error) {
+		id, name, jwt, err = exchangeSetupCode(rootDir, req.Code, client)
+		return err
+	})
 	var refused *apiError
 	switch {
 	case errors.As(err, &refused):
@@ -818,9 +815,9 @@ func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string, trust
 
 // tokenSetupPage serves /token-setup for the root CA in rootDir and its issuing CAs: GET shows the
 // form asking for a setup code, and POST exchanges the code, as exchangeSetupCode, and shows the
-// token once, with its attributes, or the form again with the error. The client is the one clientAddr finds with the
-// trusted proxies.
-func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string, trusted []netip.Prefix) {
+// token once, with its attributes, or the form again with the error. The client is the one
+// clientAddr finds with the trusted proxies.
+func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 	caCert, err := loadCert(filepath.Join(rootDir, "ca_cert.pem"))
 	if err != nil {
 		log.Printf("%s: %v", r.URL.Path, err)
@@ -839,8 +836,15 @@ func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string, trus
 			http.Error(w, "the form is too large or malformed", http.StatusBadRequest)
 			return
 		}
-		client := clientAddr(r, trusted)
-		page.CA, page.Name, page.Token, err = exchangeSetupCode(rootDir, r.PostForm.Get("code"), client)
+		client := clientAddr(r)
+		code := strings.TrimSpace(r.PostForm.Get("code"))
+		err = apiErr(http.StatusUnauthorized, "a setup code is required")
+		if code != "" {
+			err = guard.attempt(w, client, func() (err error) {
+				page.CA, page.Name, page.Token, err = exchangeSetupCode(rootDir, code, client)
+				return err
+			})
+		}
 		var e *apiError
 		switch {
 		case errors.As(err, &e):
@@ -1022,12 +1026,15 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, tok *apiToken) er
 	return nil
 }
 
+// trustedProxies are the proxies whose X-Forwarded-For header names the client, set once by serve.
+var trustedProxies []netip.Prefix
+
 // clientAddr returns the address of the client of r: the address the request comes from, or, when
-// that is one of the trusted proxies, the last address of its X-Forwarded-For headers that is not
-// a trusted proxy, the first one when all of them are.
-func clientAddr(r *http.Request, trusted []netip.Prefix) netip.Addr {
+// that is one of trustedProxies, the last address of its X-Forwarded-For headers that is not a
+// trusted proxy, the first one when all of them are.
+func clientAddr(r *http.Request) netip.Addr {
 	isTrusted := func(addr netip.Addr) bool {
-		return slices.ContainsFunc(trusted, func(p netip.Prefix) bool { return p.Contains(addr) })
+		return slices.ContainsFunc(trustedProxies, func(p netip.Prefix) bool { return p.Contains(addr) })
 	}
 	peer, _ := netip.ParseAddrPort(r.RemoteAddr)
 	client := peer.Addr().Unmap()
@@ -1058,15 +1065,15 @@ func clientAddr(r *http.Request, trusted []netip.Prefix) netip.Addr {
 // tokens-db.json used from the address client, which must be in the client prefixes of a token
 // that has them; it records the certificate in index.txt and in the token's entry, and returns
 // it with the CA certificate and the name of its file, NAME_cert.pem by the rules of cert create,
-// the serial number for a request without a name. mu and the lock of tokens-db.json are held from
-// the token check to the writes of index.txt and tokens-db.json. With setupCodes, token may be
-// the setup code of a pending token of the CA instead, used from a client it is exchanged from:
+// the serial number for a request without a name. issueMu and the lock of tokens-db.json are held
+// from the token check to the writes of index.txt and tokens-db.json. With setupCodes, token may
+// be the setup code of a pending token of the CA instead, used from a client it is exchanged from:
 // the certificate is signed with the limits of that token, which is revoked once it is issued,
 // and a refused request leaves the code as it was.
-func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certType string, mu *sync.Mutex,
+func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certType string,
 	setupCodes bool) (cert, caCert *x509.Certificate, fileName string, err error) {
-	mu.Lock()
-	defer mu.Unlock()
+	issueMu.Lock()
+	defer issueMu.Unlock()
 	unlock, err := lockTokens(caDir)
 	if err != nil {
 		return nil, nil, "", err
@@ -1184,7 +1191,7 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 // apiSign serves a POST of /api/sign for the CA in caDir: it signs the CSR of the JSON request
 // with the type it names for the bearer token of the request, as signWithToken, for the client
 // clientAddr finds with the trusted proxies, and returns the certificate with its chain.
-func apiSign(w http.ResponseWriter, r *http.Request, caDir string, trusted []netip.Prefix, mu *sync.Mutex) {
+func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 	if !fileExists(filepath.Join(caDir, "ca_key.pem")) || !fileExists(filepath.Join(caDir, tokensFile)) {
 		http.NotFound(w, r)
 		return
@@ -1194,11 +1201,12 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string, trusted []net
 		CSR  string `json:"csr"`
 		Type string `json:"type"`
 	}
-	var err error
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	ct, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";")
 	dec := json.NewDecoder(io.LimitReader(r.Body, acmeMaxBody))
 	dec.DisallowUnknownFields()
+	client := clientAddr(r)
+	var err error
 	switch {
 	case strings.TrimSpace(ct) != "application/json":
 		err = apiErr(http.StatusUnsupportedMediaType, "the content type must be application/json")
@@ -1207,7 +1215,10 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string, trusted []net
 	case dec.Decode(&req) != nil:
 		err = apiErr(http.StatusBadRequest, "invalid request: the body is not a JSON object of csr and type")
 	default:
-		cert, caCert, _, err = signWithToken(caDir, token, clientAddr(r, trusted), []byte(req.CSR), req.Type, mu, false)
+		err = guard.attempt(w, client, func() (err error) {
+			cert, caCert, _, err = signWithToken(caDir, token, client, []byte(req.CSR), req.Type, false)
+			return err
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1239,7 +1250,7 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string, trusted []net
 // certificate as a download, or shows the form again with the error. For a CA without its key or
 // its tokens-db.json, the page says why it signs no requests, and a POST is 403 Forbidden. The
 // client is the one clientAddr finds with the trusted proxies.
-func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, trusted []netip.Prefix, mu *sync.Mutex) {
+func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 	caCert, err1 := loadCert(filepath.Join(caDir, "ca_cert.pem"))
 	cfg, err2 := loadRootConfig(caDir)
 	var types map[string]certTypeDef
@@ -1285,10 +1296,9 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, truste
 	// A CA without its key or its tokens shows why it signs no requests, in place of the form.
 	switch {
 	case !fileExists(filepath.Join(caDir, "ca_key.pem")):
-		page.Unavailable = "This CA does not sign requests here: its key is not on this server."
+		page.Unavailable = "No key of this CA on this server"
 	case !fileExists(filepath.Join(caDir, tokensFile)):
-		page.Unavailable = "This CA has no tokens yet. Its administrator creates one with " +
-			"simple-ca token create, with --ca-dir set to the directory of this CA."
+		page.Unavailable = "This CA has no tokens yet"
 	}
 
 	status := http.StatusOK
@@ -1302,7 +1312,17 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, truste
 			return
 		}
 		page.CSR, page.Type = r.PostForm.Get("csr"), r.PostForm.Get("type")
-		cert, _, fileName, err := signWithToken(caDir, r.PostForm.Get("token"), clientAddr(r, trusted), []byte(page.CSR), page.Type, mu, true)
+		client := clientAddr(r)
+		var cert *x509.Certificate
+		var fileName string
+		token := strings.TrimSpace(r.PostForm.Get("token"))
+		var err error = apiErr(http.StatusUnauthorized, "a token or a setup code is required")
+		if token != "" {
+			err = guard.attempt(w, client, func() (err error) {
+				cert, _, fileName, err = signWithToken(caDir, token, client, []byte(page.CSR), page.Type, true)
+				return err
+			})
+		}
 		if err == nil {
 			w.Header().Set("Content-Type", "application/x-pem-file")
 			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fileName}))

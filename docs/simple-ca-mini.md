@@ -159,7 +159,10 @@ The settings in the root CA directory, shared with `simple-ca`. Simple CA Mini r
 ```json
 {
   "ca_publish_base_url": "http://pki.example.com",
-  "days": {"ca": 3650, "cert": 90}
+  "days": {
+    "ca": 3650,
+    "cert": 90
+  }
 }
 ```
 
@@ -191,7 +194,8 @@ sudo useradd --system --home-dir /etc/simple-ca --no-create-home \
 sudo install -d -o simple-ca -g simple-ca -m 750 /etc/simple-ca
 sudo -u simple-ca simple-ca-mini ca create --ca-dir /etc/simple-ca \
   --ca-url http://ca.example.com:8080 "My Root CA"
-sudo -u simple-ca simple-ca-mini ca create --ca-dir /etc/simple-ca --issuing-ca servers "My Servers CA"
+sudo -u simple-ca simple-ca-mini ca create --ca-dir /etc/simple-ca \
+  --issuing-ca servers "My Servers CA"
 sudo cp systemd/simple-ca-mini.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now simple-ca-mini.service

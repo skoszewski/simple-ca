@@ -94,7 +94,8 @@ and `simple-ca crl create` publishes the revocation:
 
 ```sh
 lego certificates revoke --email admin@example.com \
-  --server https://pki.example.com:8443/servers/acme/directory --cert.name web.example.com --reason 4
+  --server https://pki.example.com:8443/servers/acme/directory \
+  --cert.name web.example.com --reason 4
 simple-ca crl create --ca-dir /etc/simple-ca/servers
 ```
 

@@ -14,26 +14,45 @@ function element(tag, props = {}, ...children) {
 // picker returns a dropdown chooser, labelled by the element labelledBy, of the choices, each a
 // value and its label, with value chosen; a hidden input named name holds the value chosen, and
 // onchange is called with a value chosen anew. The chooser is a details element with id, when
-// given.
-function picker({ name, id = "", labelledBy, choices, value, onchange = () => {} }) {
-  const input = element("input", { type: "hidden", name, value });
-  const current = element("span", { className: "truncate" });
+// given; with fit, it is as wide as its longest choice. With multiple, value and the argument of
+// onchange are lists, the input holds them comma-separated, and the choice "" clears them.
+function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}, fit = false, multiple = false }) {
+  const input = element("input", { type: "hidden", name });
+  const current = element("span", { className: "col-start-1 row-start-1 truncate" });
+  const shown = !fit ? current : element("span", { className: "grid min-w-0" }, current,
+    ...choices.map(([, label]) => element("span", { className: "invisible col-start-1 row-start-1 truncate",
+      ariaHidden: "true", textContent: label })));
   const list = element("ul", { role: "listbox",
     className: "absolute right-0 left-0 z-10 mt-1 max-h-80 overflow-y-auto rounded-lg border border-line bg-card py-1 text-sm shadow-lg" });
   const chooser = element("details", { id, className: "relative min-w-0" },
     element("summary", { className: "flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-field-line bg-field px-3 py-2 text-sm hover:border-action [&::-webkit-details-marker]:hidden" },
-      current, element("span", { className: "shrink-0 text-muted", ariaHidden: "true",
+      shown, element("span", { className: "shrink-0 text-muted", ariaHidden: "true",
         innerHTML: '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' })),
     list);
   chooser.dataset.picker = "";
   chooser.querySelector("summary").setAttribute("aria-labelledby", labelledBy);
   list.setAttribute("aria-labelledby", labelledBy);
+  if (multiple) {
+    list.setAttribute("aria-multiselectable", "true");
+  }
+  const labelOf = (v) => (choices.find(([c]) => c === v) || ["", ""])[1];
   const show = (chosen) => {
-    input.value = chosen;
-    current.textContent = (choices.find(([v]) => v === chosen) || ["", ""])[1];
-    list.replaceChildren(...choices.map(([v, label]) => element("li", { role: "option", ariaSelected: String(v === chosen) },
+    const picked = (v) => !multiple ? v === chosen : v === "" ? chosen.length === 0 : chosen.includes(v);
+    input.value = multiple ? chosen.join(",") : chosen;
+    current.textContent = !multiple ? labelOf(chosen) : chosen.length === 0 ? labelOf("") : chosen.map(labelOf).join(", ");
+    current.title = current.textContent;
+    list.replaceChildren(...choices.map(([v, label], i) => element("li", { role: "option", ariaSelected: String(picked(v)) },
       element("button", { type: "button", className: "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-subtle" +
-        (v === chosen ? " font-semibold" : ""), onclick: () => {
+        (picked(v) ? " font-semibold" : ""), onclick: (event) => {
+        if (multiple) {
+          // A choice toggles with the list kept open.
+          event.stopPropagation();
+          const next = v === "" ? [] : choices.map(([c]) => c).filter((c) => c !== "" && (c === v) !== chosen.includes(c));
+          show(next);
+          list.querySelectorAll("button")[i].focus();
+          onchange(next);
+          return;
+        }
         chooser.open = false;
         chooser.querySelector("summary").focus();
         if (v !== input.value) {
@@ -41,7 +60,7 @@ function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}
           onchange(v);
         }
       } },
-        element("span", { className: "w-3.5 shrink-0 text-link", textContent: v === chosen ? "\u2713" : "" }),
+        element("span", { className: "w-3.5 shrink-0 text-link", textContent: picked(v) ? "\u2713" : "" }),
         element("span", { className: "truncate", textContent: label })))));
   };
   show(value);

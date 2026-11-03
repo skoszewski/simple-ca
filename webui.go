@@ -75,7 +75,6 @@ var webuiScriptHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Re
 // CA ID, the scopes and the entry of the token of the request.
 type webuiServer struct {
 	rootDir    string
-	trusted    []netip.Prefix
 	certs      bool
 	user       string
 	userCA     string
@@ -169,25 +168,37 @@ func (s *webuiServer) caDir(id string) (string, bool) {
 	return filepath.Join(s.rootDir, id), true
 }
 
-// authenticate takes the bearer token of r, a token of the root CA or of one of its issuing CAs
-// with the scope of the webui, used from a client it allows, and keeps its name, its CA and its
-// scopes; for any other it answers with the error and returns false.
+// authenticate takes the bearer token of r, as identify does, the client held back by the guard
+// while its tokens are refused; for a token refused it answers with the error and returns false.
 func (s *webuiServer) authenticate(w http.ResponseWriter, r *http.Request) bool {
 	scope := "tokens"
 	if s.certs {
 		scope = "certs"
 	}
-	fail := func(status int, message string) bool {
-		if status == http.StatusUnauthorized {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="simple-ca webui"`)
-		}
-		webuiFail(w, status, message)
-		return false
-	}
 	given, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if given = strings.TrimSpace(given); given == "" {
-		return fail(http.StatusUnauthorized, "a token with the scope "+scope+" is required")
+	client := clientAddr(r)
+	var err error = apiErr(http.StatusUnauthorized, "a token with the scope %s is required", scope)
+	if given = strings.TrimSpace(given); given != "" {
+		err = guard.attempt(w, client, func() error { return s.identify(given, scope, client) })
 	}
+	if err == nil {
+		return true
+	}
+	var e *apiError
+	if !errors.As(err, &e) {
+		log.Printf("webui: %v", err)
+		e = apiErr(http.StatusInternalServerError, "could not read the tokens")
+	}
+	if e.status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="simple-ca webui"`)
+	}
+	webuiFail(w, e.status, e.msg)
+	return false
+}
+
+// identify keeps the name, the CA and the scopes of the token given, a token of the root CA or of
+// one of its issuing CAs with the scope, used from client, a client it allows.
+func (s *webuiServer) identify(given, scope string, client netip.Addr) error {
 	for _, id := range caIDs(s.rootDir) {
 		dir := filepath.Join(s.rootDir, id)
 		caCert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
@@ -200,25 +211,21 @@ func (s *webuiServer) authenticate(w http.ResponseWriter, r *http.Request) bool 
 		}
 		db, err := loadTokens(dir)
 		if err != nil {
-			log.Printf("webui: %v", err)
-			return fail(http.StatusInternalServerError, "could not read the tokens")
+			return err
 		}
 		name, tok, err := lookupToken(db, claims)
-		var refused *apiError
-		if errors.As(err, &refused) {
-			return fail(refused.status, refused.msg)
-		}
-		client := clientAddr(r, s.trusted)
 		switch {
+		case err != nil:
+			return err
 		case !tok.hasScope(scope):
-			return fail(http.StatusForbidden, "the token does not have the scope "+scope)
+			return apiErr(http.StatusForbidden, "the token does not have the scope %s", scope)
 		case !tok.clientAllowed(client):
-			return fail(http.StatusForbidden, "the token is not allowed from "+client.String())
+			return apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
 		}
 		s.user, s.userCA, s.userScopes, s.userToken = name, id, tok.scopes(), tok
-		return true
+		return nil
 	}
-	return fail(http.StatusUnauthorized, "invalid token")
+	return apiErr(http.StatusUnauthorized, "invalid token")
 }
 
 // grants reports whether the token of the request may grant the scopes: sign, and the scopes it

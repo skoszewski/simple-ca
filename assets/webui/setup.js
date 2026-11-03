@@ -1,6 +1,5 @@
-// The setup code page of serve, after picker.js and oidc.js: the Copy button of the token it shows
-// once. With the OIDC sign-in, the token of the sign-in is shown once in place of the form when
-// the browser is back from the provider.
+// The setup code page of serve, after picker.js and oidc.js: the token shown once, with its Copy
+// button.
 const form = document.getElementById("setup-form");
 const taken = form && oidcTaken();
 if (taken) {

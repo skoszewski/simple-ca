@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.8.2
+
+gap: serve holds back a client whose tokens, setup codes or ID tokens are refused repeatedly, the Status and Scope filters of the token and certificate lists take several values, and the labels of the pages are short.
+
+- `serve` counts the credentials it refuses with `401 Unauthorized` for each client, an IPv6
+  client by its /64. This covers the signing API, the signing forms, `/api/token-setup`,
+  `/token-setup`, `/api/oidc-token` and the API of the token and certificate pages.
+  - After 5 refusals in a row, the client is held back for 1 second, doubling with each further
+    refusal up to 15 minutes.
+  - While held back, it gets `429 Too Many Requests` with `Retry-After`, without its credential
+    being checked.
+  - An accepted credential, or an hour without a refusal, forgets the refusals.
+- The labels and notes of the pages are short, without explanations, such as "One-time setup
+  code" for "One-time setup code: hand out a code, exchanged once for the token". This covers:
+  - the token and certificate forms and the renew dialog;
+  - the scopes and the certificate types;
+  - the sign-in dialog, the signing forms, `/token-setup`, the CA bundle of the index page;
+  - the notes about a CA whose key is not on the server.
+- The certificate form has no line of the name rules below the subject. "Valid for, in days" is
+  "Validity in days".
+- The renew dialog and the form creating a token show "Code valid for" and "Code usable from"
+  only while "One-time setup code" is checked, so a renewal or a token without a setup code shows
+  no code fields.
+- The attributes of a token made by the OIDC sign-in, in "Your token" of the token and
+  certificate pages and in `token describe`, show the OIDC user and the OIDC issuer as two
+  values, in place of "USER of ISSUER". "Your token" is as wide as the dialog showing a token
+  once, so an issuer URL fits on one line.
+- The "Sign in with" button of the signing forms is beside "Sign and download", in place of
+  below the token field.
+- Status, of both lists, and Scope, of the token list, take one value or more, ticked in their
+  picker, which stays open while they are ticked. Status shows the items of any status ticked,
+  and Scope the tokens having every scope ticked. The address keeps the values separated by
+  commas, such as `?status=expired,revoked`.
+- A filter picker, such as Made by of the token list, showed a long choice, "OIDC sign-in",
+  cut short in its list. It is now as wide as its longest choice. On a screen too narrow for
+  that, it is as wide as the line.
+- The examples of the guides fit in 100 columns:
+  - the JSON examples of the guides and the JSON files of `examples/oidc/` have one key per
+    line, and one item per line in an array of more than one;
+  - long shell commands are continued on the next line.
+- The end of `docs/docker.md` is a paragraph again, no longer shown as code.
+
 ## 1.8.1
 
 gap: the token and certificate lists have a search and filters, and an OIDC sign-in asks before it replaces the active token of its user, which with oidc.reuse_token it can take again instead.

@@ -7,24 +7,58 @@ writes it, and it can be written or edited by hand. A setting not described here
 ```json
 {
   "ca_publish_base_url": "http://pki.example.com",
-  "days": {"cert": 90, "crl": 7},
+  "days": {
+    "cert": 90,
+    "crl": 7
+  },
   "types": {
     "device": {
       "key_usage": ["digitalSignature"],
-      "ext_key_usage": ["clientAuth", "1.3.6.1.4.1.99999.10"]
+      "ext_key_usage": [
+        "clientAuth",
+        "1.3.6.1.4.1.99999.10"
+      ]
     },
     "person": {
       "names": "user",
-      "key_usage": ["digitalSignature", "keyEncipherment"],
+      "key_usage": [
+        "digitalSignature",
+        "keyEncipherment"
+      ],
       "ext_key_usage": []
     },
-    "user": {"key_usage": ["digitalSignature", "contentCommitment", "keyEncipherment"]}
+    "user": {
+      "key_usage": [
+        "digitalSignature",
+        "contentCommitment",
+        "keyEncipherment"
+      ]
+    }
   },
-  "acme": {"domains": ["example.com", "lab.example.org"], "days": 30},
-  "serve": {"trusted_proxies": ["127.0.0.1", "10.0.0.0/8"]},
-  "tokens": {"valid": "8h", "domains": ["lab.example.org"], "networks": ["192.168.1.0/24"],
-             "keep_expired": "720h"},
-  "oidc": {"provider": "keycloak", "issuer": "https://sso.example.com/realms/lab", "client_id": "simple-ca"}
+  "acme": {
+    "domains": [
+      "example.com",
+      "lab.example.org"
+    ],
+    "days": 30
+  },
+  "serve": {
+    "trusted_proxies": [
+      "127.0.0.1",
+      "10.0.0.0/8"
+    ]
+  },
+  "tokens": {
+    "valid": "8h",
+    "domains": ["lab.example.org"],
+    "networks": ["192.168.1.0/24"],
+    "keep_expired": "720h"
+  },
+  "oidc": {
+    "provider": "keycloak",
+    "issuer": "https://sso.example.com/realms/lab",
+    "client_id": "simple-ca"
+  }
 }
 ```
 
@@ -72,8 +106,16 @@ when its root CA has one.
 
 ```json
 {
-  "light": {"head": "#7c2d12", "head-link": "#fdba74", "action": "#c2410c", "action-hover": "#ea580c"},
-  "dark": {"head": "#431407", "action": "#c2410c"}
+  "light": {
+    "head": "#7c2d12",
+    "head-link": "#fdba74",
+    "action": "#c2410c",
+    "action-hover": "#ea580c"
+  },
+  "dark": {
+    "head": "#431407",
+    "action": "#c2410c"
+  }
 }
 ```
 

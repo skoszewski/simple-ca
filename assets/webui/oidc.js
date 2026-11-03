@@ -1,7 +1,4 @@
-// The OIDC sign-in of the pages of serve, a public client with the authorization code flow and
-// PKCE: oidcButton shows the button that starts it on a page, oidcTaken gives that page the token
-// of the sign-in once the browser is back, and the callback page, oidc-callback.html, redeems the
-// code at the provider and exchanges the ID token for the token at /api/oidc-token.
+// The OIDC sign-in of the pages of serve: the authorization code flow with PKCE.
 const oidcFlowKey = "simple-ca-oidc-flow";
 const oidcResultKey = "simple-ca-oidc-result";
 
@@ -14,9 +11,8 @@ async function oidcSettings() {
 const oidcBase64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const oidcRandom = () => oidcBase64url(crypto.getRandomValues(new Uint8Array(32)));
 
-// oidcButton makes button, hidden, sign in with the provider when the sign-in is on; save, when
-// given, is called before the page is left for the provider, and failed with an error that stops
-// the sign-in.
+// oidcButton shows button, which starts the sign-in, when it is on; save runs before leaving the
+// page, and failed shows an error.
 async function oidcButton(button, save, failed) {
   const settings = await oidcSettings();
   if (!settings) {
@@ -47,17 +43,15 @@ async function oidcButton(button, save, failed) {
   });
 }
 
-// oidcTaken returns, once, the answer of /api/oidc-token the callback page left for this page:
-// the CA ID, the name, the token and the scopes of the token of the sign-in; or null.
+// oidcTaken returns, once, the /api/oidc-token answer left by the callback page, or null.
 function oidcTaken() {
   const result = sessionStorage.getItem(oidcResultKey);
   sessionStorage.removeItem(oidcResultKey);
   return result ? JSON.parse(result) : null;
 }
 
-// oidcCallback redeems the code the provider sent the browser back with, checks that the ID token
-// answers the sign-in started on this browser tab, exchanges it for the token, and goes back to
-// the page the sign-in was started on, which takes the token with oidcTaken; an error is shown.
+// oidcCallback redeems the code, exchanges the ID token for the token, and returns to the page the
+// sign-in started on.
 async function oidcCallback() {
   const message = document.getElementById("oidc-message");
   const back = document.getElementById("oidc-back");
@@ -106,8 +100,7 @@ async function oidcCallback() {
     fail("The ID token does not answer this sign-in; start it again.");
     return;
   }
-  // An active token of the user is replaced, or with reuse_token taken again, only once the user
-  // says so; Cancel goes back with nothing changed.
+  // An active token of the user is replaced or reused only on the user's choice.
   const exchange = async (choice) => {
     const exchanged = await fetch("/api/oidc-token", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id_token: tokens.id_token, ...choice }) });

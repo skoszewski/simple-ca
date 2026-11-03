@@ -90,13 +90,12 @@ func runServe(args []string) error {
 	if !given["trusted-proxy"] {
 		proxies, option = cfg.Serve.TrustedProxies, "serve.trusted_proxies of "+cfg.path
 	}
-	var trusted []netip.Prefix
 	for _, s := range proxies {
 		prefix, ok := parsePrefix(s)
 		if !ok {
 			return fmt.Errorf("%s: '%s' is not an IP address or a prefix such as 10.0.0.0/8", option, s)
 		}
-		trusted = append(trusted, prefix)
+		trustedProxies = append(trustedProxies, prefix)
 	}
 	var kept time.Duration
 	if cfg.Tokens.KeepExpired != "" {
@@ -104,7 +103,7 @@ func runServe(args []string) error {
 			return fmt.Errorf("tokens.keep_expired of %s: '%s' is not a duration such as 720h", cfg.path, cfg.Tokens.KeepExpired)
 		}
 	}
-	return runHTTPServer(newServeMux(rootDir, trusted, *docs, *webui), *address, *port, *tlsCert, *tlsKey, func(origin string) {
+	return runHTTPServer(newServeMux(rootDir, *docs, *webui), *address, *port, *tlsCert, *tlsKey, func(origin string) {
 		fmt.Printf("simple-ca %s serving the CAs of %s\n", version(), rootDir)
 		// The URLs of the pages start at one column, after the longest label.
 		pages := [][2]string{{"Index page:", "/"}}

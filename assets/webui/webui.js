@@ -148,7 +148,7 @@ async function load() {
   const attributes = [["Name", u.name], ["Status", "valid until " + time(u.expires)], ["Issued", time(u.issued)],
     ["Scopes", joined(u.scopes, "-")]];
   if (u.oidc) {
-    attributes.push(["OIDC user", u.oidc.user + " of " + u.oidc.issuer]);
+    attributes.push(["OIDC user", u.oidc.user], ["OIDC issuer", u.oidc.issuer]);
   }
   if (u.scopes.some((scope) => scope === "sign" || scope === "*")) {
     attributes.push(["Types", joined(u.types, "-")], ["Domains", joined(u.domains, "-")],
@@ -173,8 +173,8 @@ function choose(id) {
   showCA();
 }
 
-// currentCA puts the CA on the page in the address, the chooser and the links to the token and
-// certificate pages, gives the page the colours of its theme, and returns it.
+// currentCA puts the CA in the address, the chooser and the page links, applies its theme, and
+// returns it.
 function currentCA() {
   params.set("ca", caID);
   history.replaceState(null, "", base + "/?" + params);
@@ -213,14 +213,11 @@ const heading = (ca) => {
 };
 const list = (text) => text.split(/[\s,]+/).filter(Boolean);
 
-// searchable returns the table of items, each drawn as a row by row under headings, with a search
-// field above it and a picker for each of filters, each a name, a label, its choices of a value and
-// a label, the first one taking every item, and match(item, value). The search matches an item
-// whose text, given by text(item), holds every word of it, in any letter case. The search and the
-// filters are kept in the address, so the list keeps them when it is drawn again, and the table
-// is drawn again as they change; a count tells how many items are shown.
+// searchable returns the table of items with a search field, filter pickers and a count; the
+// search and the filters are kept in the address.
 function searchable({ items, text, row, headings, filters, noun }) {
   const words = () => (params.get("q") || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const chosen = (name) => (params.get(name) || "").split(",").filter(Boolean);
   const body = element("tbody", { className: "divide-y divide-line" });
   const count = element("p", { className: "text-sm text-muted" });
   const keep = (name, value) => {
@@ -236,7 +233,7 @@ function searchable({ items, text, row, headings, filters, noun }) {
     const shown = items.filter((item) => {
       const haystack = text(item).join(" ").toLowerCase();
       return wanted.every((word) => haystack.includes(word))
-        && filters.every(({ name, match }) => !params.get(name) || match(item, params.get(name)));
+        && filters.every(({ name, match }) => chosen(name).length === 0 || match(item, chosen(name)));
     });
     body.replaceChildren(...shown.map(row));
     count.textContent = shown.length === items.length ? `${items.length} ${noun}`
@@ -249,15 +246,14 @@ function searchable({ items, text, row, headings, filters, noun }) {
       keep("q", search.value.trim());
       draw();
     } });
-  const pickers = filters.map(({ name, label, choices }) => {
-    if (!choices.some(([value]) => value === (params.get(name) || ""))) {
-      keep(name, "");
-    }
-    return element("div", { className: "flex min-w-48 items-center gap-2" },
-      element("span", { id: "filter-" + name, className: "text-sm font-medium", textContent: label }),
-      element("div", { className: "min-w-0 flex-1" }, picker({ name: "filter-" + name, labelledBy: "filter-" + name, choices,
-        value: params.get(name) || "", onchange: (value) => {
-          keep(name, value);
+  const pickers = filters.map(({ name, label, choices, multiple = false }) => {
+    const values = chosen(name).filter((v) => choices.some(([c]) => c === v && c !== "")).slice(0, multiple ? undefined : 1);
+    keep(name, values.join(","));
+    return element("div", { className: "flex min-w-0 max-w-full items-center gap-2" },
+      element("span", { id: "filter-" + name, className: "shrink-0 text-sm font-medium", textContent: label }),
+      element("div", { className: "min-w-0" }, picker({ name: "filter-" + name, labelledBy: "filter-" + name, choices, multiple,
+        value: multiple ? values : values[0] || "", fit: true, onchange: (value) => {
+          keep(name, multiple ? value.join(",") : value);
           draw();
         } })));
   });
@@ -270,11 +266,10 @@ function searchable({ items, text, row, headings, filters, noun }) {
     count);
 }
 
-// The sign-in with the OIDC provider, when it is on, is offered in the dialog asking for the token.
 oidcButton($("login-oidc"), null, askToken);
 
-// start loads the page once the script of the page has defined showCA. The token of an OIDC
-// sign-in the browser is back from is kept and signs in, unless it lacks the scope of the page.
+// start loads the page once the script of the page has defined showCA, signing in with the token
+// of an OIDC sign-in.
 function start() {
   const taken = oidcTaken();
   if (taken && !taken.scopes.some((scope) => scope === pageScope || scope === "*")) {

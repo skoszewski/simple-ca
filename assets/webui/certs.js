@@ -3,8 +3,7 @@
 // as the commands write them; the page offers no file.
 let signing = false;
 
-// showCA draws the certificates of the CA on the page, with the search and the filter of their
-// list, and its CRL.
+// showCA draws the certificates of the CA on the page, and its CRL.
 async function showCA() {
   const ca = currentCA();
   let answer;
@@ -31,14 +30,14 @@ async function showCA() {
     answer.certs.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No certificates." }) :
       searchable({ items: answer.certs, row, noun: "certificates", headings: ["Status", "Subject", "Expires", "Revoked", ""],
         text: (c) => [c.status, oneLine(c.subject), ...c.subject.map(([, value]) => value), c.serial, c.reason || ""],
-        filters: [{ name: "status", label: "Status", match: (c, value) => c.status === value,
+        filters: [{ name: "status", label: "Status", multiple: true, match: (c, values) => values.includes(c.status),
           choices: [["", "all"], ["valid", "valid"], ["expired", "expired"], ["revoked", "revoked"]] }] }),
     element("div", { className: "flex flex-wrap items-center gap-3 text-sm" }, element("span", { className: "text-muted" }, crl),
       ca.has_key ? element("button", { type: "button", onclick: writeCRL, textContent: "Write the CRL",
         className: "rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" }) : null),
     ca.has_key ? element("div", { className: "flex flex-wrap gap-2" },
       button("Create a certificate", () => openCert(false), true), button("Sign a request", () => openCert(true), true))
-      : element("p", { className: "text-sm text-muted", textContent: "This CA's key is not on this server, so it cannot sign certificates here." }));
+      : element("p", { className: "text-sm text-muted", textContent: "No key of this CA on this server" }));
 }
 
 // show shows the fields of the certificate c in its dialog.
@@ -94,7 +93,7 @@ async function writeCRL() {
   const days = element("input", { type: "number", min: 1, value: info.defaults.crl_days,
     className: "w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-sm" });
   const label = element("label", { className: "block space-y-1 text-sm" },
-    element("span", { className: "block font-medium", textContent: "Valid for, in days" }), days);
+    element("span", { className: "block font-medium", textContent: "Validity in days" }), days);
   if (!(await confirmed("Write a new CRL of this CA, listing the certificates it revoked?", "Write", label))) {
     return;
   }
@@ -105,14 +104,6 @@ async function writeCRL() {
     failed(error);
   }
   showCA();
-}
-
-// rules tells the names the subject and the other names take under the type chosen.
-function rules() {
-  const fields = $("cert-form").elements;
-  $("cert-rules").textContent = info.names[fields.type.value] === "user"
-    ? "A CN, an email address, or both in either order; more names are email addresses or numeric OIDs."
-    : "A hostname or FQDN; more names are hostnames, FQDNs, IP addresses or numeric OIDs.";
 }
 
 // openCert opens the form creating a certificate, or signing a request with sign.
@@ -131,9 +122,8 @@ function openCert(sign) {
   fields.name.required = sign;
   fields.csr.required = sign;
   $("cert-type").replaceChildren(picker({ name: "type", labelledBy: "cert-type-label",
-    choices: info.types.map((type) => [type, type]), value: info.types.includes("server") ? "server" : info.types[0], onchange: rules }));
+    choices: info.types.map((type) => [type, type]), value: info.types.includes("server") ? "server" : info.types[0] }));
   fields.days.value = info.defaults.days;
-  rules();
   $("cert-dialog").showModal();
 }
 $("cert-cancel").addEventListener("click", () => $("cert-dialog").close());

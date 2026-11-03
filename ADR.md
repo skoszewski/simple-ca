@@ -81,6 +81,20 @@ in RFC 3339, never text laid out for reading, such as the lines of `cert show` o
 `token describe`. The pages and the commands lay the data out each for itself, so a client reads
 a field without parsing, and a change of the wording or the layout of one changes no API.
 
+## Refused credentials hold their client back
+
+A setup code holds 80 bits and a token is signed, but a client that sends credentials at a high
+rate should still not get to try them freely. Every route that checks a token, a setup code or
+an ID token shares one guard of `serve`, which counts the refusals of each client. Past the free
+ones, it holds the client back for a time that doubles with each further refusal. A held client
+gets `429 Too Many Requests` without its credential being checked, so a guess made while held
+back tells nothing. The count is by address, after the trusted proxies, and by /64 for IPv6,
+which a single host can fill with addresses. It lives in memory: `serve` is one process, and a
+restart forgetting it costs an attacker the restart. A valid credential is held back too, since
+telling a held client which credential is valid would undo the hold, and the hold of a lab
+user mistyping a code is seconds, while a guessing client reaches the 15 minute cap at its 16th
+refusal.
+
 ## The lists of the pages are searched in the browser
 
 The token and certificate pages search and filter their lists in the browser, over the list the

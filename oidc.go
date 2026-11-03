@@ -36,7 +36,6 @@ import (
 	"maps"
 	"mime"
 	"net/http"
-	"net/netip"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -48,24 +47,23 @@ import (
 // ---- OIDC sign-in -----------------------------------------------------------
 
 const (
-	// oidcCallbackPath is the page of serve the provider sends the browser back to, the redirect
-	// URI of the public client.
+	// oidcCallbackPath is the redirect URI path of the sign-in.
 	oidcCallbackPath = "/oidc-callback"
-	// oidcMaxDocument is the largest discovery document or JWKS serve reads.
+	// oidcMaxDocument is the size limit of a discovery document or JWKS.
 	oidcMaxDocument = 1 << 20
-	// oidcKeysRefetch is how long serve waits before it fetches the JWKS again for an unknown key.
+	// oidcKeysRefetch is the shortest interval between two fetches of the JWKS.
 	oidcKeysRefetch = time.Minute
-	// oidcSkew is how far the clock of the provider may be ahead of the clock of serve.
+	// oidcSkew is the clock skew allowed for iat.
 	oidcSkew = 2 * time.Minute
 )
 
-// oidcAlgorithms are the signature algorithms of the ID tokens serve accepts.
+// oidcAlgorithms are the accepted signature algorithms of an ID token.
 var oidcAlgorithms = []string{"RS256", "ES256", "ES384", "ES512", "EdDSA"}
 
-// oidcNameRE matches the runs of characters a user claim loses in the name of the user's token.
+// oidcNameRE matches the characters replaced by a hyphen in a token name made from a user claim.
 var oidcNameRE = regexp.MustCompile(`[^a-z0-9]+`)
 
-// oidcDiscovery is the part of the discovery document of a provider serve uses.
+// oidcDiscovery holds the fields of a discovery document.
 type oidcDiscovery struct {
 	Issuer                string `json:"issuer"`
 	AuthorizationEndpoint string `json:"authorization_endpoint"`
@@ -73,10 +71,8 @@ type oidcDiscovery struct {
 	JWKSURI               string `json:"jwks_uri"`
 }
 
-// oidcClient checks the ID tokens of the OIDC sign-in of the root CA in rootDir, whose
-// simple-ca.json and oidc-users.json it reads on each request, against the provider: it keeps the
-// discovery document and the keys of the JWKS of its issuer, by key ID, when they were fetched,
-// and the nonces of the ID tokens accepted, until they expire, each accepted once.
+// oidcClient serves the OIDC sign-in of the root CA in rootDir, caching the discovery document,
+// the JWKS keys by key ID and the used nonces.
 type oidcClient struct {
 	rootDir   string
 	http      *http.Client
@@ -93,8 +89,7 @@ func newOIDCClient(rootDir string) *oidcClient {
 	return &oidcClient{rootDir: rootDir, http: &http.Client{Timeout: 10 * time.Second}, nonces: map[string]time.Time{}}
 }
 
-// settings returns the OIDC sign-in of simple-ca.json with the defaults of its provider, and false
-// when it is off.
+// settings returns the resolved oidc section of simple-ca.json, and false when it is off.
 func (c *oidcClient) settings() (oidcConfig, bool, error) {
 	cfg, err := loadConfig(c.rootDir)
 	if err != nil {
@@ -124,8 +119,8 @@ func (c *oidcClient) fetch(url string, v any) error {
 	return nil
 }
 
-// discover returns the discovery document of the issuer of oc, fetched once, which must name that
-// issuer and the endpoints; a new issuer drops what was kept of the one before. c.mu is held.
+// discover returns the cached discovery document of the issuer of oc, fetching it first; c.mu is
+// held.
 func (c *oidcClient) discover(oc oidcConfig) (*oidcDiscovery, error) {
 	if c.issuer == oc.Issuer && c.discovery != nil {
 		return c.discovery, nil
@@ -145,9 +140,8 @@ func (c *oidcClient) discover(oc oidcConfig) (*oidcDiscovery, error) {
 	return c.discovery, nil
 }
 
-// key returns the signing key kid of the JWKS of the provider of oc, the only key of the JWKS for
-// no kid, fetching the JWKS when it has not been fetched, or has not been fetched for
-// oidcKeysRefetch and lacks the key. c.mu is held.
+// key returns the JWKS key kid of the provider of oc, or its only key for an empty kid; c.mu is
+// held.
 func (c *oidcClient) key(oc oidcConfig, kid string) (crypto.PublicKey, error) {
 	d, err := c.discover(oc)
 	if err != nil {
@@ -191,10 +185,8 @@ func (c *oidcClient) key(oc oidcConfig, kid string) (crypto.PublicKey, error) {
 	return nil, apiErr(http.StatusUnauthorized, "invalid ID token: the provider has no key '%s'", kid)
 }
 
-// checkIDToken returns the claims of the ID token raw of the provider of oc, and an error of status
-// 401 when it is malformed, signed by no key of the provider or with an algorithm of none of
-// oidcAlgorithms, issued by another issuer or for another client, expired, issued in the future,
-// without a nonce, or with a nonce used before; useNonce uses the nonce once a token is given.
+// checkIDToken verifies the ID token raw of the provider of oc and returns its claims, or an error
+// of status 401; it leaves the nonce unused.
 func (c *oidcClient) checkIDToken(oc oidcConfig, raw string) (map[string]any, error) {
 	invalid := func(reason string) error { return apiErr(http.StatusUnauthorized, "invalid ID token: %s", reason) }
 	parts := strings.Split(raw, ".")
@@ -268,8 +260,8 @@ func (c *oidcClient) checkIDToken(oc oidcConfig, raw string) (map[string]any, er
 	return claims, nil
 }
 
-// useNonce uses the nonce of the claims of an ID token checkIDToken accepted, kept until the ID
-// token expires, and reports whether it was not used before.
+// useNonce marks the nonce of claims used until the ID token expires, and reports whether it was
+// unused.
 func (c *oidcClient) useNonce(claims map[string]any) bool {
 	nonce, _ := claims["nonce"].(string)
 	exp, _ := claims["exp"].(float64)
@@ -282,8 +274,7 @@ func (c *oidcClient) useNonce(claims map[string]any) bool {
 	return true
 }
 
-// claimValues returns the strings of the claims at paths, dotted paths into claims, each a string
-// or a list of strings, with the segment CLIENT_ID standing for clientID.
+// claimValues returns the strings of claims at the dotted paths, CLIENT_ID replaced by clientID.
 func claimValues(claims map[string]any, paths claimPaths, clientID string) []string {
 	var values []string
 	for _, path := range paths {
@@ -313,9 +304,8 @@ func claimValues(claims map[string]any, paths claimPaths, clientID string) []str
 	return values
 }
 
-// profileFor returns the profile of the user with the groups and the roles: that of the first rule
-// naming the user or one of the groups, or else the first profile named by one of the roles, or
-// nil.
+// profileFor returns the profile of the first rule matching the user or a group, else the first
+// profile named by a role, else nil.
 func (u *oidcUsers) profileFor(user string, groups, roles []string) *oidcProfile {
 	find := func(name string) *oidcProfile {
 		i := slices.IndexFunc(u.Profiles, func(p oidcProfile) bool { return p.Name == name })
@@ -334,9 +324,8 @@ func (u *oidcUsers) profileFor(user string, groups, roles []string) *oidcProfile
 	return nil
 }
 
-// prepare returns the token name of the profile, in the CA of the profile of the root CA in
-// rootDir, as prepareToken makes it, with the settings of the profile, those left out taking the
-// tokens section of cfg as token create does, and the key of the CA.
+// prepare returns the token name of the profile from prepareToken, with the tokens defaults of cfg,
+// and the key of its CA.
 func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiToken, *rsa.PrivateKey, error) {
 	if p.CA != "" && !slices.Contains(caIDs(rootDir), p.CA) {
 		return nil, nil, fmt.Errorf("'%s' is not an issuing CA of %s", p.CA, rootDir)
@@ -379,8 +368,7 @@ func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiTok
 	return prepareToken(filepath.Join(rootDir, p.CA), name, valid, scopes, types, domains, ips, clients)
 }
 
-// checkOIDC checks the OIDC sign-in of the root CA in rootDir with its config cfg: the settings of
-// oidc, and oidc-users.json, each of whose profiles must make a token in its CA.
+// checkOIDC validates the oidc section of cfg and the profiles of oidc-users.json of rootDir.
 func checkOIDC(rootDir string, cfg *config) error {
 	if _, _, err := cfg.OIDC.resolved(cfg.path); err != nil {
 		return err
@@ -397,8 +385,7 @@ func checkOIDC(rootDir string, cfg *config) error {
 	return nil
 }
 
-// configured answers with 404 and returns false when the OIDC sign-in is off, and with 500 when its
-// settings do not read; it returns them otherwise.
+// configured returns the OIDC settings, or answers with an error and returns false.
 func (c *oidcClient) configured(w http.ResponseWriter) (oidcConfig, bool) {
 	oc, on, err := c.settings()
 	switch {
@@ -411,9 +398,7 @@ func (c *oidcClient) configured(w http.ResponseWriter) (oidcConfig, bool) {
 	return oc, err == nil && on
 }
 
-// apiSettings answers GET /api/oidc with what the pages sign in with: the provider, the label of
-// the button, the client ID, the scopes, the endpoints of the provider, the path of the redirect
-// URI, and whether a sign-in may take the active token of its user again.
+// apiSettings answers GET /api/oidc with the settings of the sign-in.
 func (c *oidcClient) apiSettings(w http.ResponseWriter, r *http.Request) {
 	oc, ok := c.configured(w)
 	if !ok {
@@ -432,16 +417,9 @@ func (c *oidcClient) apiSettings(w http.ResponseWriter, r *http.Request) {
 		"redirect_path": oidcCallbackPath, "reuse_token": oc.ReuseToken})
 }
 
-// apiToken answers POST /api/oidc-token, a JSON body {"id_token": "..."} of at most acmeMaxBody
-// bytes from a client behind the trusted proxies, with the CA ID, the name, the JWT and the scopes
-// of the token the ID token's user gets by oidc-users.json. An active token of the user is not
-// replaced without "replace": true, and is given again with "reuse": true where reuse_token
-// allows it; without either, the answer is 409 with the CA ID, the name, the issue time and the
-// expiry of the active token, and the ID token can be sent again. The error has the status 400
-// for reuse it does not allow, 401 for an ID token checkIDToken refuses, 403 for a user without a
-// profile or a client the token of the profile is not used from, and 409 for a name of another
-// token.
-func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request, trusted []netip.Prefix) {
+// apiToken answers POST /api/oidc-token: it exchanges an ID token for the token of its user's
+// profile.
+func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request) {
 	oc, ok := c.configured(w)
 	if !ok {
 		return
@@ -469,7 +447,7 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request, trusted []
 		webuiFail(w, http.StatusBadRequest, "reusing the active token is off: oidc.reuse_token is not set")
 		return
 	}
-	client := clientAddr(r, trusted)
+	client := clientAddr(r)
 	fail := func(err error) {
 		var refused *apiError
 		if errors.As(err, &refused) {
@@ -480,7 +458,11 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request, trusted []
 		webuiFail(w, http.StatusInternalServerError, "could not make the token")
 	}
 
-	claims, err := c.checkIDToken(oc, strings.TrimSpace(req.IDToken))
+	var claims map[string]any
+	err := guard.attempt(w, client, func() (err error) {
+		claims, err = c.checkIDToken(oc, strings.TrimSpace(req.IDToken))
+		return err
+	})
 	if err != nil {
 		fail(err)
 		return
@@ -529,8 +511,7 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request, trusted []
 	tok.OIDC = &tokenOIDC{Issuer: oc.Issuer, Subject: sub, User: user}
 	dir := filepath.Join(c.rootDir, profile.CA)
 
-	// An active token of the user is named in the answer, and the ID token stays unused, so the
-	// sign-in can be sent again to replace or reuse it.
+	// Without replace or reuse, an active token of the user is reported instead.
 	db, err := loadTokens(dir)
 	if err != nil {
 		fail(err)
@@ -558,8 +539,7 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request, trusted []
 	webuiReply(w, http.StatusOK, map[string]any{"ca": profile.CA, "name": name, "token": jwt, "scopes": given.scopes()})
 }
 
-// callbackPage serves the page the provider sends the browser back to, which redeems the code and
-// gets the token of the sign-in for the page it was started on.
+// callbackPage serves the redirect URI page of the sign-in.
 func (c *oidcClient) callbackPage(w http.ResponseWriter, r *http.Request) {
 	caCert, err := loadCert(filepath.Join(c.rootDir, "ca_cert.pem"))
 	if err != nil {
