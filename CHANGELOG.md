@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.2
+
+fix: the pages of serve widen with the screen beyond the width of a tablet.
+
+- The index page and the token and certificate pages take 11/12 of a screen from 1280 pixels
+  wide and 5/6 from 1536 pixels, up to 2560 pixels, in place of at most 1024 pixels.
+- The signing forms and `/token-setup` take 3/4 of a screen from 1280 pixels wide and 2/3 from
+  1536 pixels, up to 1920 pixels, in place of at most 768 pixels.
+
 ## 1.7.1
 
 gap: the API of the token and certificate pages answers with structured data alone, which the pages lay out, the sign-in dialog has no theme button, and serve refuses an empty --address.
