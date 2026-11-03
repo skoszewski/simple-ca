@@ -1,5 +1,6 @@
 {{/* The colours of the pages by their role, each set once for the light and once for the dark
-     theme of the browser, for the utility classes of the templates. */}}
+     theme, which theme.js chooses, for the utility classes of the templates, then the colours of
+     theme in simple-ca.json, the CSS the template is given, in place of them. */}}
 {{define "theme" -}}
 <style type="text/tailwindcss">
       @theme inline {
@@ -69,42 +70,56 @@
         --bad: var(--color-red-50);
         --bad-line: var(--color-red-200);
         --bad-ink: var(--color-red-800);
+        color-scheme: light;
       }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --page: var(--color-slate-950);
-          --ink: var(--color-slate-100);
-          --muted: var(--color-slate-400);
-          --card: var(--color-slate-900);
-          --line: var(--color-slate-800);
-          --head: var(--color-slate-800);
-          --head-ink: var(--color-slate-50);
-          --head-muted: var(--color-slate-300);
-          --head-link: var(--color-sky-300);
-          --link: var(--color-sky-400);
-          --accent: color-mix(in oklab, var(--color-sky-950) 40%, var(--color-slate-900));
-          --accent-line: var(--color-slate-800);
-          --accent-title: var(--color-sky-100);
-          --accent-ink: var(--color-sky-200);
-          --action: var(--color-sky-700);
-          --action-hover: var(--color-sky-600);
-          --action-ink: var(--color-white);
-          --solid: var(--color-slate-100);
-          --solid-hover: var(--color-slate-300);
-          --solid-ink: var(--color-slate-900);
-          --subtle: var(--color-slate-800);
-          --subtle-ink: var(--color-slate-300);
-          --field: var(--color-slate-800);
-          --field-line: var(--color-slate-600);
-          --good: var(--color-emerald-950);
-          --good-ink: var(--color-emerald-300);
-          --warn: var(--color-amber-950);
-          --warn-line: var(--color-amber-900);
-          --warn-ink: var(--color-amber-200);
-          --bad: var(--color-red-950);
-          --bad-line: var(--color-red-900);
-          --bad-ink: var(--color-red-200);
-        }
+      :root[data-theme="dark"] {
+        --page: var(--color-slate-950);
+        --ink: var(--color-slate-100);
+        --muted: var(--color-slate-400);
+        --card: var(--color-slate-900);
+        --line: var(--color-slate-800);
+        --head: var(--color-slate-800);
+        --head-ink: var(--color-slate-50);
+        --head-muted: var(--color-slate-300);
+        --head-link: var(--color-sky-300);
+        --link: var(--color-sky-400);
+        --accent: color-mix(in oklab, var(--color-sky-950) 40%, var(--color-slate-900));
+        --accent-line: var(--color-slate-800);
+        --accent-title: var(--color-sky-100);
+        --accent-ink: var(--color-sky-200);
+        --action: var(--color-sky-700);
+        --action-hover: var(--color-sky-600);
+        --action-ink: var(--color-white);
+        --solid: var(--color-slate-100);
+        --solid-hover: var(--color-slate-300);
+        --solid-ink: var(--color-slate-900);
+        --subtle: var(--color-slate-800);
+        --subtle-ink: var(--color-slate-300);
+        --field: var(--color-slate-800);
+        --field-line: var(--color-slate-600);
+        --good: var(--color-emerald-950);
+        --good-ink: var(--color-emerald-300);
+        --warn: var(--color-amber-950);
+        --warn-line: var(--color-amber-900);
+        --warn-ink: var(--color-amber-200);
+        --bad: var(--color-red-950);
+        --bad-line: var(--color-red-900);
+        --bad-ink: var(--color-red-200);
+        color-scheme: dark;
       }
     </style>
+    {{- with .}}
+    <style>
+      {{.}}
+    </style>
+    {{- end}}
+    <script src="/assets/webui/theme.js"></script>
+{{- end}}
+
+{{/* The version of simple-ca, below the content of every page, with the switch of the theme. */}}
+{{define "version" -}}
+      <p class="mt-6 flex items-center justify-center gap-3 text-xs text-muted">
+        <span>simple-ca {{version}}</span>
+        <button type="button" data-theme-switch aria-label="Theme" class="rounded-full border border-line p-1.5 hover:bg-subtle hover:text-ink"></button>
+      </p>
 {{- end}}

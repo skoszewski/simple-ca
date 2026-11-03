@@ -3,6 +3,10 @@
 #
 # Usage: SIMPLE_CA_TOKEN=TOKEN request-cert.sh API_URL CN [DNS_NAME ...]
 #        SIMPLE_CA_TOKEN_FILE=FILE request-cert.sh API_URL CN [DNS_NAME ...]
+#        [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert.sh --setup-code CODE API_URL CN [DNS_NAME ...]
+#
+# A setup code is exchanged for the token at /api/token-setup of the server of API_URL first; the
+# token is written to SIMPLE_CA_TOKEN_FILE, a file that does not exist yet, when it is set.
 #
 # openssl makes an EC P-256 key and a certificate signing request for the CN, with the CN and the
 # DNS names as its DNS names; curl sends it to API_URL, such as
@@ -17,16 +21,26 @@ set -eu
 
 token=${SIMPLE_CA_TOKEN:-}
 token_file=${SIMPLE_CA_TOKEN_FILE:-}
-if [ "$#" -lt 2 ] || [ -z "$token$token_file" ]; then
+code=
+if [ "${1:-}" = --setup-code ] && [ "$#" -ge 2 ]; then
+  code=$2
+  shift 2
+fi
+if [ "$#" -lt 2 ] || [ -z "$token$token_file$code" ]; then
   echo "Usage: SIMPLE_CA_TOKEN=TOKEN $0 API_URL CN [DNS_NAME ...]" >&2
   echo "       SIMPLE_CA_TOKEN_FILE=FILE $0 API_URL CN [DNS_NAME ...]" >&2
+  echo "       [SIMPLE_CA_TOKEN_FILE=NEW_FILE] $0 --setup-code CODE API_URL CN [DNS_NAME ...]" >&2
   exit 1
 fi
-if [ -n "$token" ] && [ -n "$token_file" ]; then
-  echo "set SIMPLE_CA_TOKEN or SIMPLE_CA_TOKEN_FILE, not both" >&2
+if [ -n "$token" ] && [ -n "$token_file$code" ]; then
+  echo "set SIMPLE_CA_TOKEN or SIMPLE_CA_TOKEN_FILE, or give --setup-code, not two of them" >&2
   exit 1
 fi
-if [ -n "$token_file" ]; then
+if [ -n "$code" ] && [ -n "$token_file" ] && [ -e "$token_file" ]; then
+  echo "SIMPLE_CA_TOKEN_FILE: $token_file exists; the token of --setup-code is written to a new file" >&2
+  exit 1
+fi
+if [ -n "$token_file" ] && [ -z "$code" ]; then
   if [ ! -r "$token_file" ]; then
     echo "SIMPLE_CA_TOKEN_FILE: $token_file cannot be read" >&2
     exit 1
@@ -58,6 +72,30 @@ cleanup() {
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+
+if [ -n "$code" ]; then
+  if [[ ! $url =~ ^(https?://[^/]+) ]]; then
+    echo "$url is not a URL such as https://pki.example.com/servers/api/sign" >&2
+    exit 1
+  fi
+  setup_url="${BASH_REMATCH[1]}/api/token-setup"
+  jq -n --arg code "$code" '{code: $code}' > "$tmp/setup.json"
+  status=$(curl -sS -o "$tmp/setup" -w "%{http_code}" -X POST -H "Content-Type: application/json" \
+    --data-binary "@$tmp/setup.json" "$setup_url")
+  if [ "$status" != 200 ] || ! token=$(jq -er .token "$tmp/setup" 2>/dev/null); then
+    if jq -e .error "$tmp/setup" >/dev/null 2>&1; then
+      message=$(jq -r .error "$tmp/setup")
+    else
+      message=$(cat "$tmp/setup")
+    fi
+    echo "$setup_url: $status $message" >&2
+    exit 1
+  fi
+  if [ -n "$token_file" ]; then
+    (umask 077; printf "%s\n" "$token" > "$token_file")
+    echo "Token written to $token_file"
+  fi
+fi
 
 sans="DNS:$cn"
 for name in "$@"; do

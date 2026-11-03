@@ -14,6 +14,7 @@ the module, in `cmd/request-cert/`, and the others are in `examples/`:
 ```text
 SIMPLE_CA_TOKEN=TOKEN request-cert API_URL CN [DNS_NAME ...]
 SIMPLE_CA_TOKEN_FILE=FILE request-cert API_URL CN [DNS_NAME ...]
+[SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert --setup-code CODE API_URL CN [DNS_NAME ...]
 ```
 
 - `API_URL` is the API of a CA, `https://pki.example.com/api/sign` for the root CA or
@@ -23,6 +24,12 @@ SIMPLE_CA_TOKEN_FILE=FILE request-cert API_URL CN [DNS_NAME ...]
   around the token in the file is left out. One of them is set, not both, and an empty file is an
   error. The token is read from the environment or the file, so it does not show in the process
   list; the shell version hands it to `curl` in a file of its private temporary directory.
+- `--setup-code CODE`, the first argument, is a
+  [one-time setup code](signing-api.md#one-time-setup-codes) in place of the token: the program
+  exchanges it first at `/api/token-setup` of the server of `API_URL`, then requests the
+  certificate with the token. With `SIMPLE_CA_TOKEN_FILE` also set, the token is written to that
+  file, mode 0600, for later requests; the file must not exist yet, which is checked before the
+  code is used. It is not given together with `SIMPLE_CA_TOKEN`.
 - `SIMPLE_CA_TYPE` is the certificate type; without it, the first type of the token.
 - `CN` is the CN of the certificate and its first DNS name; the `DNS_NAME`s are its other DNS
   names. All of them must be domains of the token or below them.
@@ -51,8 +58,11 @@ SIMPLE_CA_TOKEN=TOKEN request-cert [options] API_URL CN [DNS_NAME ...]
 request-cert --token-file FILE [options] API_URL CN [DNS_NAME ...]
 ```
 
-- `--token-file FILE` - the file holding the token, `SIMPLE_CA_TOKEN_FILE` by default. The token
-  itself is read only from `SIMPLE_CA_TOKEN` or the file, never from the command line.
+- `--token-file FILE` - the file holding the token, or, with `--setup-code`, the new file the
+  token is written to, `SIMPLE_CA_TOKEN_FILE` by default. The token is read only from
+  `SIMPLE_CA_TOKEN` or the file, never from the command line.
+- `--setup-code CODE` - a one-time setup code, exchanged for the token; with the Go command it may
+  come anywhere among the options.
 - `--type TYPE` - the certificate type, `SIMPLE_CA_TYPE` by default.
 - `--out-dir DIR` - the directory of the three files, the working directory by default.
 - `--version` prints the version, and `-h` the usage. Wrong arguments print the usage and exit
@@ -69,6 +79,17 @@ examples/request_cert.py https://pki.example.com:8443/servers/api/sign web.examp
 examples/request-cert.mjs https://pki.example.com:8443/servers/api/sign api.example.com
 examples/request-cert.sh https://pki.example.com:8443/servers/api/sign '*.apps.example.com'
 go run ./cmd/request-cert --out-dir /etc/ssl/db https://pki.example.com:8443/servers/api/sign db.example.com
+```
+
+With a setup code, the administrator hands out the code of `token create --otc`, and the first
+request exchanges it and keeps the token in a new file, which the later requests read:
+
+```sh
+simple-ca token create --ca-dir /etc/simple-ca/servers --otc --domain example.com web
+
+SIMPLE_CA_TOKEN_FILE=web.token request-cert --setup-code K7QF-M2XA-JP4D-W5ZR \
+  https://pki.example.com:8443/servers/api/sign web.example.com
+SIMPLE_CA_TOKEN_FILE=web.token request-cert https://pki.example.com:8443/servers/api/sign www.example.com
 ```
 
 The commands run from the repository root. `./build.mjs` builds the Go program as `request-cert`

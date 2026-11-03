@@ -61,13 +61,17 @@ its number, the count of revoked certificates and its next update, marked when o
 of its ACME directory and signing API, and links to its certificate and CRL, in DER and PEM;
 `/#NAME` opens the dialog of the issuing CA `NAME`. The CA bundle is offered at the top of the
 page, above the CAs, as P7B, which Windows opens and imports with all its certificates, and as
-PEM. The
-page and the signing forms follow the light or dark theme of the browser. They are styled with
-the browser build of Tailwind CSS 4.3.3, embedded in the executable and served at
-`/assets/tailwindcss-browser-4.3.3.js`; the index page opens its dialogs with the script
-`/assets/webui/index.js`, and the signing forms choose the certificate type with the scripts
-`/assets/webui/picker.js` and `/assets/webui/sign.js`, so the pages load nothing from
-other sites.
+PEM.
+
+Every page of `serve` follows the light or dark theme of the browser, or the one chosen with the
+theme button below the page, also in the sign-in dialog of the token and certificate pages. Its
+icon shows the choice, a screen for the theme of the system, a sun for light and a moon for
+dark; a click goes to the next, and the browser keeps the choice for all the pages. The
+pages are styled with the browser build of Tailwind CSS 4.3.3, embedded in the executable and
+served at `/assets/tailwindcss-browser-4.3.3.js`; `/assets/webui/theme.js` sets the theme, the
+index page opens its dialogs with the script `/assets/webui/index.js`, and the signing forms
+choose the certificate type with the scripts `/assets/webui/picker.js` and
+`/assets/webui/sign.js`, so the pages load nothing from other sites.
 
 The files are read on each request, so a CRL written by `crl create` is served at once; a file that
 does not exist is `404 Not Found`. No other file is served. Each

@@ -32,11 +32,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/base32"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"maps"
@@ -86,24 +88,93 @@ func checkAll(option string, values []string) error {
 
 // apiToken is a token of a CA: its JWT ID, its scopes, the certificate types, the domains and the
 // IP address prefixes it allows with the scope sign, each "*" for any, the prefixes of the client
-// addresses it is used from, any without them, its validity, and the serial numbers of the
-// certificates issued with it. A token without a JWT ID is revoked: it expired when it was revoked,
-// and is kept to be renewed until it is purged.
+// addresses it is used from, any without them, its validity, the serial numbers of the
+// certificates issued with it, and the setup code it waits for. A token without a JWT ID and a
+// setup code is revoked: it expired when it was revoked, and is kept to be renewed until it is
+// purged. A token with a setup code is pending: it has no JWT until the code is exchanged, and
+// expires with the code.
 type apiToken struct {
-	ID      string    `json:"id,omitempty"`
-	Scopes  []string  `json:"scopes,omitempty"`
-	Types   []string  `json:"types,omitempty"`
-	Domains []string  `json:"domains,omitempty"`
-	IPs     []string  `json:"ips,omitempty"`
-	Clients []string  `json:"clients,omitempty"`
-	Issued  time.Time `json:"issued"`
-	Expires time.Time `json:"expires"`
-	Certs   []string  `json:"certs,omitempty"`
+	ID      string      `json:"id,omitempty"`
+	Scopes  []string    `json:"scopes,omitempty"`
+	Types   []string    `json:"types,omitempty"`
+	Domains []string    `json:"domains,omitempty"`
+	IPs     []string    `json:"ips,omitempty"`
+	Clients []string    `json:"clients,omitempty"`
+	Issued  time.Time   `json:"issued"`
+	Expires time.Time   `json:"expires"`
+	Certs   []string    `json:"certs,omitempty"`
+	Setup   *tokenSetup `json:"setup,omitempty"`
 }
 
-// revoked reports whether the token is revoked, having no JWT ID.
+// tokenSetup is the one-time setup code a pending token waits for: the SHA-256 of the code, in
+// hex, the prefixes of the client addresses it is exchanged from, any without them, and the
+// validity of the token, a duration such as 8h, which starts at the exchange.
+type tokenSetup struct {
+	Code    string   `json:"code"`
+	Clients []string `json:"clients,omitempty"`
+	Valid   string   `json:"valid"`
+}
+
+// tokenSetupValid is the default validity of a setup code.
+const tokenSetupValid = 15 * time.Minute
+
+// revoked reports whether the token is revoked, having neither a JWT ID nor a setup code.
 func (t *apiToken) revoked() bool {
-	return t.ID == ""
+	return t.ID == "" && t.Setup == nil
+}
+
+// pending reports whether the token waits for its setup code.
+func (t *apiToken) pending() bool {
+	return t.Setup != nil
+}
+
+// setupCodeHash returns the hex SHA-256 of the setup code, in upper case without dashes and
+// spaces, as it is stored.
+func setupCodeHash(code string) string {
+	code = strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(code)))
+	sum := sha256.Sum256([]byte(code))
+	return fmt.Sprintf("%x", sum)
+}
+
+// newTokenSetup returns, for a setupValid, the setup of a token valid for valid once its new
+// setup code is exchanged from the client addresses setupClients, any without them, and the code;
+// for no setupValid, nil and no code.
+func newTokenSetup(valid, setupValid time.Duration, setupClients []string) (*tokenSetup, string, error) {
+	switch {
+	case setupValid < 0 || (setupValid == 0 && len(setupClients) > 0):
+		return nil, "", errors.New("--otc-valid and --otc-network need --otc")
+	case setupValid == 0:
+		return nil, "", nil
+	case setupValid < time.Second:
+		return nil, "", errors.New("--otc-valid must be at least 1s")
+	}
+	prefixes, err := toPrefixes("--otc-network", setupClients)
+	if err != nil {
+		return nil, "", err
+	}
+	b := make([]byte, 10)
+	rand.Read(b)
+	s := base32.StdEncoding.EncodeToString(b)
+	code := s[0:4] + "-" + s[4:8] + "-" + s[8:12] + "-" + s[12:16]
+	return &tokenSetup{Code: setupCodeHash(code), Clients: prefixes, Valid: valid.String()}, code, nil
+}
+
+// toPrefixes returns the addresses and prefixes of values, the option named in its error, as
+// masked prefixes, an address as the prefix of that address alone; for --ip, "*" is kept.
+func toPrefixes(option string, values []string) ([]string, error) {
+	var prefixes []string
+	for _, s := range values {
+		if s == "*" && option == "--ip" {
+			prefixes = append(prefixes, s)
+			continue
+		}
+		prefix, ok := parsePrefix(s)
+		if !ok {
+			return nil, fmt.Errorf("%s '%s' is not an IP address or a prefix such as 10.0.0.0/8", option, s)
+		}
+		prefixes = append(prefixes, prefix.String())
+	}
+	return prefixes, nil
 }
 
 // scopes returns the scopes of the token; an entry without them has the scope sign.
@@ -250,16 +321,28 @@ func purgeToken(caDir, name string) error {
 	return db.save(caDir)
 }
 
-// makeToken adds the token name, valid for valid, with the scopes, sign without them, used from
+// makeToken adds the token name to tokens-db.json of the CA in caDir and returns its JWT, as
+// addToken does without a setup code.
+func makeToken(caDir, name string, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (string, error) {
+	return addToken(caDir, name, valid, scopes, certTypes, domains, ips, clients, 0, nil)
+}
+
+// addToken adds the token name, valid for valid, with the scopes, sign without them, used from
 // the client addresses clients, to tokens-db.json of the CA in caDir, and returns its JWT, signed
 // with the CA key. With the scope sign, it allows the certificate types certTypes, the domains and
 // the IP addresses ips, which belong to that scope alone. A scope, a type, a domain or an IP
-// address "*" allows any;
-// an IP address or a client address is an address or a prefix, kept as a prefix, and no clients
-// allow any client.
-func makeToken(caDir, name string, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (string, error) {
+// address "*" allows any; an IP address or a client address is an address or a prefix, kept as a
+// prefix, and no clients allow any client. With a setupValid, the token is pending instead: it
+// gets no JWT, and addToken returns a setup code, valid for setupValid and exchanged from the
+// client addresses setupClients, any without them, for the JWT.
+func addToken(caDir, name string, valid time.Duration, scopes, certTypes, domains, ips, clients []string,
+	setupValid time.Duration, setupClients []string) (string, error) {
 	if valid < time.Second {
 		return "", errors.New("--valid must be at least 1s")
+	}
+	setup, code, err := newTokenSetup(valid, setupValid, setupClients)
+	if err != nil {
+		return "", err
 	}
 	if !kebabCaseRE.MatchString(name) {
 		return "", fmt.Errorf("token name '%s' is not a kebab-case name, such as web-deploy", name)
@@ -292,22 +375,6 @@ func makeToken(caDir, name string, valid time.Duration, scopes, certTypes, domai
 			return "", fmt.Errorf("--domain '%s' is not a domain name or *", d)
 		}
 		names = append(names, d)
-	}
-	// Addresses become prefixes of one address, and prefixes are kept masked.
-	toPrefixes := func(option string, values []string) ([]string, error) {
-		var prefixes []string
-		for _, s := range values {
-			if s == "*" && option == "--ip" {
-				prefixes = append(prefixes, s)
-				continue
-			}
-			prefix, ok := parsePrefix(s)
-			if !ok {
-				return nil, fmt.Errorf("%s '%s' is not an IP address or a prefix such as 10.0.0.0/8", option, s)
-			}
-			prefixes = append(prefixes, prefix.String())
-		}
-		return prefixes, nil
 	}
 	prefixes, err := toPrefixes("--ip", ips)
 	if err != nil {
@@ -355,15 +422,17 @@ func makeToken(caDir, name string, valid time.Duration, scopes, certTypes, domai
 	now := time.Now().UTC().Truncate(time.Second)
 	tok := &apiToken{ID: randomID(), Scopes: scopes, Types: certTypes, Domains: names, IPs: prefixes,
 		Clients: clientPrefixes, Issued: now, Expires: now.Add(valid)}
-	jwt, err := signToken(caKey, name, tok)
-	if err != nil {
+	result := code
+	if setup != nil {
+		tok.ID, tok.Expires, tok.Setup = "", now.Add(setupValid), setup
+	} else if result, err = signToken(caKey, name, tok); err != nil {
 		return "", err
 	}
 	db.Tokens[name] = tok
 	if err := db.save(caDir); err != nil {
 		return "", err
 	}
-	return jwt, nil
+	return result, nil
 }
 
 // signToken returns the JWT of the token name, its claims signed with caKey.
@@ -381,11 +450,19 @@ func signToken(caKey *rsa.PrivateKey, name string, tok *apiToken) (string, error
 	return signed + "." + base64.RawURLEncoding.EncodeToString(sig), nil
 }
 
-// renewToken gives the token name of the CA in caDir, revoked, expired or not, a new JWT ID and new
-// times, valid for valid from now or, for zero, for as long as it was before, or for the default
-// validity of token create when it was revoked, keeping what it allows and where it is used from,
-// and returns its JWT. The JWT it had is refused from then on.
+// renewToken renews the token name of the CA in caDir and returns its JWT, as reissueToken does
+// without a setup code.
 func renewToken(caDir, name string, valid time.Duration) (string, error) {
+	return reissueToken(caDir, name, valid, 0, nil)
+}
+
+// reissueToken gives the token name of the CA in caDir, revoked, expired or not, a new JWT ID and
+// new times, valid for valid from now or, for zero, for as long as it was before, or for the
+// default validity of token create when it was revoked, keeping what it allows and where it is
+// used from, and returns its JWT. The JWT it had is refused from then on. With a setupValid, the
+// token becomes pending instead, as addToken makes it, and reissueToken returns its new setup
+// code.
+func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClients []string) (string, error) {
 	if valid != 0 && valid < time.Second {
 		return "", errors.New("--valid must be at least 1s")
 	}
@@ -411,6 +488,9 @@ func renewToken(caDir, name string, valid time.Duration) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokensFile))
 	}
+	if old.pending() {
+		return "", fmt.Errorf("token '%s' waits for its setup code; revoke it first to renew it", name)
+	}
 	switch {
 	case valid != 0:
 	case !old.revoked():
@@ -432,15 +512,20 @@ func renewToken(caDir, name string, valid time.Duration) (string, error) {
 	now := time.Now().UTC().Truncate(time.Second)
 	tok := &apiToken{ID: randomID(), Scopes: old.Scopes, Types: old.Types, Domains: old.Domains, IPs: old.IPs,
 		Clients: old.Clients, Issued: now, Expires: now.Add(valid)}
-	jwt, err := signToken(caKey, name, tok)
+	setup, result, err := newTokenSetup(valid, setupValid, setupClients)
 	if err != nil {
+		return "", err
+	}
+	if setup != nil {
+		tok.ID, tok.Expires, tok.Setup = "", now.Add(setupValid), setup
+	} else if result, err = signToken(caKey, name, tok); err != nil {
 		return "", err
 	}
 	db.Tokens[name] = tok
 	if err := db.save(caDir); err != nil {
 		return "", err
 	}
-	return jwt, nil
+	return result, nil
 }
 
 // listTokens writes the tokens of the CA in caDir to w, one per line, sorted by name.
@@ -461,6 +546,10 @@ func listTokens(w io.Writer, caDir string) error {
 		switch {
 		case t.revoked():
 			expires = "revoked"
+		case t.pending() && !now.Before(t.Expires):
+			expires = "setup expired"
+		case t.pending():
+			expires = "setup until " + expires
 		case !now.Before(t.Expires):
 			expires += " (expired)"
 		}
@@ -472,9 +561,65 @@ func listTokens(w io.Writer, caDir string) error {
 	return tw.Flush()
 }
 
-// revokeToken revokes the token name of the CA in caDir by taking its JWT ID from tokens-db.json
-// and making it expire now; its JWT is refused from then on, and the token is kept, to be renewed,
-// until it is purged.
+// durationText returns d as a duration is given to the options, without the zero minutes and
+// seconds Go adds: 8h for 8h0m0s, 15m for 15m0s.
+func durationText(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
+}
+
+// describeToken returns the attributes of the token name, each a label and a value, as
+// token describe and the setup code page show them; with limits, also what it allows and where it
+// is used from, which only tokens-db.json holds, and not its JWT.
+func describeToken(name string, t *apiToken, limits bool) [][2]string {
+	now := time.Now()
+	at := func(when time.Time) string { return when.UTC().Format(displayTimeFormat) }
+	list := func(values []string, none string) string { return cmp.Or(strings.Join(values, ", "), none) }
+	status := "valid until " + at(t.Expires)
+	switch {
+	case t.revoked():
+		status = "revoked at " + at(t.Expires)
+	case t.pending() && !now.Before(t.Expires):
+		status = "setup code expired at " + at(t.Expires)
+	case t.pending():
+		status = "waits for its setup code, until " + at(t.Expires)
+	case !now.Before(t.Expires):
+		status = "expired at " + at(t.Expires)
+	}
+	attributes := [][2]string{{"Name", name}, {"Status", status}, {"Issued", at(t.Issued)},
+		{"Scopes", list(t.scopes(), "-")}}
+	if !limits {
+		return attributes
+	}
+	if t.hasScope("sign") {
+		attributes = append(attributes, [2]string{"Types", list(t.Types, "-")},
+			[2]string{"Domains", list(t.Domains, "-")}, [2]string{"IP addresses", list(showPrefixes(t.IPs), "-")})
+	}
+	attributes = append(attributes, [2]string{"Used from", list(showPrefixes(t.Clients), "any client")})
+	if t.pending() {
+		valid := t.Setup.Valid
+		if d, err := time.ParseDuration(valid); err == nil {
+			valid = durationText(d)
+		}
+		attributes = append(attributes, [2]string{"Code usable from", list(showPrefixes(t.Setup.Clients), "any client")},
+			[2]string{"Valid after the exchange", valid})
+	}
+	certs := fmt.Sprint(len(t.Certs))
+	if len(t.Certs) > 0 {
+		certs += ": " + strings.Join(t.Certs, ", ")
+	}
+	return append(attributes, [2]string{"Certificates", certs})
+}
+
+// revokeToken revokes the token name of the CA in caDir by taking its JWT ID, or its setup code,
+// from tokens-db.json and making it expire now; its JWT, or its code, is refused from then on, and
+// the token is kept, to be renewed, until it is purged.
 func revokeToken(caDir, name string) error {
 	unlock, err := lockTokens(caDir)
 	if err != nil {
@@ -492,12 +637,161 @@ func revokeToken(caDir, name string) error {
 	if t.revoked() {
 		return fmt.Errorf("token '%s' is revoked already", name)
 	}
-	t.ID, t.Expires = "", time.Now().UTC().Truncate(time.Second)
+	t.ID, t.Setup, t.Expires = "", nil, time.Now().UTC().Truncate(time.Second)
 	if err := db.save(caDir); err != nil {
 		return err
 	}
 	fmt.Printf("Token %s revoked\n", name)
 	return nil
+}
+
+// caIDs returns the IDs of the root CA in rootDir, empty, and of its issuing CAs.
+func caIDs(rootDir string) []string {
+	ids := []string{""}
+	entries, _ := os.ReadDir(rootDir)
+	for _, e := range entries {
+		if e.IsDir() && kebabCaseRE.MatchString(e.Name()) && fileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
+			ids = append(ids, e.Name())
+		}
+	}
+	return ids
+}
+
+// exchangeSetupCode exchanges the setup code of a pending token of the root CA in rootDir or of
+// one of its issuing CAs, used from the address client, for its JWT, and returns the ID of its
+// CA, its name and the JWT. The token is valid from now, and the code works once. The error has
+// the status 401 for an unknown, used or expired code, and 403 for a client the code is not
+// exchanged from.
+func exchangeSetupCode(rootDir, code string, client netip.Addr) (caID, name, jwt string, err error) {
+	hash := setupCodeHash(code)
+	for _, id := range caIDs(rootDir) {
+		dir := filepath.Join(rootDir, id)
+		if id, name, jwt, err := func() (string, string, string, error) {
+			unlock, err := lockTokens(dir)
+			if err != nil {
+				return "", "", "", err
+			}
+			defer unlock()
+			db, err := loadTokens(dir)
+			if err != nil {
+				return "", "", "", err
+			}
+			for name, t := range db.Tokens {
+				if !t.pending() || t.Setup.Code != hash {
+					continue
+				}
+				now := time.Now().UTC().Truncate(time.Second)
+				if !now.Before(t.Expires) {
+					return "", "", "", apiErr(http.StatusUnauthorized, "the setup code has expired")
+				}
+				if !(&apiToken{Clients: t.Setup.Clients}).clientAllowed(client) {
+					return "", "", "", apiErr(http.StatusForbidden, "the setup code is not usable from %s", client)
+				}
+				valid, err := time.ParseDuration(t.Setup.Valid)
+				if err != nil {
+					return "", "", "", fmt.Errorf("token '%s': '%s' is not a validity such as 8h", name, t.Setup.Valid)
+				}
+				caKey, err := loadKey(filepath.Join(dir, "ca_key.pem"))
+				if err != nil {
+					return "", "", "", err
+				}
+				t.ID, t.Setup, t.Issued, t.Expires = randomID(), nil, now, now.Add(valid)
+				jwt, err := signToken(caKey, name, t)
+				if err != nil {
+					return "", "", "", err
+				}
+				return id, name, jwt, db.save(dir)
+			}
+			return "", "", "", nil
+		}(); err != nil || name != "" {
+			return id, name, jwt, err
+		}
+	}
+	return "", "", "", apiErr(http.StatusUnauthorized, "unknown or used setup code")
+}
+
+// apiTokenSetup answers POST /api/token-setup, a JSON body {"code": "..."} of at most acmeMaxBody
+// bytes from a client behind the trusted proxies, with the CA ID, the name, the JWT and the scopes
+// of the token the setup code is exchanged for.
+func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string, trusted []netip.Prefix) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	dec := json.NewDecoder(io.LimitReader(r.Body, acmeMaxBody))
+	dec.DisallowUnknownFields()
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+		webuiFail(w, http.StatusUnsupportedMediaType, "the body must be application/json")
+		return
+	}
+	if err := dec.Decode(&req); err != nil || strings.TrimSpace(req.Code) == "" {
+		webuiFail(w, http.StatusBadRequest, "the body is not a JSON object with the setup code")
+		return
+	}
+	client := clientAddr(r, trusted)
+	id, name, jwt, err := exchangeSetupCode(rootDir, req.Code, client)
+	var refused *apiError
+	switch {
+	case errors.As(err, &refused):
+		webuiFail(w, refused.status, refused.msg)
+		return
+	case err != nil:
+		log.Printf("token setup: %v", err)
+		webuiFail(w, http.StatusInternalServerError, "could not set up the token")
+		return
+	}
+	log.Printf("token %s of %s set up from %s", name, filepath.Join(rootDir, id), client)
+	scopes := []string{}
+	if db, err := loadTokens(filepath.Join(rootDir, id)); err == nil && db.Tokens[name] != nil {
+		scopes = db.Tokens[name].scopes()
+	}
+	webuiReply(w, http.StatusOK, map[string]any{"ca": id, "name": name, "token": jwt, "scopes": scopes})
+}
+
+// tokenSetupPage serves /token-setup for the root CA in rootDir and its issuing CAs: GET shows the
+// form asking for a setup code, and POST exchanges the code, as exchangeSetupCode, and shows the
+// token once, with its attributes, or the form again with the error. The client is the one clientAddr finds with the
+// trusted proxies.
+func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string, trusted []netip.Prefix) {
+	caCert, err := loadCert(filepath.Join(rootDir, "ca_cert.pem"))
+	if err != nil {
+		log.Printf("%s: %v", r.URL.Path, err)
+		http.Error(w, "could not read the CA", http.StatusInternalServerError)
+		return
+	}
+	page := struct {
+		Title, Script, Action, Error, CA, Name, Token string
+		Theme                                         template.CSS
+		Attributes                                    [][2]string
+	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: r.URL.Path, Theme: pageTheme(rootDir)}
+	status := http.StatusOK
+	if r.Method == http.MethodPost {
+		r.Body = http.MaxBytesReader(w, r.Body, acmeMaxBody)
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "the form is too large or malformed", http.StatusBadRequest)
+			return
+		}
+		client := clientAddr(r, trusted)
+		page.CA, page.Name, page.Token, err = exchangeSetupCode(rootDir, r.PostForm.Get("code"), client)
+		var e *apiError
+		switch {
+		case errors.As(err, &e):
+			status, page.Error = e.status, e.msg
+		case err != nil:
+			log.Printf("%s: %v", r.URL.Path, err)
+			status, page.Error = http.StatusInternalServerError, "could not set up the token"
+		default:
+			log.Printf("token %s of %s set up from %s", page.Name, filepath.Join(rootDir, page.CA), client)
+			if db, err := loadTokens(filepath.Join(rootDir, page.CA)); err == nil && db.Tokens[page.Name] != nil {
+				page.Attributes = describeToken(page.Name, db.Tokens[page.Name], true)
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	if err := pageTemplates.ExecuteTemplate(w, "token-setup.html", page); err != nil {
+		log.Printf("%s: %v", r.URL.Path, err)
+	}
 }
 
 // ---- /api/sign --------------------------------------------------------------
@@ -526,7 +820,8 @@ func checkToken(db *tokensDB, caCert *x509.Certificate, token string) (string, *
 }
 
 // verifyJWT returns the claims of the JWT token signed with the key of caCert, and an error of
-// status 401 when the token is malformed or signed by another key.
+// status 401 when the token is malformed or signed by another key; with no caCert, the signature
+// is not checked.
 func verifyJWT(caCert *x509.Certificate, token string) (*jwtClaims, error) {
 	invalid := apiErr(http.StatusUnauthorized, "invalid token")
 	parts := strings.Split(token, ".")
@@ -543,7 +838,7 @@ func verifyJWT(caCert *x509.Certificate, token string) (*jwtClaims, error) {
 	if json.Unmarshal(header, &h) != nil || h.Alg != "RS256" {
 		return nil, invalid
 	}
-	if verifyJWS("RS256", caCert.PublicKey, []byte(parts[0]+"."+parts[1]), sig) != nil {
+	if caCert != nil && verifyJWS("RS256", caCert.PublicKey, []byte(parts[0]+"."+parts[1]), sig) != nil {
 		return nil, invalid
 	}
 	var c jwtClaims
@@ -561,7 +856,7 @@ func lookupToken(db *tokensDB, c *jwtClaims) (string, *apiToken, error) {
 	switch {
 	case ok && t.revoked():
 		return "", nil, apiErr(http.StatusUnauthorized, "the token has been revoked")
-	case !ok || t.ID != c.ID || c.Scope != strings.Join(t.Scopes, " "):
+	case !ok || t.pending() || t.ID != c.ID || c.Scope != strings.Join(t.Scopes, " "):
 		return "", nil, apiErr(http.StatusUnauthorized, "unknown token")
 	case now.Unix() >= c.ExpiresAt || !now.Before(t.Expires):
 		return "", nil, apiErr(http.StatusUnauthorized, "the token has expired")
@@ -695,8 +990,12 @@ func clientAddr(r *http.Request, trusted []netip.Prefix) netip.Addr {
 // that has them; it records the certificate in index.txt and in the token's entry, and returns
 // it with the CA certificate and the name of its file, NAME_cert.pem by the rules of cert create,
 // the serial number for a request without a name. mu and the lock of tokens-db.json are held from
-// the token check to the writes of index.txt and tokens-db.json.
-func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certType string, mu *sync.Mutex) (cert, caCert *x509.Certificate, fileName string, err error) {
+// the token check to the writes of index.txt and tokens-db.json. With setupCodes, token may be
+// the setup code of a pending token of the CA instead, used from a client it is exchanged from:
+// the certificate is signed with the limits of that token, which is revoked once it is issued,
+// and a refused request leaves the code as it was.
+func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certType string, mu *sync.Mutex,
+	setupCodes bool) (cert, caCert *x509.Certificate, fileName string, err error) {
 	mu.Lock()
 	defer mu.Unlock()
 	unlock, err := lockTokens(caDir)
@@ -712,8 +1011,25 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	if err != nil {
 		return nil, nil, "", err
 	}
-	name, tok, err := checkToken(db, caCert, strings.TrimSpace(token))
-	if err != nil {
+	token = strings.TrimSpace(token)
+	var name string
+	var tok *apiToken
+	if setupCodes && !strings.Contains(token, ".") {
+		hash := setupCodeHash(token)
+		for n, t := range db.Tokens {
+			if t.pending() && t.Setup.Code == hash {
+				name, tok = n, t
+			}
+		}
+		switch {
+		case tok == nil:
+			return nil, nil, "", apiErr(http.StatusUnauthorized, "unknown or used setup code")
+		case !time.Now().Before(tok.Expires):
+			return nil, nil, "", apiErr(http.StatusUnauthorized, "the setup code has expired")
+		case !(&apiToken{Clients: tok.Setup.Clients}).clientAllowed(client):
+			return nil, nil, "", apiErr(http.StatusForbidden, "the setup code is not usable from %s", client)
+		}
+	} else if name, tok, err = checkToken(db, caCert, token); err != nil {
 		return nil, nil, "", err
 	}
 	if !tok.clientAllowed(client) {
@@ -770,6 +1086,10 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	}
 	serial := serialHex(cert.SerialNumber)
 	tok.Certs = append(tok.Certs, serial)
+	if tok.pending() {
+		// The token of a setup code signs this certificate alone.
+		tok.Setup, tok.Expires = nil, time.Now().UTC().Truncate(time.Second)
+	}
 	if err := db.save(caDir); err != nil {
 		return nil, nil, "", err
 	}
@@ -818,7 +1138,7 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string, trusted []net
 	case dec.Decode(&req) != nil:
 		err = apiErr(http.StatusBadRequest, "invalid request: the body is not a JSON object of csr and type")
 	default:
-		cert, caCert, _, err = signWithToken(caDir, token, clientAddr(r, trusted), []byte(req.CSR), req.Type, mu)
+		cert, caCert, _, err = signWithToken(caDir, token, clientAddr(r, trusted), []byte(req.CSR), req.Type, mu, false)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -846,10 +1166,10 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string, trusted []net
 // ---- /sign ------------------------------------------------------------------
 
 // signPage serves /sign for the CA in caDir, whose page is at path: GET shows the form, and POST
-// signs its CSR with its type and token, as signWithToken, and sends the certificate as a
-// download, or shows the form again with the error. For a CA without its key or its
-// tokens-db.json, the page says why it signs no requests, and a POST is 403 Forbidden. The client
-// is the one clientAddr finds with the trusted proxies.
+// signs its CSR with its type and token, or setup code, as signWithToken, and sends the
+// certificate as a download, or shows the form again with the error. For a CA without its key or
+// its tokens-db.json, the page says why it signs no requests, and a POST is 403 Forbidden. The
+// client is the one clientAddr finds with the trusted proxies.
 func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, trusted []netip.Prefix, mu *sync.Mutex) {
 	caCert, err1 := loadCert(filepath.Join(caDir, "ca_cert.pem"))
 	cfg, err2 := loadRootConfig(caDir)
@@ -864,8 +1184,9 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, truste
 	}
 	page := struct {
 		Title, Script, Action, CSR, Type, Error, Unavailable, Help string
+		Theme                                                      template.CSS
 		Types                                                      []struct{ Name, Label string }
-	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: path}
+	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: path, Theme: pageTheme(caDir)}
 	if helpSite != nil {
 		page.Help = helpPath
 	}
@@ -912,7 +1233,7 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string, truste
 			return
 		}
 		page.CSR, page.Type = r.PostForm.Get("csr"), r.PostForm.Get("type")
-		cert, _, fileName, err := signWithToken(caDir, r.PostForm.Get("token"), clientAddr(r, trusted), []byte(page.CSR), page.Type, mu)
+		cert, _, fileName, err := signWithToken(caDir, r.PostForm.Get("token"), clientAddr(r, trusted), []byte(page.CSR), page.Type, mu, true)
 		if err == nil {
 			w.Header().Set("Content-Type", "application/x-pem-file")
 			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fileName}))

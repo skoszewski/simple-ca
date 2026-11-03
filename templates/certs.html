@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Certificates - simple-ca</title>
     <script src="{{.Script}}"></script>
-    {{template "theme"}}
+    {{template "theme" ""}}
+    <style id="ca-theme"></style>
   </head>
   <body class="min-h-screen bg-page text-ink">
     <div class="mx-auto max-w-5xl space-y-6 px-4 py-10 sm:py-16">
@@ -13,6 +14,7 @@
         {{template "webui-top" "Certificates"}}
         <main id="ca-section" class="space-y-4 px-6 py-5"></main>
       </div>
+      {{template "version"}}
     </div>
 
     {{template "webui-dialogs"}}

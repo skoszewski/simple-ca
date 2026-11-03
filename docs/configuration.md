@@ -42,9 +42,9 @@ writes it, and it can be written or edited by hand. A setting not described here
   `types`, `domains`, `ips`, `localhost`, `hosts`, and `networks`, a list of prefixes. `--host`
   and `--network` together replace both `hosts` and `networks`. `types`, `domains`, `ips` and
   `localhost` apply only to tokens with the scope `sign`; `scopes` and `types` may be `["*"]`,
-  every scope or every type. `keep_expired`, a duration such as
-  `720h`, is how long `serve` keeps an expired or revoked token before removing it; without it,
-  such tokens stay until `token purge` removes them.
+  every scope or every type. `keep_expired`, a duration such as `720h`, is how long `serve` keeps
+  an expired or revoked token before removing it; without it, such tokens stay until
+  `token purge` removes them.
 - `types` - certificate types for `cert create --type` and `cert sign --type`, by **kebab-case**
   name: words of lower-case letters and digits joined by hyphens, such as `web-server`. A type
   named `server`, `user` or `none` redefines the built-in type, and any other name defines a new
@@ -57,3 +57,97 @@ writes it, and it can be written or edited by hand. A setting not described here
   The names are those of `--ku` and `--eku`. A field left out keeps its value of the built-in
   type, none for a new type, and `[]` gives the type none. `--ku` and `--eku` add to the usages of
   the type.
+
+# theme.json
+
+The colours of the pages of [serve](serve.md) about one CA, in place of the built-in ones, so the
+pages of one CA are told apart from those of another, such as a production root CA from its
+issuing CAs, or a lab CA from a production one. The file is optional, and each CA directory, of
+the root CA or of an issuing CA, has its own: a CA without it keeps the built-in colours, also
+when its root CA has one.
+
+```json
+{
+  "light": {"head": "#7c2d12", "head-link": "#fdba74", "action": "#c2410c", "action-hover": "#ea580c"},
+  "dark": {"head": "#431407", "action": "#c2410c"}
+}
+```
+
+`light` is for the light theme and `dark` for the dark theme, each mapping roles to CSS colours:
+a hex colour such as `#7c2d12`, a function such as `rgb()`, `hsl()` or `oklch()`, or a colour
+name. A role left out keeps its built-in colour, and a setting not described here is an error.
+
+| Page | Colours |
+|---|---|
+| the index page, `/token-setup` | those of the root CA |
+| `/sign`, `/NAME/sign` | those of the CA of the form |
+| the token and certificate pages | those of the CA chosen in their selector, changing with it |
+
+`serve` refuses to start with an unknown role or a value that is not a colour in the
+`theme.json` of any CA, and the pages read the colours on each request, so a change shows
+without a restart.
+
+```sh
+cp examples/themes/crimson.json /etc/simple-ca/theme.json
+```
+
+The root CA of `/etc/simple-ca` takes the red colours, and its issuing CAs keep theirs.
+
+## Theme colours
+
+The roles of `theme.json`, with their built-in colours and those of the example above, an orange
+header and orange buttons. The built-in colours are those of the Tailwind CSS palette, which
+defines them in OKLCH; their hex values here are the sRGB colours a browser draws for them.
+
+| Role | Colours | Light, built in | Dark, built in | Light, example | Dark, example |
+|---|---|---|---|---|---|
+| `page` | background of the page | `#f1f5f9` | `#020618` | | |
+| `ink` | text | `#0f172b` | `#f1f5f9` | | |
+| `muted` | quieter text | `#62748e` | `#90a1b9` | | |
+| `card` | card holding the content | `#ffffff` | `#0f172b` | | |
+| `line` | lines of the card and its tables | `#e2e8f0` | `#1d293d` | | |
+| `head` | header of the card | `#0f172b` | `#1d293d` | `#7c2d12` | `#431407` |
+| `head-ink` | text of the header | `#f1f5f9` | `#f8fafc` | | |
+| `head-muted` | quieter text of the header | `#cad5e2` | `#cad5e2` | | |
+| `head-link` | links of the header | `#74d4ff` | `#74d4ff` | `#fdba74` | |
+| `link` | other links | `#0069a8` | `#00bcff` | | |
+| `accent` | band of the CA bundle | `#f0f9ff` | `#0d2037` | | |
+| `accent-line` | edge of the band | `#b8e6fe` | `#1d293d` | | |
+| `accent-title` | title of the band | `#052f4a` | `#dff2fe` | | |
+| `accent-ink` | text of the band | `#024a70` | `#b8e6fe` | | |
+| `action` | main buttons | `#0069a8` | `#0069a8` | `#c2410c` | `#c2410c` |
+| `action-hover` | main buttons under the pointer | `#0084d1` | `#0084d1` | `#ea580c` | |
+| `action-ink` | text of the main buttons | `#ffffff` | `#ffffff` | | |
+| `solid` | buttons of the CA files | `#0f172b` | `#f1f5f9` | | |
+| `solid-hover` | those buttons under the pointer | `#314158` | `#cad5e2` | | |
+| `solid-ink` | text of those buttons | `#ffffff` | `#0f172b` | | |
+| `subtle` | badges of a role, background under the pointer | `#f1f5f9` | `#1d293d` | | |
+| `subtle-ink` | text of those badges | `#45556c` | `#cad5e2` | | |
+| `field` | form fields | `#ffffff` | `#1d293d` | | |
+| `field-line` | edges of the form fields | `#cad5e2` | `#45556c` | | |
+| `good` | badges of success, such as the days left | `#d0fae5` | `#002c22` | | |
+| `good-ink` | text of those badges | `#007a55` | `#5ee9b5` | | |
+| `warn` | warnings | `#fffbeb` | `#461901` | | |
+| `warn-line` | edges of the warnings | `#fee685` | `#7b3306` | | |
+| `warn-ink` | text of the warnings | `#7b3306` | `#fee685` | | |
+| `bad` | errors, and badges such as expired or revoked | `#fef2f2` | `#460809` | | |
+| `bad-line` | edges of the errors | `#ffc9c9` | `#82181a` | | |
+| `bad-ink` | text of the errors and those badges | `#9f0712` | `#ffc9c9` | | |
+
+An empty example cell keeps the built-in colour.
+
+`examples/themes/` holds five themes, each a `theme.json` to copy into a CA directory. They
+colour the header, its links, the other links, the main buttons and the band of the CA bundle,
+for the light and the dark theme:
+
+| File | Colour | Light header | Dark header | Buttons |
+|---|---|---|---|---|
+| `examples/themes/ember.json` | orange | `#7c2d12` | `#431407` | `#c2410c` |
+| `examples/themes/forest.json` | green | `#14532d` | `#052e16` | `#15803d` |
+| `examples/themes/violet.json` | purple | `#4c1d95` | `#2e1065` | `#6d28d9` |
+| `examples/themes/crimson.json` | red, such as for a production CA | `#7f1d1d` | `#450a0a` | `#b91c1c` |
+| `examples/themes/ocean.json` | teal | `#134e4a` | `#042f2e` | `#0f766e` |
+
+```sh
+cp examples/themes/forest.json /etc/simple-ca/servers/theme.json
+```

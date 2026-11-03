@@ -5,6 +5,7 @@
 const tokenName = "simple-ca-webui-token";
 const params = new URLSearchParams(location.search);
 const base = location.pathname.replace(/\/$/, "");
+const pageScope = base.endsWith("/certificates") ? "certs" : "tokens";
 let caID = params.get("ca") || "";
 let info = null;
 const $ = (id) => document.getElementById(id);
@@ -39,13 +40,55 @@ function askToken(failure) {
   }
 }
 $("login").addEventListener("cancel", (event) => event.preventDefault());
-$("login-form").addEventListener("submit", (event) => {
+// A token is kept and signs in; a setup code, a value without the dots of a JWT, is exchanged for
+// its token first, which is shown once and signs in once its dialog is closed. A token without
+// the scope of the page is shown once too, and the page asks for another token after that.
+$("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  sessionStorage.setItem(tokenName, $("login-token").value.trim());
+  const value = $("login-token").value.trim();
   $("login-token").value = "";
+  if (value.includes(".")) {
+    sessionStorage.setItem(tokenName, value);
+    $("login").close();
+    load();
+    return;
+  }
+  const response = await fetch("/api/token-setup", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: value }) });
+  const setup = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    askToken(setup.error || response.statusText);
+    return;
+  }
   $("login").close();
-  load();
+  if (!setup.scopes.some((scope) => scope === pageScope || scope === "*")) {
+    showOnce(`Your token ${setup.name} is shown this once; copy it now. It does not open this page, as it has `
+      + `the scopes ${setup.scopes.join(", ")}, not ${pageScope}. The setup code it was made from no longer works.`,
+      setup.token, () => askToken(`The token ${setup.name} does not have the scope ${pageScope}.`));
+    return;
+  }
+  sessionStorage.setItem(tokenName, setup.token);
+  showOnce(`Your token ${setup.name} is shown this once; copy it now to sign in again later. `
+    + "The setup code it was made from no longer works.", setup.token, load);
 });
+
+// showOnce shows a token or a setup code once, with text, in its dialog; it leaves the page when
+// the dialog closes, which then calls closed, when given.
+function showOnce(text, value, closed) {
+  $("shown-text").textContent = text;
+  $("shown-value").value = value;
+  if (closed) {
+    $("shown").addEventListener("close", closed, { once: true });
+  }
+  $("shown").showModal();
+}
+$("shown").addEventListener("close", () => {
+  $("shown-value").value = "";
+  $("shown-text").textContent = "";
+});
+copying($("shown-copy"), $("shown-value"));
+// The name of the signed-in token opens the dialog of its attributes.
+$("user").addEventListener("click", () => $("user-dialog").showModal());
 $("sign-out").addEventListener("click", () => {
   sessionStorage.removeItem(tokenName);
   $("user-row").classList.replace("flex", "hidden");
@@ -100,6 +143,8 @@ async function load() {
   }
   $("title").textContent = info.title + ", managed by simple-ca";
   $("user").textContent = "Signed in as " + info.user + (info.user_ca ? " of issuing CA " + info.user_ca : "");
+  $("user-attributes").replaceChildren(...info.user_attributes.flatMap(([label, value]) => [
+    element("dt", { className: "text-muted", textContent: label }), element("dd", { className: "break-all", textContent: value })]));
   $("user-row").classList.replace("hidden", "flex");
   if (!info.cas.some((ca) => ca.id === caID)) {
     caID = info.cas[0].id;
@@ -115,13 +160,16 @@ function choose(id) {
   showCA();
 }
 
-// currentCA puts the CA on the page in the address and the chooser, and returns it.
+// currentCA puts the CA on the page in the address and the chooser, gives the page the colours of
+// its theme, and returns it.
 function currentCA() {
   params.set("ca", caID);
   history.replaceState(null, "", base + "/?" + params);
   $("ca-picker").replaceChildren(picker({ name: "ca", id: "ca-chooser", labelledBy: "ca-label",
     choices: info.cas.map((ca) => [ca.id, ca.label]), value: caID, onchange: choose }));
-  return info.cas.find((ca) => ca.id === caID);
+  const ca = info.cas.find((ca) => ca.id === caID);
+  $("ca-theme").textContent = ca.theme;
+  return ca;
 }
 
 // The parts the pages draw their CA with.

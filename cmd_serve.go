@@ -73,6 +73,11 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	for _, id := range caIDs(rootDir) {
+		if _, err := loadTheme(filepath.Join(rootDir, id)); err != nil {
+			return err
+		}
+	}
 	option := "--trusted-proxy"
 	if !given["trusted-proxy"] {
 		proxies, option = cfg.Serve.TrustedProxies, "serve.trusted_proxies of "+cfg.path
@@ -92,13 +97,20 @@ func runServe(args []string) error {
 		}
 	}
 	return runHTTPServer(newServeMux(rootDir, trusted, *docs, *webui), *address, *port, *tlsCert, *tlsKey, func(origin string) {
-		fmt.Printf("Serving the CAs of %s on %s/\n", rootDir, origin)
+		fmt.Printf("simple-ca %s serving the CAs of %s\n", version(), rootDir)
+		// The URLs of the pages start at one column, after the longest label.
+		pages := [][2]string{{"Index page:", "/"}}
+		if *webui {
+			pages = append(pages, [2]string{"Token page:", tokensPath}, [2]string{"Certificate page:", certsPath})
+		}
+		for _, p := range pages {
+			fmt.Printf("%-18s%s%s\n", p[0], origin, p[1])
+		}
 		if *webui {
 			if ip, err := netip.ParseAddr(*address); *tlsCert == "" && (err != nil || !ip.IsLoopback()) {
 				fmt.Fprintln(os.Stderr, "warning: the token and certificate pages are served over plain HTTP beyond "+
 					"this machine; their tokens can be read on the network")
 			}
-			fmt.Printf("Token page: %s%s\nCertificate page: %s%s\n", origin, tokensPath, origin, certsPath)
 		}
 
 		// With tokens.keep_expired, the tokens of the root CA and its issuing CAs expired for

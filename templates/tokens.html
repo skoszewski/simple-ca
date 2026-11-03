@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Tokens - simple-ca</title>
     <script src="{{.Script}}"></script>
-    {{template "theme"}}
+    {{template "theme" ""}}
+    <style id="ca-theme"></style>
   </head>
   <body class="min-h-screen bg-page text-ink">
     <div class="mx-auto max-w-5xl space-y-6 px-4 py-10 sm:py-16">
@@ -13,6 +14,7 @@
         {{template "webui-top" "Tokens"}}
         <main id="ca-section" class="space-y-4 px-6 py-5"></main>
       </div>
+      {{template "version"}}
     </div>
 
     {{template "webui-dialogs"}}
@@ -40,21 +42,16 @@
         </fieldset>
         <label class="space-y-1"><span class="block font-medium">Allowed clients: addresses or prefixes; empty for any</span>
           <input name="clients" placeholder="192.168.1.4, 192.168.1.0/24" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <label class="flex items-center gap-1.5 sm:col-span-2"><input type="checkbox" name="otc"> One-time setup code: hand out a code, exchanged once for the token</label>
+        <fieldset id="otc-fields" class="contents">
+          <label class="space-y-1"><span class="block font-medium">Code valid for</span>
+            <input name="otc_valid" placeholder="15m, 1h" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+          <label class="space-y-1"><span class="block font-medium">Code usable from: addresses or prefixes; empty for any</span>
+            <input name="otc_networks" placeholder="192.168.1.0/24" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        </fieldset>
         <div class="flex justify-end gap-2 sm:col-span-2">
           <button id="create-cancel" type="button" class="rounded-lg border border-field-line px-4 py-2 font-medium hover:bg-subtle">Cancel</button>
           <button type="submit" class="rounded-lg bg-action px-4 py-2 font-semibold text-action-ink shadow-sm hover:bg-action-hover">Create</button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog id="token-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
-      <form method="dialog" class="space-y-4 px-6 py-5">
-        <p class="text-sm">The token <strong id="new-token-name"></strong> is shown this once; copy it now. It is
-          gone from the page once this dialog closes.</p>
-        <textarea id="new-token" readonly rows="5" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-xs"></textarea>
-        <div class="flex justify-end gap-2">
-          <button id="copy-token" type="button" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Copy</button>
-          <button value="close" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Close</button>
         </div>
       </form>
     </dialog>

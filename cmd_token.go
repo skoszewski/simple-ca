@@ -23,10 +23,16 @@
 package main
 
 import (
+	"crypto/x509"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"text/tabwriter"
 	"time"
 )
 
@@ -43,6 +49,9 @@ func runTokenCreate(args []string) error {
 			"With the scope sign, the token allows the --type certificate types, the --domain domains\n"+
 			"and their subdomains, and the --ip addresses; at least one --domain, --ip or --localhost\n"+
 			"is required. With --host or --network, the token is accepted only from those clients.\n\n"+
+			"With --otc, it prints a one-time setup code instead, valid for --otc-valid, and makes the\n"+
+			"token when the code is exchanged at /api/token-setup of serve, or used to sign in to its\n"+
+			"pages; the token is valid for --valid from then on.\n\n"+
 			"Options not given default to the tokens section of simple-ca.json, then to the defaults\n"+
 			"below. --host and --network together replace hosts and networks. The defaults of --type,\n"+
 			"--domain, --ip and --localhost apply only with the scope sign.")
@@ -76,16 +85,8 @@ func runTokenCreate(args []string) error {
 		return nil
 	})
 	fs.Func("network", "comma-separated client `prefixes` the token is accepted from, such as\n"+
-		"192.168.1.0/24,10.0.0.0/8; may be specified multiple times (default: any)", func(s string) error {
-
-		for _, p := range strings.Split(s, ",") {
-			if p = strings.TrimSpace(p); p == "" {
-				return fmt.Errorf("empty prefix in '%s'", s)
-			}
-			clients = append(clients, p)
-		}
-		return nil
-	})
+		"192.168.1.0/24,10.0.0.0/8; may be specified multiple times (default: any)", prefixList(&clients))
+	setup := setupFlags(fs)
 	rest, given, err := parseArgs(fs, args, 1, 1)
 	if err != nil {
 		return err
@@ -133,12 +134,50 @@ func runTokenCreate(args []string) error {
 		domains = append(domains, "localhost")
 		ips = append(ips, "127.0.0.1")
 	}
-	token, err := makeToken(dir, rest[0], *valid, scopes, certTypes, domains, ips, clients)
+	setupValid, setupClients, err := setup(given)
+	if err != nil {
+		return err
+	}
+	token, err := addToken(dir, rest[0], *valid, scopes, certTypes, domains, ips, clients, setupValid, setupClients)
 	if err != nil {
 		return err
 	}
 	fmt.Println(token)
 	return nil
+}
+
+// prefixList returns the function of a flag appending the prefixes of a comma-separated list to
+// list.
+func prefixList(list *[]string) func(string) error {
+	return func(s string) error {
+		for _, p := range strings.Split(s, ",") {
+			if p = strings.TrimSpace(p); p == "" {
+				return fmt.Errorf("empty prefix in '%s'", s)
+			}
+			*list = append(*list, p)
+		}
+		return nil
+	}
+}
+
+// setupFlags defines --otc, --otc-valid and --otc-network of fs, and returns the function giving,
+// once fs is parsed with the flags given, the validity of the setup code, zero without --otc, and
+// the clients it is exchanged from.
+func setupFlags(fs *flag.FlagSet) func(given map[string]bool) (time.Duration, []string, error) {
+	otc := fs.Bool("otc", false, "print a one-time setup code, exchanged for the token, instead of the token")
+	valid := fs.Duration("otc-valid", tokenSetupValid, "validity `period` of the setup code, such as 15m or 1h")
+	var clients []string
+	fs.Func("otc-network", "comma-separated client `prefixes` the setup code is exchanged from; may be\n"+
+		"specified multiple times (default: any)", prefixList(&clients))
+	return func(given map[string]bool) (time.Duration, []string, error) {
+		switch {
+		case *otc:
+			return *valid, clients, nil
+		case given["otc-valid"] || given["otc-network"]:
+			return 0, nil, errors.New("--otc-valid and --otc-network need --otc")
+		}
+		return 0, nil, nil
+	}
 }
 
 // runTokenList runs token list.
@@ -149,6 +188,96 @@ func runTokenList(args []string) error {
 		return err
 	}
 	return listTokens(os.Stdout, resolveCADir(*caDir))
+}
+
+// runTokenDescribe runs token describe.
+func runTokenDescribe(args []string) error {
+	fs := newFlagSet("token describe", "[NAME]",
+		"Print the attributes of the token NAME of the CA in --ca-dir, or of the token in the file of\n"+
+			"--token-file, or on the standard input with --stdin.\n\n"+
+			"A token read from a file or the standard input shows what its JWT holds: its name, its\n"+
+			"scopes and its times. With --ca-dir, its signature is checked against that CA, and what it\n"+
+			"allows and where it is used from are read from the tokens-db.json of the CA.")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
+	tokenFile := fs.String("token-file", "", "`file` holding the token")
+	stdin := fs.Bool("stdin", false, "read the token from the standard input")
+	rest, given, err := parseArgs(fs, args, 0, 1)
+	if err != nil {
+		return err
+	}
+	switch {
+	case *tokenFile != "" && *stdin:
+		return errors.New("give --token-file or --stdin, not both")
+	case len(rest) == 1 && (*tokenFile != "" || *stdin):
+		return errors.New("give NAME, or --token-file or --stdin, not both")
+	case len(rest) == 0 && *tokenFile == "" && !*stdin:
+		return errors.New("give NAME, --token-file or --stdin")
+	}
+
+	var name string
+	var tok *apiToken
+	limits := true
+	var notes [][2]string
+	var refused string
+	if len(rest) == 1 {
+		dir := resolveCADir(*caDir)
+		if !fileExists(filepath.Join(dir, "ca_cert.pem")) {
+			return fmt.Errorf("CA certificate not found in %s. Please point --ca-dir to a CA directory", dir)
+		}
+		db, err := loadTokens(dir)
+		if err != nil {
+			return err
+		}
+		if name, tok = rest[0], db.Tokens[rest[0]]; tok == nil {
+			return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(dir, tokensFile))
+		}
+	} else {
+		var b []byte
+		if *stdin {
+			b, err = io.ReadAll(os.Stdin)
+		} else {
+			b, err = os.ReadFile(*tokenFile)
+		}
+		if err != nil {
+			return err
+		}
+		// The signature is checked, and the entry read, with the CA of --ca-dir alone.
+		var caCert *x509.Certificate
+		dir := resolveCADir(*caDir)
+		if given["ca-dir"] {
+			if caCert, err = loadCert(filepath.Join(dir, "ca_cert.pem")); err != nil {
+				return err
+			}
+		}
+		c, err := verifyJWT(caCert, strings.TrimSpace(string(b)))
+		switch {
+		case err != nil && caCert != nil:
+			return fmt.Errorf("the token is not one signed by the CA in %s", dir)
+		case err != nil:
+			return errors.New("the token is not a JWT of simple-ca token create")
+		}
+		name, limits = c.Subject, false
+		tok = &apiToken{ID: c.ID, Scopes: strings.Fields(c.Scope), Issued: time.Unix(c.IssuedAt, 0),
+			Expires: time.Unix(c.ExpiresAt, 0)}
+		if caCert == nil {
+			notes = append(notes, [2]string{"Signature", "not checked; --ca-dir of its CA checks it and shows its limits"})
+		} else if db, err := loadTokens(dir); err != nil {
+			return err
+		} else if entry := db.Tokens[name]; entry != nil && entry.ID != "" && entry.ID == c.ID {
+			tok, limits = entry, true
+		} else {
+			refused = "refused: the token was renewed, revoked or removed in " + filepath.Join(dir, tokensFile)
+		}
+	}
+	attributes := describeToken(name, tok, limits)
+	if refused != "" {
+		attributes[1][1] = refused
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	for _, a := range append(attributes, notes...) {
+		fmt.Fprintf(tw, "%s:\t%s\n", a[0], a[1])
+	}
+	return tw.Flush()
 }
 
 // runTokenRevoke runs token revoke.
@@ -192,14 +321,21 @@ func runTokenPurge(args []string) error {
 func runTokenRenew(args []string) error {
 	fs := newFlagSet("token renew", "NAME",
 		"Renew the token NAME of the CA in --ca-dir, expired or not, and print it. It gets a new\n"+
-			"JWT, valid from now, with the same scopes and limits; the old JWT stops working.")
+			"JWT, valid from now, with the same scopes and limits; the old JWT stops working.\n\n"+
+			"With --otc, it prints a one-time setup code instead, as token create does: the old JWT\n"+
+			"stops working at once, and the new one is made when the code is exchanged.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := fs.Duration("valid", 0, "validity `period` of the token, such as 30m, 8h or 720h (default: the period it had)")
-	rest, _, err := parseArgs(fs, args, 1, 1)
+	setup := setupFlags(fs)
+	rest, given, err := parseArgs(fs, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	token, err := renewToken(resolveCADir(*caDir), rest[0], *valid)
+	setupValid, setupClients, err := setup(given)
+	if err != nil {
+		return err
+	}
+	token, err := reissueToken(resolveCADir(*caDir), rest[0], *valid, setupValid, setupClients)
 	if err != nil {
 		return err
 	}

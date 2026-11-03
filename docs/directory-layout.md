@@ -3,6 +3,7 @@
 ```text
 CA_DIR/
   simple-ca.json           settings (optional)
+  theme.json               colours of the pages of the root CA (optional)
   ca_cert.pem              root CA certificate
   ca_key.pem               root CA private key
   ca_bundle.pem            root and all issuing CA certificates concatenated
@@ -18,6 +19,7 @@ CA_DIR/
   {name}_key.pem           key of a certificate issued by the root CA
   {name}.pfx               PKCS#12 bundle (cert pfx)
   {issuing-ca}/
+    theme.json             colours of the pages of the issuing CA (optional)
     ca_cert.pem            issuing CA certificate
     ca_key.pem             issuing CA private key
     index.txt              certificates issued by the issuing CA

@@ -37,6 +37,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -55,14 +56,20 @@ func run() error {
 	flag.Usage = func() {
 		fmt.Fprint(flag.CommandLine.Output(), "Usage:\n"+
 			"  SIMPLE_CA_TOKEN=TOKEN request-cert [options] API_URL CN [DNS_NAME ...]\n"+
-			"  request-cert --token-file FILE [options] API_URL CN [DNS_NAME ...]\n\n"+
+			"  request-cert --token-file FILE [options] API_URL CN [DNS_NAME ...]\n"+
+			"  request-cert --setup-code CODE [--token-file NEW_FILE] [options] API_URL CN [DNS_NAME ...]\n\n"+
 			"Requests a server certificate for CN and the DNS names from the signing API of\n"+
 			"simple-ca serve at API_URL, such as https://pki.example.com/servers/api/sign.\n\n"+
+			"With --setup-code, it exchanges the one-time setup code for the token at\n"+
+			"/api/token-setup of the server of API_URL first, and writes the token to --token-file,\n"+
+			"a file that does not exist yet, when it is given.\n\n"+
 			"Options:\n")
 		flag.PrintDefaults()
 	}
 	tokenFile := flag.String("token-file", os.Getenv("SIMPLE_CA_TOKEN_FILE"),
-		"`file` holding the token, instead of SIMPLE_CA_TOKEN (default: SIMPLE_CA_TOKEN_FILE)")
+		"`file` holding the token, instead of SIMPLE_CA_TOKEN, or the token of --setup-code is\n"+
+			"written to (default: SIMPLE_CA_TOKEN_FILE)")
+	setupCode := flag.String("setup-code", "", "one-time setup `code` exchanged for the token")
 	certType := flag.String("type", os.Getenv("SIMPLE_CA_TYPE"),
 		"certificate `type` (default: SIMPLE_CA_TYPE, else the first type of the token)")
 	outDir := flag.String("out-dir", ".", "`directory` the key, the certificate and the chain are written to")
@@ -86,10 +93,28 @@ func run() error {
 		return errUsage
 	}
 
-	token := os.Getenv("SIMPLE_CA_TOKEN")
+	token, code := os.Getenv("SIMPLE_CA_TOKEN"), strings.TrimSpace(*setupCode)
 	switch {
+	case token != "" && code != "":
+		return errors.New("give the token in SIMPLE_CA_TOKEN or a setup code with --setup-code, not both")
 	case token != "" && *tokenFile != "":
 		return errors.New("give the token in SIMPLE_CA_TOKEN or in --token-file, not both")
+	case code != "":
+		// The token of the setup code is written to --token-file, which must not exist yet, so a
+		// used code leaves no token behind by mistake.
+		if _, err := os.Stat(*tokenFile); *tokenFile != "" && err == nil {
+			return fmt.Errorf("--token-file: %s exists; the token of --setup-code is written to a new file", *tokenFile)
+		}
+		var err error
+		if token, err = exchange(flag.Arg(0), code); err != nil {
+			return err
+		}
+		if *tokenFile != "" {
+			if err := os.WriteFile(*tokenFile, []byte(token+"\n"), 0o600); err != nil {
+				return fmt.Errorf("--token-file: %w", err)
+			}
+			fmt.Printf("Token written to %s\n", *tokenFile)
+		}
 	case *tokenFile != "":
 		b, err := os.ReadFile(*tokenFile)
 		if err != nil {
@@ -99,7 +124,7 @@ func run() error {
 			return fmt.Errorf("--token-file: %s is empty", *tokenFile)
 		}
 	case token == "":
-		return errors.New("no token: set SIMPLE_CA_TOKEN, or give --token-file or SIMPLE_CA_TOKEN_FILE")
+		return errors.New("no token: set SIMPLE_CA_TOKEN, or give --token-file, SIMPLE_CA_TOKEN_FILE or --setup-code")
 	}
 
 	url, cn := flag.Arg(0), flag.Arg(1)
@@ -180,6 +205,38 @@ func run() error {
 	}
 	fmt.Printf("Certificate %s written to %s, its chain to %s and its key to %s\n", result.Serial, certPath, chainPath, keyPath)
 	return nil
+}
+
+// exchange exchanges the setup code at /api/token-setup of the server of the signing API at
+// apiURL, and returns the token.
+func exchange(apiURL, code string) (string, error) {
+	u, err := url.Parse(apiURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("%s is not a URL such as https://pki.example.com/servers/api/sign", apiURL)
+	}
+	setupURL := u.Scheme + "://" + u.Host + "/api/token-setup"
+	body, err := json.Marshal(map[string]string{"code": code})
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.Post(setupURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	answer, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var result struct{ Token, Error string }
+	if err := json.Unmarshal(answer, &result); resp.StatusCode != http.StatusOK || err != nil || result.Token == "" {
+		message := strings.TrimSpace(string(answer))
+		if result.Error != "" {
+			message = result.Error
+		}
+		return "", fmt.Errorf("%s: %d %s", setupURL, resp.StatusCode, message)
+	}
+	return result.Token, nil
 }
 
 func main() {

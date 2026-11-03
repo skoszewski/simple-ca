@@ -2,9 +2,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -21,8 +25,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -2754,5 +2760,242 @@ func TestCertWebUI(t *testing.T) {
 	if status != http.StatusOK || certs[0].(map[string]any)["status"] != "revoked" || certs[0].(map[string]any)["reason"] != "superseded" ||
 		crl["number"] != "2" {
 		t.Errorf("GET /api/certs after revoking: %d %v, want the certificate revoked, superseded, and CRL number 2", status, answer)
+	}
+}
+
+func TestSetupCode(t *testing.T) {
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	caDir := t.TempDir()
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+		t.Fatalf("makeCA issuing: %v", err)
+	}
+	issuingDir := filepath.Join(caDir, "issuing-ca")
+
+	// A token with a setup code is pending: it has no JWT, refuses renewal, and lists its code.
+	if _, err := addToken(issuingDir, "bad", time.Hour, nil, nil, []string{"example.com"}, nil, nil, 0, []string{"10.0.0.0/8"}); err == nil {
+		t.Fatal("addToken with --otc-network without --otc succeeded, want an error")
+	}
+	code, err := addToken(issuingDir, "remote", 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("addToken --otc: %v", err)
+	}
+	if ok, _ := regexp.MatchString(`^[A-Z2-7]{4}(-[A-Z2-7]{4}){3}$`, code); !ok {
+		t.Fatalf("setup code %q, want four groups of four base32 characters", code)
+	}
+	db, err := loadTokens(issuingDir)
+	if err != nil || !db.Tokens["remote"].pending() || db.Tokens["remote"].revoked() || db.Tokens["remote"].ID != "" ||
+		db.Tokens["remote"].Setup.Code != setupCodeHash(code) {
+		t.Fatalf("the pending token: %+v, %v, want a setup code and no JWT ID", db.Tokens["remote"], err)
+	}
+	if _, err := renewToken(issuingDir, "remote", 0); err == nil {
+		t.Fatal("renewToken of a pending token succeeded, want an error")
+	}
+	var b strings.Builder
+	if err := listTokens(&b, issuingDir); err != nil || !strings.Contains(b.String(), "setup until ") {
+		t.Fatalf("listTokens: %v\n%s, want the setup code of remote", err, b.String())
+	}
+
+	// The code is exchanged once, in any letter case and without dashes, for a JWT that signs.
+	server := httptest.NewServer(newServeMux(caDir, nil, false, false))
+	defer server.Close()
+	exchange := func(code string) (int, map[string]any) {
+		t.Helper()
+		resp, err := http.Post(server.URL+"/api/token-setup", "application/json", strings.NewReader(`{"code": "`+code+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var answer map[string]any
+		json.NewDecoder(resp.Body).Decode(&answer)
+		return resp.StatusCode, answer
+	}
+	status, answer := exchange(strings.ToLower(strings.ReplaceAll(code, "-", "")))
+	if status != http.StatusOK || answer["ca"] != "issuing-ca" || answer["name"] != "remote" ||
+		fmt.Sprint(answer["scopes"]) != "[sign]" {
+		t.Fatalf("exchange: %d %v, want the token remote of issuing-ca, with the scope sign", status, answer)
+	}
+	caCert, err := loadCert(filepath.Join(issuingDir, "ca_cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, _ = loadTokens(issuingDir)
+	if name, tok, err := checkToken(db, caCert, fmt.Sprint(answer["token"])); err != nil || name != "remote" || tok.pending() ||
+		tok.Expires.Sub(tok.Issued) != 8*time.Hour {
+		t.Fatalf("the exchanged token: %s %+v %v, want remote, valid for 8h from the exchange", name, tok, err)
+	}
+	if status, _ := exchange(code); status != http.StatusUnauthorized {
+		t.Errorf("exchanging a used code: %d, want 401", status)
+	}
+	if status, _ := exchange("AAAA-BBBB-CCCC-DDDD"); status != http.StatusUnauthorized {
+		t.Errorf("exchanging an unknown code: %d, want 401", status)
+	}
+
+	// A code is refused from a client outside its networks and once it has expired, and a pending
+	// token is no JWT of the signing API.
+	far, err := addToken(caDir, "far", time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, []string{"10.0.0.0/8"})
+	if err != nil {
+		t.Fatalf("addToken --otc-network: %v", err)
+	}
+	if status, _ := exchange(far); status != http.StatusForbidden {
+		t.Errorf("exchanging from outside --otc-network: %d, want 403", status)
+	}
+	late, err := addToken(caDir, "late", time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil)
+	if err != nil {
+		t.Fatalf("addToken --otc-valid 1s: %v", err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if status, answer := exchange(late); status != http.StatusUnauthorized || answer["error"] != "the setup code has expired" {
+		t.Errorf("exchanging an expired code: %d %v, want 401, expired", status, answer)
+	}
+	if n, err := purgeTokens(caDir, 0); err != nil || n != 1 {
+		t.Errorf("purgeTokens: %d, %v, want the expired setup code removed", n, err)
+	}
+	db, _ = loadTokens(caDir)
+	if _, _, err := lookupToken(db, &jwtClaims{Subject: "far"}); err == nil {
+		t.Error("lookupToken of a pending token with an empty JWT ID succeeded, want an error")
+	}
+
+	// A token renewed with a setup code waits for it again: its JWT is refused at once, and the
+	// code gives it a new one.
+	if _, err := reissueToken(issuingDir, "remote", 0, 0, []string{"10.0.0.0/8"}); err == nil {
+		t.Error("reissueToken with --otc-network without --otc succeeded, want an error")
+	}
+	renewed, err := reissueToken(issuingDir, "remote", 0, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("reissueToken --otc: %v", err)
+	}
+	db, _ = loadTokens(issuingDir)
+	if _, _, err := checkToken(db, caCert, fmt.Sprint(answer["token"])); err == nil || !db.Tokens["remote"].pending() {
+		t.Error("the JWT of a token renewed with a setup code is accepted, want it refused")
+	}
+	if status, again := exchange(renewed); status != http.StatusOK || again["name"] != "remote" || again["token"] == answer["token"] {
+		t.Errorf("exchanging the code of a renewed token: %d %v, want a new JWT of remote", status, again)
+	}
+
+	// The signing form takes a setup code for one certificate: a refused request leaves the code,
+	// a signed one revokes its token; /api/sign takes no code.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrFor := func(name string) []byte {
+		der, err := x509.CreateCertificateRequest(rand.Reader,
+			&x509.CertificateRequest{Subject: pkix.Name{CommonName: name}, DNSNames: []string{name}}, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
+	}
+	once, err := addToken(issuingDir, "once", time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("addToken --otc: %v", err)
+	}
+	var mu sync.Mutex
+	client := netip.MustParseAddr("127.0.0.1")
+	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", &mu, false); err == nil {
+		t.Error("signWithToken of a setup code without setupCodes succeeded, want an error")
+	}
+	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.org"), "", &mu, true); err == nil {
+		t.Error("signWithToken of a setup code for a name the token does not allow succeeded, want an error")
+	}
+	cert, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", &mu, true)
+	if err != nil {
+		t.Fatalf("signWithToken of a setup code: %v", err)
+	}
+	db, _ = loadTokens(issuingDir)
+	if tok := db.Tokens["once"]; !tok.revoked() || !slices.Equal(tok.Certs, []string{serialHex(cert.SerialNumber)}) {
+		t.Errorf("the token of the setup code: %+v, want it revoked, with the certificate", tok)
+	}
+	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", &mu, true); err == nil {
+		t.Error("signWithToken of a used setup code succeeded, want an error")
+	}
+
+	// The setup code page exchanges a code once.
+	page, err := addToken(caDir, "page", time.Hour, []string{"tokens"}, nil, nil, nil, nil, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("addToken --otc: %v", err)
+	}
+	for _, c := range []struct {
+		want int
+		text string
+	}{{http.StatusOK, "Your token <strong>page</strong>"}, {http.StatusUnauthorized, "unknown or used setup code"}} {
+		resp, err := http.PostForm(server.URL+"/token-setup", url.Values{"code": {page}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != c.want || !strings.Contains(string(body), c.text) {
+			t.Errorf("POST /token-setup: %d, want %d with %q", resp.StatusCode, c.want, c.text)
+		}
+	}
+
+	// A token is described with its limits from tokens-db.json, and a JWT read without its CA
+	// with what it holds alone.
+	pendingCode, err := addToken(caDir, "pending", 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour,
+		[]string{"10.0.0.0/8"})
+	if err != nil || pendingCode == "" {
+		t.Fatalf("addToken --otc: %v", err)
+	}
+	db, _ = loadTokens(caDir)
+	described := fmt.Sprint(describeToken("pending", db.Tokens["pending"], true))
+	for _, s := range []string{"[Status waits for its setup code", "[Domains example.com]", "[Code usable from 10.0.0.0/8]",
+		"[Valid after the exchange 8h]"} {
+		if !strings.Contains(described, s) {
+			t.Errorf("describeToken of a pending token: %s, want %q", described, s)
+		}
+	}
+	jwt, err := makeToken(caDir, "held", time.Hour, []string{"certs"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	c, err := verifyJWT(nil, jwt)
+	if err != nil || c.Subject != "held" || c.Scope != "certs" {
+		t.Fatalf("verifyJWT without a CA: %+v, %v, want the claims of held", c, err)
+	}
+	if described := fmt.Sprint(describeToken(c.Subject, &apiToken{Scopes: strings.Fields(c.Scope)}, false)); strings.Contains(described, "Used from") {
+		t.Errorf("describeToken without limits: %s, want no limits", described)
+	}
+}
+
+func TestThemeConfig(t *testing.T) {
+	css, err := themeConfig{Light: map[string]string{"head": "#7c2d12", "action": "oklch(0.55 0.2 40)"},
+		Dark: map[string]string{"head": " darkred "}}.css("simple-ca.json")
+	if err != nil || string(css) != ":root { --action: oklch(0.55 0.2 40); --head: #7c2d12; }\n"+
+		`:root[data-theme="dark"] { --head: darkred; }`+"\n" {
+		t.Errorf("css: %q, %v, want the variables of both themes", css, err)
+	}
+	if css, err := (themeConfig{}).css("simple-ca.json"); err != nil || css != "" {
+		t.Errorf("css without colours: %q, %v, want none", css, err)
+	}
+	for _, theme := range []themeConfig{
+		{Light: map[string]string{"header": "#123456"}},
+		{Dark: map[string]string{"head": "red; } body { display: none"}},
+		{Dark: map[string]string{"head": "url(x)"}},
+	} {
+		if _, err := theme.css("simple-ca.json"); err == nil {
+			t.Errorf("css of %+v succeeded, want an error", theme)
+		}
+	}
+
+	// theme.json of a CA directory holds the colours of that CA alone, none without it.
+	dir := t.TempDir()
+	if css, err := loadTheme(dir); err != nil || css != "" {
+		t.Errorf("loadTheme without theme.json: %q, %v, want none", css, err)
+	}
+	for _, c := range []struct{ file, want string }{
+		{`{"light": {"head": "#7f1d1d"}}`, ":root { --head: #7f1d1d; }\n"},
+		{`{"theme": {"light": {"head": "#7f1d1d"}}}`, ""},
+	} {
+		if err := os.WriteFile(filepath.Join(dir, themeFile), []byte(c.file), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if css, err := loadTheme(dir); string(css) != c.want || (err == nil) != (c.want != "") {
+			t.Errorf("loadTheme of %s: %q, %v, want %q", c.file, css, err, c.want)
+		}
 	}
 }

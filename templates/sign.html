@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sign a certificate request - {{.Title}} - simple-ca</title>
     <script src="{{.Script}}"></script>
-    {{template "theme"}}
+    {{template "theme" .Theme}}
   </head>
   <body class="min-h-screen bg-page text-ink">
     <div class="mx-auto max-w-3xl px-4 py-10 sm:py-16">
@@ -45,9 +45,10 @@
             </select>
           </div>
           <div class="space-y-1">
-            <label for="token" class="block text-sm font-medium">Token</label>
+            <label for="token" class="block text-sm font-medium">Token or setup code</label>
             <input id="token" name="token" type="password" required autocomplete="off"
               class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-sm">
+            <p class="text-sm text-muted">A one-time setup code signs this one certificate, and works no more after it.</p>
           </div>
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex flex-wrap gap-4">
@@ -61,6 +62,7 @@
         </form>
         {{- end}}
       </div>
+      {{template "version"}}
     </div>
     <script src="/assets/webui/picker.js"></script>
     <script src="/assets/webui/sign.js"></script>

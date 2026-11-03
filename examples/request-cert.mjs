@@ -4,6 +4,10 @@
  *
  * Usage: SIMPLE_CA_TOKEN=TOKEN request-cert.mjs API_URL CN [DNS_NAME ...]
  *        SIMPLE_CA_TOKEN_FILE=FILE request-cert.mjs API_URL CN [DNS_NAME ...]
+ *        [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert.mjs --setup-code CODE API_URL CN [DNS_NAME ...]
+ *
+ * A setup code is exchanged for the token at /api/token-setup of the server of API_URL first; the
+ * token is written to SIMPLE_CA_TOKEN_FILE, a file that does not exist yet, when it is set.
  *
  * The openssl command makes an EC P-256 key and a certificate signing request for the CN, with
  * the CN and the DNS names as its DNS names. The request is sent to API_URL, such as
@@ -20,17 +24,55 @@ import { join } from "node:path";
 
 let token = process.env.SIMPLE_CA_TOKEN ?? "";
 const tokenFile = process.env.SIMPLE_CA_TOKEN_FILE ?? "";
-const [url, cn, ...names] = process.argv.slice(2);
-if (!cn || !(token || tokenFile)) {
+const args = process.argv.slice(2);
+const code = args[0] === "--setup-code" ? args.splice(0, 2)[1] ?? "" : "";
+const [url, cn, ...names] = args;
+if (!cn || !(token || tokenFile || code)) {
   console.error("Usage: SIMPLE_CA_TOKEN=TOKEN request-cert.mjs API_URL CN [DNS_NAME ...]\n" +
-    "       SIMPLE_CA_TOKEN_FILE=FILE request-cert.mjs API_URL CN [DNS_NAME ...]");
+    "       SIMPLE_CA_TOKEN_FILE=FILE request-cert.mjs API_URL CN [DNS_NAME ...]\n" +
+    "       [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert.mjs --setup-code CODE API_URL CN [DNS_NAME ...]");
   process.exit(1);
 }
-if (token && tokenFile) {
-  console.error("set SIMPLE_CA_TOKEN or SIMPLE_CA_TOKEN_FILE, not both");
+if (token && (tokenFile || code)) {
+  console.error("set SIMPLE_CA_TOKEN or SIMPLE_CA_TOKEN_FILE, or give --setup-code, not two of them");
   process.exit(1);
 }
-if (tokenFile) {
+if (code && tokenFile && existsSync(tokenFile)) {
+  console.error(`SIMPLE_CA_TOKEN_FILE: ${tokenFile} exists; the token of --setup-code is written to a new file`);
+  process.exit(1);
+}
+if (code) {
+  let setupURL;
+  try {
+    setupURL = new URL("/api/token-setup", url).href;
+  } catch {
+    console.error(`${url} is not a URL such as https://pki.example.com/servers/api/sign`);
+    process.exit(1);
+  }
+  let response;
+  let text = "";
+  try {
+    response = await fetch(setupURL, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+    text = await response.text();
+  } catch (e) {
+    console.error(`${setupURL}: ${e.cause?.message ?? e.message}`);
+    process.exit(1);
+  }
+  let answer = {};
+  try {
+    answer = JSON.parse(text);
+  } catch {}
+  if (!response.ok || !answer.token) {
+    console.error(`${setupURL}: ${response.status} ${answer.error ?? text.trim()}`);
+    process.exit(1);
+  }
+  token = answer.token;
+  if (tokenFile) {
+    writeFileSync(tokenFile, token + "\n", { mode: 0o600 });
+    console.log(`Token written to ${tokenFile}`);
+  }
+} else if (tokenFile) {
   try {
     token = readFileSync(tokenFile, "utf8").trim();
   } catch (e) {

@@ -22,9 +22,13 @@ simple-ca crl create   [--ca-dir DIR] [--days N] [--all]
 
 simple-ca token create [--ca-dir DIR] [--valid DURATION] [--scope SCOPE ...] [--type TYPE ...]
                        [--domain DOMAIN ...] [--ip ADDRESS ...] [--localhost]
-                       [--host ADDRESS ...] [--network PREFIXES ...] NAME
+                       [--host ADDRESS ...] [--network PREFIXES ...]
+                       [--otc [--otc-valid DURATION] [--otc-network PREFIXES ...]] NAME
 simple-ca token list   [--ca-dir DIR]
-simple-ca token renew  [--ca-dir DIR] [--valid DURATION] NAME
+simple-ca token describe [--ca-dir DIR] NAME
+simple-ca token describe [--ca-dir DIR] --token-file FILE | --stdin
+simple-ca token renew  [--ca-dir DIR] [--valid DURATION]
+                       [--otc [--otc-valid DURATION] [--otc-network PREFIXES ...]] NAME
 simple-ca token revoke [--ca-dir DIR] NAME
 simple-ca token purge  [--ca-dir DIR] [NAME]
 
@@ -287,9 +291,10 @@ A CA whose key is not in its directory can only be looked at. The days start fro
 `days.crl` of [simple-ca.json](configuration.md).
 
 The page asks for a token made by
-[token create](signing-api.md#token-create-list-renew-revoke-and-purge) with the scope `certs`, and
-sends it in the `Authorization` header to its API, below `/certificates/api/`. A root CA token
-opens every CA; an issuing CA token opens only its own CA. The API refuses tokens as the
+[token create](signing-api.md#token-create-list-renew-revoke-and-purge) with the scope `certs`, or
+a [setup code](signing-api.md#one-time-setup-codes) of one, which it exchanges for the token and
+shows once, and sends the token in the `Authorization` header to its API, below
+`/certificates/api/`. A root CA token opens every CA; an issuing CA token opens only its own CA. The API refuses tokens as the
 [token page](signing-api.md#token-page) does, with `403 Forbidden` for a token without `certs`.
 Every change is logged with the name of the token that made it.
 

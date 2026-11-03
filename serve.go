@@ -111,17 +111,27 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 // templateFiles are the pages of serve, in the style of Tailwind CSS from its browser build:
 // index.html, the list of the CAs; sign.html, the signing form; tokens.html and certs.html, the
 // tokens and the certificates of the CAs, with the parts they share in webui-common.html; and
-// theme.html, the colours all of them share.
+// theme.html, the colours all of them share and the version line below each of them.
 //
 //go:embed templates/*.html
 var templateFiles embed.FS
 
-// pageTemplates are templateFiles parsed, each named after its file, with the function json,
-// which writes a value as JSON.
+// pageTemplates are templateFiles parsed, each named after its file, with the functions json,
+// which writes a value as JSON, and version, the version of simple-ca.
 var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json": func(v any) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
-}}).ParseFS(templateFiles, "templates/*.html"))
+}, "version": version}).ParseFS(templateFiles, "templates/*.html"))
+
+// pageTheme returns the CSS of the colours of theme.json of the CA in caDir for its pages, empty
+// without the file, or when it does not read, which is logged.
+func pageTheme(caDir string) template.CSS {
+	css, err := loadTheme(caDir)
+	if err != nil {
+		log.Printf("theme: %v", err)
+	}
+	return css
+}
 
 // indexCA is a CA of the index page: its subject, the fields of its certificate, its role,
 // Root CA or Subordinate CA, its expiry as "expired" or the days left, whether fewer than 30 days
@@ -142,7 +152,8 @@ type indexCA struct {
 // The signing API and form take the client of a request from the X-Forwarded-For header of the
 // trusted proxies. An executable built with serve-markdown's page assets shows the help of the
 // signing API at /help/ and, with docs, the guides at /docs/. With webui, it serves the token
-// page at tokensPath and the certificate page at certsPath.
+// page at tokensPath and the certificate page at certsPath. The setup codes of the tokens are
+// exchanged for them at /api/token-setup and on the page /token-setup.
 func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -233,8 +244,9 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http
 		}
 		if err := pageTemplates.ExecuteTemplate(w, "index.html", struct {
 			Title, Script, Help, Docs, Tokens, Certs string
+			Theme                                    template.CSS
 			CAs                                      []indexCA
-		}{title, tailwindPath, help, guides, tokens, certs, cas}); err != nil {
+		}{title, tailwindPath, help, guides, tokens, certs, pageTheme(rootDir), cas}); err != nil {
 			log.Printf("%s: %v", r.URL.Path, err)
 		}
 	})
@@ -355,6 +367,18 @@ func newServeMux(rootDir string, trusted []netip.Prefix, docs, webui bool) *http
 			acme.handle(w, r, rootDir, filepath.Join(rootDir, ca), prefix, strings.TrimPrefix(r.URL.Path, prefix+"/"))
 		})
 	}
+
+	// The exchange of the setup codes of the tokens of all the CAs at /api/token-setup, and on the
+	// page /token-setup.
+	mux.HandleFunc("POST /api/token-setup", func(w http.ResponseWriter, r *http.Request) {
+		apiTokenSetup(w, r, rootDir, trusted)
+	})
+	mux.HandleFunc("GET /token-setup", func(w http.ResponseWriter, r *http.Request) {
+		tokenSetupPage(w, r, rootDir, trusted)
+	})
+	mux.HandleFunc("POST /token-setup", func(w http.ResponseWriter, r *http.Request) {
+		tokenSetupPage(w, r, rootDir, trusted)
+	})
 
 	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign, under
 	// the lock of the ACME server.

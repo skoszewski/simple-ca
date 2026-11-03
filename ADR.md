@@ -41,10 +41,10 @@ copied root CA with the one `simple-ca ca show` prints.
 ## One kind of token, with scopes, opens the signing API and the web pages
 
 A token of `token create` carries scopes, `sign`, `tokens` and `certs`, and the token and
-certificate pages take it as their bearer token. The pages need access that survives restarts, stays out of the logs,
-names who made a change and can be withdrawn from one person; the signing tokens already do all
-of that, signed with the CA key and recorded, revocable, in `tokens-db.json`, with the Go
-standard library alone. An OIDC login was too heavy for simple-ca, and a second kind of
+certificate pages take it as their bearer token. The pages need access that survives restarts,
+stays out of the logs, names who made a change and can be withdrawn from one person; the signing
+tokens already do all of that, signed with the CA key and recorded, revocable, in
+`tokens-db.json`, with the Go standard library alone. An OIDC login was too heavy for simple-ca, and a second kind of
 credential would duplicate the commands that create, renew, revoke and purge tokens.
 
 The CA whose key signs a token bounds what it opens: a root CA token every CA, an issuing CA
@@ -63,3 +63,13 @@ server, one port and one certificate cover every page, the tokens that open the 
 per-process key unnecessary, and the pages share its trusted proxies and its logging. The pages
 are off by default, as they change the CA directories, and their paths are names an issuing CA
 cannot take, as `/help/` and `/docs/` are.
+
+## A setup code is exchanged for a token made at the exchange
+
+`token create --otc` hands out a one-time setup code instead of the token, so the JWT never
+travels in a message or a clipboard: it is signed at the exchange, for the client that exchanges
+the code, and its validity starts then. `tokens-db.json` keeps only the SHA-256 of the code, so a
+copy of the file gives no code, and the code holds 80 random bits, typed by a person in four
+groups of base32. The code works once and expires, by default after 15 minutes, and
+`--otc-network` keeps it to the network of its user. `/api/token-setup` needs no token, as its
+caller has none yet, and looks through every CA for the code, as its user may not know its CA.

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{.Title}} - simple-ca</title>
     <script src="{{.Script}}"></script>
-    {{template "theme"}}
+    {{template "theme" .Theme}}
   </head>
   <body class="min-h-screen bg-page text-ink">
     <div class="mx-auto max-w-5xl px-4 py-10 sm:py-16">
@@ -13,7 +13,6 @@
         <div class="bg-head px-6 py-4 text-head-ink">
           <h1 class="text-xl font-semibold">{{.Title}}</h1>
           <p class="mt-1 text-sm text-head-muted">CA certificates and certificate revocation lists, served by simple-ca</p>
-          {{- if or .Help .Docs .Tokens}}
           <div class="mt-2 flex flex-wrap gap-4">
             {{- if .Help}}
             <a class="text-sm text-head-link hover:underline" href="{{.Help}}">Signing help</a>
@@ -21,12 +20,12 @@
             {{- if .Docs}}
             <a class="text-sm text-head-link hover:underline" href="{{.Docs}}">Documentation</a>
             {{- end}}
+            <a class="text-sm text-head-link hover:underline" href="/token-setup">Set up a token</a>
             {{- if .Tokens}}
             <a class="text-sm text-head-link hover:underline" href="{{.Tokens}}">Tokens</a>
             <a class="text-sm text-head-link hover:underline" href="{{.Certs}}">Certificates</a>
             {{- end}}
           </div>
-          {{- end}}
         </div>
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-accent-line bg-accent px-6 py-4">
           <div>
@@ -72,6 +71,7 @@
           </table>
         </main>
       </div>
+      {{template "version"}}
     </div>
 
     {{- range $i, $ca := .CAs}}

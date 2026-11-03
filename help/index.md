@@ -9,8 +9,27 @@ token says which names and addresses it may sign, and may be valid for a short t
 
 - The URL of the signing API of the CA: `/api/sign` of the root CA, or `/NAME/api/sign` of the
   issuing CA `NAME`. The index page of this server lists the URL of each CA that signs requests.
-- A token, given to you by the administrator of the CA, in a file such as `token.txt`.
+- A token, given to you by the administrator of the CA, in a file such as `token.txt`, or a
+  one-time setup code, which you exchange for the token, as below.
 - `request-cert`, or else `openssl`, `curl` and `jq`.
+
+## With a setup code
+
+A setup code, such as `K7QF-M2XA-JP4D-W5ZR`, is exchanged once, before it expires, for your
+token, at `/api/token-setup` of this server; the administrator may allow it from your network
+only. Keep the token it gives you, as it is shown only once:
+
+```sh
+(umask 077; jq -n --arg code K7QF-M2XA-JP4D-W5ZR '{code: $code}' | curl -s \
+  -H 'Content-Type: application/json' --data @- http://pki.example.com:8080/api/token-setup |
+  jq -r .token > token.txt)
+```
+
+A used, unknown or expired code is `401 Unauthorized`, and a code from another network
+`403 Forbidden`. In a browser, "Set up a token" on the index page, `/token-setup`, does the same
+and shows the token once. `request-cert` exchanges the code itself, as below. For a single
+certificate, the code is entered in place of a token on the
+[signing form](#without-the-command-line): it signs that one certificate and works no more.
 
 ## With request-cert
 
@@ -34,7 +53,14 @@ the one `--out-dir` names:
   issuing CA.
 
 The token is read from the file of `--token-file`, or from the environment variable
-`SIMPLE_CA_TOKEN`, never from the command line. `--type` names the certificate type, when the
+`SIMPLE_CA_TOKEN`, never from the command line. With `--setup-code`, it exchanges the setup code
+for the token first, and writes the token to `--token-file`, a new file, for later requests:
+
+```sh
+request-cert --setup-code K7QF-M2XA-JP4D-W5ZR --token-file token.txt \
+  http://pki.example.com:8080/servers/api/sign web.example.com
+```
+ `--type` names the certificate type, when the
 token allows more than one; without it, the first type of the token is used. An existing key is
 never overwritten, and a refused request prints the status and the error, as listed under
 [Errors](#errors), and exits with 1. `request-cert -h` lists the options.
@@ -116,4 +142,5 @@ status, and `jq -r .error web.json` prints from the answer saved above:
 ## Without the command line
 
 `/sign` of the root CA, or `/NAME/sign` of the issuing CA `NAME`, is a form: paste the CSR,
-choose the type, enter the token, and the certificate is downloaded as a PEM file.
+choose the type, enter the token or a setup code, and the certificate is downloaded as a PEM
+file. A setup code signs this one certificate only; a refused request leaves it usable.

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Set up a token - {{.Title}} - simple-ca</title>
+    <script src="{{.Script}}"></script>
+    {{template "theme" .Theme}}
+  </head>
+  <body class="min-h-screen bg-page text-ink">
+    <div class="mx-auto max-w-3xl px-4 py-10 sm:py-16">
+      <div class="overflow-hidden rounded-2xl border border-line bg-card shadow-lg">
+        <div class="bg-head px-6 py-4 text-head-ink">
+          <h1 class="text-xl font-semibold">Set up a token</h1>
+          <p class="mt-1 text-sm text-head-muted">{{.Title}}, served by simple-ca</p>
+        </div>
+        {{- if .Token}}
+        <div class="space-y-4 px-6 py-5">
+          <p class="text-sm">Your token <strong>{{.Name}}</strong>{{if .CA}} of the issuing CA {{.CA}}{{end}} is shown
+            this once; copy it now. The setup code it was made from no longer works.</p>
+          <textarea id="token" readonly rows="6" autocorrect="off" autocapitalize="off" spellcheck="false"
+            class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-xs">{{.Token}}</textarea>
+          {{- if .Attributes}}
+          <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+            {{- range .Attributes}}
+            <dt class="text-muted">{{index . 0}}</dt>
+            <dd class="break-all">{{index . 1}}</dd>
+            {{- end}}
+          </dl>
+          {{- end}}
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <a class="text-sm text-link hover:underline" href="/">All CAs</a>
+            <button id="copy" type="button" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Copy</button>
+          </div>
+        </div>
+        {{- else}}
+        <form method="post" action="{{.Action}}" class="space-y-5 px-6 py-5">
+          {{- if .Error}}
+          <p class="rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink">{{.Error}}</p>
+          {{- end}}
+          <div class="space-y-1">
+            <label for="code" class="block text-sm font-medium">Setup code</label>
+            <input id="code" name="code" required autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"
+              placeholder="XXXX-XXXX-XXXX-XXXX" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-sm">
+            <p class="text-sm text-muted">The one-time setup code you were given is exchanged once for your token, which is shown once.</p>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <a class="text-sm text-link hover:underline" href="/">All CAs</a>
+            <button type="submit" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Get the token</button>
+          </div>
+        </form>
+        {{- end}}
+      </div>
+      {{template "version"}}
+    </div>
+    <script src="/assets/webui/picker.js"></script>
+    <script src="/assets/webui/setup.js"></script>
+  </body>
+</html>

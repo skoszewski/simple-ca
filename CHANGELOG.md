@@ -1,5 +1,66 @@
 # Changelog
 
+## 1.7.0
+
+feat: token create --otc and token renew --otc hand out a one-time setup code, exchanged once at /api/token-setup or on the sign-in of the token and certificate pages for the token.
+
+- `token create --otc` prints a one-time setup code, such as `K7QF-M2XA-JP4D-W5ZR`, instead of
+  the token, which waits for it with no JWT. `--otc-valid` sets how long the code can be
+  exchanged, 15 minutes by default, and `--otc-network` the clients it is exchanged from. Only
+  the SHA-256 of the code is kept in `tokens-db.json`.
+- `serve` exchanges a code once at `POST /api/token-setup` for the token, valid for its
+  `--valid` from then on, and its scopes; an unknown, used or expired code is `401`, a client outside
+  `--otc-network` `403`.
+- The sign-in of the token and certificate pages takes a token or a setup code; a code is
+  exchanged, and the token it gives is shown once, signing in once its dialog is closed. A token
+  without the scope of the page is shown once too, saying so, and the page then asks for another.
+  The sign-in dialog links to the index page, All CAs, to leave without signing in.
+- The token page creates a token with a setup code and shows the code once; a token waiting for
+  its code is marked `setup code`, and is revoked, which cancels the code, but not renewed.
+- `token renew --otc`, with `--otc-valid` and `--otc-network`, and the renew question of the token
+  page renew a token with a setup code in place of its JWT: the old JWT stops working at once,
+  and the new one is made when the code is exchanged.
+- `token list` shows `setup until TIME` or `setup expired` for a token waiting for its code;
+  `token renew` refuses it, and `token revoke` cancels its code.
+- The page `/token-setup`, "Set up a token" on the index page, exchanges a setup code in a
+  browser and shows the token once, with a Copy button and the attributes of the token.
+- `token describe NAME` prints the attributes of a token of the CA: its status, issue time,
+  scopes, types, domains, IP addresses, clients, setup code and certificates.
+  `token describe --token-file FILE` or `--stdin` describes a token itself from its JWT, and with
+  `--ca-dir` also checks its signature and reads the rest from the `tokens-db.json` of that CA.
+- "Signed in as NAME" on the token and certificate pages opens a dialog of the attributes of the
+  signed-in token, as `token describe` prints them.
+- Every page of `serve` has a theme button below it, and in the sign-in dialog of the token and
+  certificate pages, an icon of a screen, a sun or a moon, which goes through system, light and
+  dark; the browser keeps the choice for all the pages.
+- `theme.json` in a CA directory, of the root CA or of an issuing CA, sets colours of the pages of
+  `serve` about that CA, by role, such as `head` and `action`, for the light and the dark theme,
+  so the pages of one CA are told apart from those of another; a CA without it keeps the built-in
+  colours. The index page and `/token-setup` take those of the root CA, a signing form those of
+  its CA, and the token and certificate pages those of the CA chosen. `serve` refuses to start
+  with an unknown role or a value that is not a colour. The guide of the configuration lists the
+  roles in a table, with their built-in light and dark colours and those of an example, as hex
+  values. `examples/themes/` holds five themes, ember, forest, violet, crimson and ocean, each a
+  `theme.json`.
+- `demo_ca.png`, at the top of the README, shows the index page of `serve --webui` with its links,
+  version and theme button.
+- The signing form takes a setup code in place of a token: the code signs that one certificate,
+  with the limits of its token, which is revoked once the certificate is issued, so it never
+  leaves `serve`; a refused request leaves the code usable. `/api/sign` takes tokens only.
+- `request-cert` and the clients of `examples/` take a setup code with `--setup-code CODE`: they
+  exchange it at `/api/token-setup` of the server of `API_URL`, request the certificate with the
+  token, and write the token to `--token-file` or `SIMPLE_CA_TOKEN_FILE`, a new file, when it is
+  given, for later requests.
+- The help of `serve` at `/help/` shows how to exchange a setup code with `curl`, the page or
+  `request-cert`, and how to sign one certificate with a code on the form.
+- Every page of `serve`, the index page, the signing form and the token and certificate pages,
+  shows the version of `simple-ca` below its content, and `serve` prints it at start,
+  `simple-ca v1.7.0 serving the CAs of DIR`, followed by the URL of each page on a line of its
+  own: `Index page:`, and with `--webui` `Token page:` and `Certificate page:`.
+- `./build.mjs build` and `./build.mjs trust` build the Go programs of a newest `CHANGELOG.md`
+  entry that is not tagged yet as its release candidate, such as `v1.7.0-rc`, in place of the
+  version Go derives from git.
+
 ## 1.6.1
 
 fix: the token and certificate pages link to the index page and to each other, simple-ca.service runs serve with --webui, and the guides show the pages over HTTP, with HTTPS as an option.

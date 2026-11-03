@@ -1,6 +1,7 @@
-// The parts the pages of serve share, the index page, the signing form and the token and
-// certificate pages: element, which makes elements, picker, the dropdown chooser, withPopup,
-// which shows a popup by an element, and named, the name of a subject with its attributes.
+// The parts the pages of serve share, the index page, the signing form, the setup code page and
+// the token and certificate pages: element, which makes elements, picker, the dropdown chooser,
+// withPopup, which shows a popup by an element, copying, the Copy button of a token or a code,
+// and named, the name of a subject with its attributes.
 
 // element returns a new element with the properties given and the children appended.
 function element(tag, props = {}, ...children) {
@@ -62,6 +63,23 @@ function withPopup(target, popup) {
   target.addEventListener("focus", show);
   target.addEventListener("blur", hide);
   return target;
+}
+
+// copying makes button copy the value of field, a token or a setup code shown once, to the
+// clipboard, through the selection where the page is not a secure context, and say so for a
+// moment; the field selects its value when it gets the focus.
+function copying(button, field) {
+  field.addEventListener("focus", () => field.select());
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(field.value);
+    } catch {
+      field.select();
+      document.execCommand("copy");
+    }
+    button.textContent = "Copied";
+    setTimeout(() => { button.textContent = "Copy"; }, 2000);
+  });
 }
 
 // named returns the name of a subject, with the popup of its attributes, each a type and a value,

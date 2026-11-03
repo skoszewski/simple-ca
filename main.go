@@ -119,6 +119,7 @@ var commands = []command{
 	{name: "token", summary: "Manage the tokens of the signing API and the web pages of serve.", sub: []command{
 		{name: "create", summary: "Create a token of a CA.", run: runTokenCreate},
 		{name: "list", summary: "List the tokens of a CA.", run: runTokenList},
+		{name: "describe", summary: "Print the attributes of a token of a CA, or of a token itself.", run: runTokenDescribe},
 		{name: "revoke", summary: "Revoke a token of a CA.", run: runTokenRevoke},
 		{name: "renew", summary: "Renew a token of a CA, expired or not.", run: runTokenRenew},
 		{name: "purge", summary: "Remove the expired and revoked tokens of a CA.", run: runTokenPurge},

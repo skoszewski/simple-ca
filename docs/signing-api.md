@@ -52,18 +52,74 @@ token to `example.com`. `--host` and `--network` together replace both `hosts` a
 `--localhost=false` turns off a `localhost` default. The defaults of `--type`, `--domain`, `--ip`
 and `--localhost` apply only to tokens with the scope `sign`.
 
-`token list` lists the tokens of the CA: name, expiry (marked `(expired)`, or `revoked`), scopes,
-types, domains, IP prefixes, clients and the number of certificates issued. `-` marks what a token
-without `sign` does not have.
+### One-time setup codes
 
-`token revoke` revokes the token `NAME`: its JWT stops working at once, for the API and the web
-UIs. The token stays in `tokens-db.json`, without a JWT ID, so it can be renewed. An entry
-without `scopes` has the scope `sign`.
+With `--otc`, `token create` prints a one-time setup code, such as `K7QF-M2XA-JP4D-W5ZR`, instead
+of the token, so the token itself is not handed over. The token waits for the code, pending: it
+has no JWT yet. The holder of the code exchanges it once for the token, with
+[`/api/token-setup`](#setup-code-exchange) or the page `/token-setup`, or signs in with it on the
+[token page](#token-page) or the certificate page, which show the token once. The token is valid
+for `--valid` from the exchange on. On the [signing form](#signing-form), the code signs one
+certificate instead, and its token is revoked once it is issued, without ever leaving `serve`.
 
-`token renew` renews the token `NAME`, whether revoked, expired or still valid, and prints it. It
-gets a new JWT, valid from now, with the same scopes and limits; the old JWT stops working. It is
-valid for `--valid`, or else for as long as before; a revoked token gets the default validity of
-`token create`. Its certificate count starts again from zero.
+- `--otc-valid` is how long the code can be exchanged, 15 minutes by default;
+- `--otc-network PREFIXES`, a comma-separated list that may be specified multiple times, limits
+  the clients the code is exchanged from; without it, any client may exchange it.
+
+Only the SHA-256 of the code is kept in `tokens-db.json`. The code is read in any letter case,
+with or without its dashes. A code that has expired is not exchanged; its token stays, expired,
+until it is purged.
+
+```sh
+simple-ca token create --ca-dir /tmp/ca/servers --otc --otc-network 192.168.1.0/24 \
+  --valid 720h --domain example.com builder
+```
+
+`token list` lists the tokens of the CA: name, expiry (marked `(expired)`, `revoked`,
+`setup until TIME` or `setup expired`), scopes, types, domains, IP prefixes, clients and the
+number of certificates issued. `-` marks what a token without `sign` does not have.
+
+`token describe NAME` prints the attributes of the token `NAME` of the CA, one per line: its
+status (valid until, expired, revoked, or waiting for its setup code), when it was issued, its
+scopes, with `sign` its types, domains and IP addresses, the clients it is used from, for a setup
+code the clients the code is usable from and the validity of the token after the exchange, and
+the serial numbers of the certificates issued with it.
+
+`token describe --token-file FILE`, or `--stdin` for a token on the standard input, describes a
+token itself, as its holder has it. Its JWT holds only its name, its scopes and its times, which
+are shown, with a note that the signature is not checked. With `--ca-dir` as well, the signature
+is checked against that CA, and the rest is read from its `tokens-db.json`; a token renewed,
+revoked or removed there is shown as refused.
+
+```sh
+simple-ca token describe --ca-dir /etc/simple-ca/servers deploy
+simple-ca token describe --stdin < deploy.token
+simple-ca token describe --ca-dir /etc/simple-ca/servers --token-file deploy.token
+```
+
+```text
+Name:          deploy
+Status:        valid until 2026-11-03 09:07:28 UTC
+Issued:        2026-11-03 08:07:28 UTC
+Scopes:        sign
+Types:         server
+Domains:       example.com
+IP addresses:  -
+Used from:     192.168.1.0/24
+Certificates:  0
+```
+
+`token revoke` revokes the token `NAME`: its JWT, or its setup code, stops working at once, for
+the API and the web UIs. The token stays in `tokens-db.json`, without a JWT ID, so it can be
+renewed. An entry without `scopes` has the scope `sign`.
+
+`token renew` renews the token `NAME`, whether revoked, expired or still valid, and prints it; a
+token waiting for its setup code is revoked first. It gets a new JWT, valid from now, with the
+same scopes and limits; the old JWT stops working. It is valid for `--valid`, or else for as long
+as before; a revoked token gets the default validity of `token create`. Its certificate count
+starts again from zero. With `--otc`, `--otc-valid` and `--otc-network`, as for `token create`,
+it prints a setup code instead: the old JWT stops working at once, and the new one is made, valid
+from then on, when the code is exchanged.
 
 Revoked and expired tokens stay in `tokens-db.json`, and keep their names, until `token purge`
 removes them. `token purge` removes all of them and prints how many; `token purge NAME` removes
@@ -107,27 +163,35 @@ once the process is gone.
 With `--webui`, `serve` serves a web page at `/tokens/` for managing the tokens of the root CA
 and all its issuing CAs; the index page links to it.
 
-The page asks for a token with the scope `tokens` and keeps it for the browser tab. It shows who
-is signed in, with a Sign out button. A root CA token sees every CA; an issuing CA token sees
+The page asks for a token with the scope `tokens`, or a
+[setup code](#one-time-setup-codes) of one, and keeps the token for the browser tab. A setup
+code is exchanged for its token, which the page shows once and signs in with once that dialog is
+closed; a token without the scope of the page is shown once too, and the page then asks for
+another. It shows who is signed in, with a Sign out button; the name opens a dialog of the
+attributes of the token, as `token describe` prints them. A root CA token sees every CA; an issuing CA token sees
 only its own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
 root CA. On it you can:
 
 - list the tokens, as `token list` does;
-- renew a token, as `token renew` does, confirming first if the token is still valid;
+- renew a token, as `token renew` does, confirming first, with a setup code in place of its JWT
+  when "One-time setup code" is checked in the question;
 - revoke a token, or remove a revoked or expired one, or all of them, as `token purge` does,
   confirming first;
 - create a token with the options of `token create`, in a dialog filled with the `tokens`
-  defaults of [simple-ca.json](configuration.md).
+  defaults of [simple-ca.json](configuration.md), or a setup code of it with "One-time setup
+  code", its validity, 15 minutes by default, and the networks it is exchanged from.
 
-A new or renewed token is shown once, in a dialog with a Copy button, and is gone from the page
-when the dialog closes. A CA whose key is not in its directory has no create form, because its
+A new or renewed token, or the setup code of a new one, is shown once, in a dialog with a Copy
+button, and is gone from the page when the dialog closes. A token waiting for its setup code is
+marked `setup code`; it is revoked, which cancels the code, but not renewed. A CA whose key is
+not in its directory has no create form, because its
 tokens cannot be signed there.
 
 A signed-in token can give new tokens the scope `sign` and its own scopes, but no others: a token
 with only `tokens` can create `sign` and `tokens` tokens, but not `certs` tokens. A token with the
-scope `*` can give every scope, `*` included. It can renew,
-revoke and remove only tokens whose scopes it has, apart from `sign`; removing all expired and
-revoked tokens skips the others. Make the first token with `token create` on the CA host:
+scope `*` can give every scope, `*` included. It can renew, revoke and remove only tokens whose
+scopes it has, apart from `sign`; removing all expired and revoked tokens skips the others. Make
+the first token with `token create` on the CA host:
 
 ```sh
 simple-ca token create --ca-dir /etc/simple-ca --valid 720h --scope tokens admin
@@ -138,11 +202,11 @@ Tokens are accepted only from the clients they allow (`--host` and `--network` o
 `token create`); behind a trusted proxy of `serve`, the client is the address in the
 `X-Forwarded-For` header. Over plain HTTP, the tokens cross the network in clear, which is usually
 acceptable on a lab network; `serve` mentions it at start for an address other than a loopback
-one. With `--tls-cert` and `--tls-key`, the page is served over HTTPS. Every change is logged with the name of the token that made it.
+one. With `--tls-cert` and `--tls-key`, the page is served over HTTPS. Every change is logged
+with the name of the token that made it.
 
 The API of the page, below `/tokens/api/`, answers with JSON and takes the token as the bearer
 token of every request: `Authorization: Bearer TOKEN`.
-
 
 - `401 Unauthorized` - no token, or an invalid, revoked, expired or unknown one;
 - `403 Forbidden` - a token without the scope `tokens`, a client the token does not allow, or
@@ -153,16 +217,43 @@ token of every request: `Authorization: Bearer TOKEN`.
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, and `user_ca`, its CA; `cas`, the CAs the token opens, each with `id`, `role`, `name` (the CN of its subject, or else the whole subject), `subject`, `subject_attributes` (type and value pairs), `label` and `has_key`; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json` |
-| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `expires`, `revoked`, `expired`, `scopes`, `types`, `domains`, `ips`, `clients` and `certs` |
-| `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost` | `201 Created`, `name` and `token`, the JWT |
-| `POST /tokens/api/tokens/renew` | `ca`, `name` | `name` and `token`, the new JWT |
+| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_attributes`, its attributes, each a label and a value; `cas`, the CAs the token opens, each with `id`, `role`, `name` (the CN of its subject, or else the whole subject), `subject`, `subject_attributes` (type and value pairs), `label` and `has_key`; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json` |
+| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `expires`, the expiry of its setup code when it is `pending`, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips`, `clients` and `certs` |
+| `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
+| `POST /tokens/api/tokens/renew` | `ca`, `name`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `name` and `token`, the new JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/revoke` | `ca`, `name` | `name` |
 | `POST /tokens/api/tokens/purge` | `ca`, and `name` for one token | `removed`, the count |
 
 ```sh
 curl -s -H "Authorization: Bearer $TOKEN" 'https://pki.example.com:8443/tokens/api/tokens?ca=servers'
 ```
+
+## Setup code exchange
+
+`serve` exchanges the [setup code](#one-time-setup-codes) of a token of the root CA or of any of
+its issuing CAs for the token at `/api/token-setup`, with `--webui` or without it. A request is a
+`POST` with a JSON body of at most 64 KiB, and needs no token:
+
+```json
+{"code": "K7QF-M2XA-JP4D-W5ZR"}
+```
+
+The answer is `{"ca": "servers", "name": "builder", "token": "eyJ...", "scopes": ["sign"]}`: the
+issuing CA of the token, empty for the root CA, its name, its JWT, valid for the `--valid` of
+`token create` from now, and its scopes. The code works once. An error is `{"error": "..."}` with
+the status `401 Unauthorized` for an unknown, used or expired code, `403 Forbidden` for a client
+outside `--otc-network`, and `415 Unsupported Media Type` for a body that is not
+`application/json`.
+
+```sh
+TOKEN=$(jq -n --arg code K7QF-M2XA-JP4D-W5ZR '{code: $code}' | curl -s \
+  -H 'Content-Type: application/json' --data @- http://pki.example.com:8080/api/token-setup |
+  jq -r .token)
+```
+
+The page `/token-setup`, "Set up a token" on the index page, does the same in a browser: it asks
+for the code and shows the token once, with a Copy button and its attributes, as
+`token describe` prints them, or the error.
 
 ## Requests and responses
 
@@ -233,8 +324,11 @@ and a form sent to it gets `403 Forbidden`. A `NAME` that is not an issuing CA g
 `404 Not Found`.
 
 Paste the CSR in PEM, choose the certificate type (by default the token's first type, or `server`
-for the type `*`), and enter the token in the password field. The checks are the same as the
-API's. The signed certificate downloads as a PEM file named by the
+for the type `*`), and enter the token, or a [setup code](#one-time-setup-codes), in the password
+field. The checks are the same as the API's. A setup code signs this one certificate, with the
+limits of its token, from a client of its `--otc-network`; the token is revoked once the
+certificate is issued, so the code works no more, while a refused request leaves the code as it
+was. The signed certificate downloads as a PEM file named by the
 [file name rules](directory-layout.md): `web_cert.pem` for the CN `web.example.com`, or the serial
 number for a request without a name. If the request is
 refused, the form shows the error again, keeping the CSR and the type and clearing the token.

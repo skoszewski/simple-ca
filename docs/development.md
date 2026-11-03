@@ -31,6 +31,11 @@ download it first when `assets/markdown/` holds another release, and build witho
 pages, with a warning, when the download fails. A plain `go build` embeds what
 `assets/markdown/` holds, and builds without the pages when it holds only `.gitkeep`.
 
+While the newest `CHANGELOG.md` entry is not tagged, `build` and `trust` build the Go programs as
+its release candidate: `simple-ca --version` prints `simple-ca version v1.7.0-rc` for an open
+`1.7.0` entry. Once the entry is tagged, and without git, they report the version Go derives
+from the module, as a plain `go build` does; the release workflow builds with the tag.
+
 `simple-ca-trust` is the Go program of `cmd/simple-ca-trust/` on Linux, which `build` builds
 with the rest, and on macOS and Windows a program of the platform's own toolset, which only
 `./build.mjs trust` builds, for the host or for the platform named: the Go program for `linux/*`

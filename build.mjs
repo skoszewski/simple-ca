@@ -6,8 +6,9 @@
 // The build action writes simple-ca, request-cert, the Go client of the signing API in
 // cmd/request-cert, and on Linux simple-ca-trust of cmd/simple-ca-trust. The platform defaults
 // to the host's. Naming one builds for it instead, writing simple-ca-<goos>-<goarch> and
-// request-cert-<goos>-<goarch>, and for linux simple-ca-trust-linux-<goarch>. Releases are made by
-// release.mjs.
+// request-cert-<goos>-<goarch>, and for linux simple-ca-trust-linux-<goarch>. While the newest
+// CHANGELOG.md entry is not tagged, the Go programs report its release candidate, vX.Y.Z-rc, as
+// their version. Releases are made by release.mjs.
 //
 // The trust action writes simple-ca-trust for the host, or simple-ca-trust-<goos>-<goarch> for
 // the platform named: cmd/simple-ca-trust with go for linux and trust/windows with dotnet for
@@ -113,6 +114,18 @@ async function fetchMarkdownAssets() {
 
 const env = { ...process.env, CGO_ENABLED: "0" };
 
+// The version of the newest CHANGELOG.md entry, "## x.y.z", the one a release takes, or "" without
+// one.
+const changelogVersion = readFileSync(join(root, "CHANGELOG.md"), "utf8").match(/^## (\S+)/m)?.[1] ?? "";
+
+// The Go programs of an entry not tagged yet are built as its release candidate, vX.Y.Z-rc; those
+// of a tagged entry, and without git, keep the version Go derives from the module.
+const tagged = spawnSync("git", ["tag", "--list", `v${changelogVersion}`], { cwd: root, encoding: "utf8" });
+const candidate = changelogVersion !== "" && tagged.status === 0 && tagged.stdout.trim() === "" ?
+  `v${changelogVersion}-rc` : "";
+const goBuild = (output, pkg) =>
+  run("go", ["build", ...(candidate ? ["-ldflags", `-X main.buildVersion=${candidate}`] : []), "-o", output, pkg], { env });
+
 if (!["build", "trust", "test", "check", "clean", "assets", "docker"].includes(action) ||
   (selfContained && action !== "trust") || (push && action !== "docker") ||
   (registry !== null && (action !== "docker" || registry === ""))) {
@@ -163,10 +176,10 @@ switch (action) {
     }
     break;
   case "build":
-    run("go", ["build", "-o", `simple-ca${nameSuffix}`, "."], { env });
-    run("go", ["build", "-o", `request-cert${nameSuffix}`, "./cmd/request-cert"], { env });
+    goBuild(`simple-ca${nameSuffix}`, ".");
+    goBuild(`request-cert${nameSuffix}`, "./cmd/request-cert");
     if (platform !== "" ? env.GOOS === "linux" : process.platform === "linux") {
-      run("go", ["build", "-o", `simple-ca-trust${nameSuffix}`, "./cmd/simple-ca-trust"], { env });
+      goBuild(`simple-ca-trust${nameSuffix}`, "./cmd/simple-ca-trust");
     }
     break;
   case "trust": {
@@ -177,7 +190,7 @@ switch (action) {
     const goarch = env.GOARCH ?? { x64: "amd64", arm64: "arm64" }[process.arch] ?? process.arch;
     const name = platform === "" ? "simple-ca-trust" : `simple-ca-trust-${goos}-${goarch}`;
     if (goos === "linux") {
-      run("go", ["build", "-o", name, "./cmd/simple-ca-trust"], { env });
+      goBuild(name, "./cmd/simple-ca-trust");
     } else if (goos === "darwin" && host === "darwin") {
       const macos = join(root, "trust", "macos");
       const arch = ["--arch", { amd64: "x86_64", arm64: "arm64" }[goarch] ?? goarch];
@@ -221,7 +234,7 @@ switch (action) {
   case "docker": {
     // The image is tagged with the version of the newest CHANGELOG.md entry, the one a release
     // takes, and as latest, below the registry when one is named.
-    const version = readFileSync(join(root, "CHANGELOG.md"), "utf8").match(/^## (\S+)/m)?.[1];
+    const version = changelogVersion;
     if (!version) {
       console.error("CHANGELOG.md has no \"## x.y.z\" entry");
       process.exit(1);
