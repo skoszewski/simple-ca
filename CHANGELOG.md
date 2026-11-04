@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.10.1
+
+fix: the container image builds again, with token-setup in its build context.
+
+- `.dockerignore` lets `cmd/token-setup` into the build of the `Dockerfile`, which failed with
+  `"/cmd/token-setup": not found`.
+
 ## 1.10.0
 
 feat: the new command token-setup exchanges a setup code for its token, beside request-cert in the release archives and the container image.
