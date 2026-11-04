@@ -1269,13 +1269,10 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 		return
 	}
 	page := struct {
-		Title, Script, Action, CSR, Type, Error, Unavailable, Help string
-		Theme                                                      template.CSS
-		Types                                                      []struct{ Name, Label string }
+		Title, Script, Action, CSR, Type, Error, Unavailable string
+		Theme                                                template.CSS
+		Types                                                []struct{ Name, Label string }
 	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: path, Theme: pageTheme(caDir)}
-	if helpSite != nil {
-		page.Help = helpPath
-	}
 
 	// Each type is offered with what its certificates are for: its extended key usages, else its
 	// key usages.

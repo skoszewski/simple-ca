@@ -120,6 +120,9 @@
 {{define "version" -}}
       <p class="mt-6 flex items-center justify-center gap-3 text-xs text-muted">
         <span>simple-ca {{version}}</span>
+        {{- with helpLink}}
+        <a class="hover:text-ink hover:underline" href="{{.}}">Signing help</a>
+        {{- end}}
         <button type="button" data-theme-switch aria-label="Theme" class="rounded-full border border-line p-1.5 hover:bg-subtle hover:text-ink"></button>
       </p>
 {{- end}}

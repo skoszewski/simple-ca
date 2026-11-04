@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.9.5
+
+fix: "Signing help" moves below the pages of serve, beside the version and the theme button, and "Set up a token" is also on the token, certificate and audit pages and the signing forms.
+
+- "Signing help" shows below the index page, the token, certificate and audit pages, the signing
+  forms and `/token-setup`, in place of the links at the top of the index page and "How to sign"
+  on the signing forms.
+- The token, certificate and audit pages and the signing forms link to "Set up a token".
+
 ## 1.9.4
 
 fix: the audit page shows each key of the records in a column of its own, in place of a single Details column.

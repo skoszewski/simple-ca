@@ -107,7 +107,9 @@ does not exist is `404 Not Found`. No other file is served.
 `help/index.md`, embedded in the
 executable, as a page drawn by the `render` package of
 [serve-markdown](https://github.com/skoszewski/serve-markdown), with an outline of its headings;
-the index page and the signing forms link to it. The page's browser files are those of the
+the index page, the token, certificate and audit pages, the signing forms and `/token-setup` link
+to it as "Signing help" below the page, beside the version and the theme button. The page's
+browser files are those of the
 serve-markdown release `go.mod` names, which the release builds and the `Dockerfile` embed. An
 executable built without them, as `go install` builds it, has no `/help/` page: the route is
 `404 Not Found` and nothing links to it.

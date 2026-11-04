@@ -19,9 +19,7 @@
           <p class="rounded-lg border border-warn-line bg-warn px-4 py-3 text-sm text-warn-ink">{{.Unavailable}}</p>
           <div class="flex flex-wrap gap-4">
             <a class="text-sm text-link hover:underline" href="/">All CAs</a>
-            {{- if .Help}}
-            <a class="text-sm text-link hover:underline" href="{{.Help}}">How to sign</a>
-            {{- end}}
+            <a class="text-sm text-link hover:underline" href="/token-setup">Set up a token</a>
           </div>
         </div>
         {{- else}}
@@ -53,9 +51,7 @@
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex flex-wrap gap-4">
               <a class="text-sm text-link hover:underline" href="/">All CAs</a>
-              {{- if .Help}}
-              <a class="text-sm text-link hover:underline" href="{{.Help}}">How to sign</a>
-              {{- end}}
+              <a class="text-sm text-link hover:underline" href="/token-setup">Set up a token</a>
             </div>
             <div class="flex flex-wrap gap-2">
               <button id="oidc-sign-in" type="button" class="hidden rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle"></button>

@@ -281,7 +281,8 @@ TOKEN=$(jq -n --arg code K7QF-M2XA-JP4D-W5ZR '{code: $code}' | curl -s \
   jq -r .token)
 ```
 
-The page `/token-setup`, "Set up a token" on the index page, does the same in a browser: it asks
+The page `/token-setup`, "Set up a token" on the index page, the token, certificate and audit
+pages and the signing forms, does the same in a browser: it asks
 for the code and shows the token once, with a Copy button and its attributes, as
 `token describe` prints them, or the error. With the [OIDC sign-in](oidc.md), it also has a
 "Sign in with LABEL" button, and shows the token of the sign-in once in the same way.

@@ -135,11 +135,17 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 var templateFiles embed.FS
 
 // pageTemplates are templateFiles parsed, each named after its file, with the functions json,
-// which writes a value as JSON, and version, the version of simple-ca.
+// which writes a value as JSON, version, the version of simple-ca, and helpLink, the route of the
+// help page, empty for an executable without it.
 var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json": func(v any) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
-}, "version": version}).ParseFS(templateFiles, "templates/*.html"))
+}, "version": version, "helpLink": func() string {
+	if helpSite == nil {
+		return ""
+	}
+	return helpPath
+}}).ParseFS(templateFiles, "templates/*.html"))
 
 // pageTheme returns the CSS of the colours of theme.json of the CA in caDir for its pages, empty
 // without the file, or when it does not read, which is logged.
@@ -252,10 +258,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			cas = append(cas, ca)
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		help, guides, tokens, certs := "", "", "", ""
-		if helpSite != nil {
-			help = helpPath
-		}
+		guides, tokens, certs := "", "", ""
 		if docs && docsSite != nil {
 			guides = docsPath
 		}
@@ -263,10 +266,10 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			tokens, certs = tokensPath, certsPath
 		}
 		if err := pageTemplates.ExecuteTemplate(w, "index.html", struct {
-			Title, Script, Help, Docs, Tokens, Certs string
-			Theme                                    template.CSS
-			CAs                                      []indexCA
-		}{title, tailwindPath, help, guides, tokens, certs, pageTheme(rootDir), cas}); err != nil {
+			Title, Script, Docs, Tokens, Certs string
+			Theme                              template.CSS
+			CAs                                []indexCA
+		}{title, tailwindPath, guides, tokens, certs, pageTheme(rootDir), cas}); err != nil {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		}
 	})

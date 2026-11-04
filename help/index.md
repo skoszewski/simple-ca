@@ -26,8 +26,8 @@ only. Keep the token it gives you, as it is shown only once:
 ```
 
 A used, unknown or expired code is `401 Unauthorized`, and a code from another network
-`403 Forbidden`. In a browser, "Set up a token" on the index page, `/token-setup`, does the same
-and shows the token once. `request-cert` exchanges the code itself, as below. For a single
+`403 Forbidden`. In a browser, "Set up a token" on the pages of the server, `/token-setup`, does
+the same and shows the token once. `request-cert` exchanges the code itself, as below. For a single
 certificate, the code is entered in place of a token on the
 [signing form](#without-the-command-line): it signs that one certificate and works no more.
 
