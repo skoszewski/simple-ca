@@ -173,7 +173,9 @@ The page asks for a token with the scope `tokens`, or a
 code is exchanged for its token, which the page shows once and signs in with once that dialog is
 closed; a token without the scope of the page is shown once too, and the page then asks for
 another. With the [OIDC sign-in](oidc.md), the dialog also has a "Sign in with LABEL" button,
-and the token of the sign-in signs in when it has the scope of the page. It shows who is signed
+and the token of the sign-in signs in when it has the scope of the page. A token without the
+scope of the page, or not allowed from the client, stays kept for the other pages of the tab, and
+another token given replaces it; an invalid token is forgotten. The page shows who is signed
 in, with a Sign out button; the name opens a dialog of the attributes of the token, as
 `token describe` prints them. A root CA token sees every CA; an issuing CA token sees only its
 own CA. The page shows one CA at a time, chosen in the CA selector, starting with the

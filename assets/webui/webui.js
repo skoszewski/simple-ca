@@ -11,7 +11,7 @@ let info = null;
 const $ = (id) => document.getElementById(id);
 
 // api sends a request of the API of the page, below its path, and returns its answer; a token
-// refused asks for another.
+// refused asks for another, and the tab forgets it only when it is invalid.
 async function api(method, path, body) {
   const headers = { Authorization: "Bearer " + (sessionStorage.getItem(tokenName) || "") };
   if (body) {
@@ -21,7 +21,9 @@ async function api(method, path, body) {
   const answer = await response.json().catch(() => ({}));
   if (response.status === 401 || (response.status === 403 && path === "/api/cas")) {
     const refused = sessionStorage.getItem(tokenName) ? answer.error || response.statusText : "";
-    sessionStorage.removeItem(tokenName);
+    if (response.status === 401) {
+      sessionStorage.removeItem(tokenName);
+    }
     askToken(refused);
     throw new Error("no token");
   }
@@ -42,7 +44,8 @@ function askToken(failure) {
 $("login").addEventListener("cancel", (event) => event.preventDefault());
 // A token is kept and signs in; a setup code, a value without the dots of a JWT, is exchanged for
 // its token first, which is shown once and signs in once its dialog is closed. A token without
-// the scope of the page is shown once too, and the page asks for another token after that.
+// the scope of the page is shown once too and kept for the other pages, and the page asks for
+// another token after that.
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const value = $("login-token").value.trim();
@@ -61,13 +64,13 @@ $("login-form").addEventListener("submit", async (event) => {
     return;
   }
   $("login").close();
+  sessionStorage.setItem(tokenName, setup.token);
   if (!setup.scopes.some((scope) => scope === pageScope || scope === "*")) {
     showOnce(`Your token ${setup.name} is shown this once; copy it now. It does not open this page, as it has `
       + `the scopes ${setup.scopes.join(", ")}, not ${pageScope}. The setup code it was made from no longer works.`,
       setup.token, () => askToken(`The token ${setup.name} does not have the scope ${pageScope}.`));
     return;
   }
-  sessionStorage.setItem(tokenName, setup.token);
   showOnce(`Your token ${setup.name} is shown this once; copy it now to sign in again later. `
     + "The setup code it was made from no longer works.", setup.token, load);
 });
@@ -266,13 +269,12 @@ oidcButton($("login-oidc"), null, askToken);
 // of an OIDC sign-in.
 function start() {
   const taken = oidcTaken();
-  if (taken && !taken.scopes.some((scope) => scope === pageScope || scope === "*")) {
-    sessionStorage.removeItem(tokenName);
-    askToken(`Your token ${taken.name} does not have the scope ${pageScope}, which this page needs.`);
-    return;
-  }
   if (taken) {
     sessionStorage.setItem(tokenName, taken.token);
+  }
+  if (taken && !taken.scopes.some((scope) => scope === pageScope || scope === "*")) {
+    askToken(`Your token ${taken.name} does not have the scope ${pageScope}, which this page needs.`);
+    return;
   }
   if (sessionStorage.getItem(tokenName)) {
     load();

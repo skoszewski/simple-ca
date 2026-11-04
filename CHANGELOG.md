@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.2
+
+fix: the pages of serve keep a token refused for the scope of a page, which still opens the other pages of the browser tab.
+
+- A token without the scope of the token, certificate or audit page, or not allowed from the
+  client, no longer signs the tab out: the page asks for another token, and the pages the token
+  opens still open with it. An invalid token is forgotten.
+- A token from a setup code or an OIDC sign-in without the scope of the page is kept in the same
+  way.
+
 ## 1.9.1
 
 fix: the tests are split from main_test.go into a test file beside each source file they test, and the tests of the audit log and of theme.json no longer print the output of the commands and the errors they cause on purpose.
