@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.7
+
+fix: "Documentation" moves below the pages of serve, beside "Signing help", the version and the theme button, and both links open in a new tab.
+
+- With `serve --docs`, "Documentation" shows below the index page, the token, certificate and
+  audit pages, the signing forms and `/token-setup`, in place of the link at the top of the index
+  page.
+- "Signing help" and "Documentation" open in a new browser tab, which leaves the page they are on
+  as it is.
+
 ## 1.9.6
 
 fix: the pages of serve --docs show the title of the guide in the browser tab, in place of its file name.

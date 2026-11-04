@@ -121,7 +121,10 @@
       <p class="mt-6 flex items-center justify-center gap-3 text-xs text-muted">
         <span>simple-ca {{version}}</span>
         {{- with helpLink}}
-        <a class="hover:text-ink hover:underline" href="{{.}}">Signing help</a>
+        <a class="hover:text-ink hover:underline" href="{{.}}" target="_blank" rel="noopener">Signing help</a>
+        {{- end}}
+        {{- with docsLink}}
+        <a class="hover:text-ink hover:underline" href="{{.}}" target="_blank" rel="noopener">Documentation</a>
         {{- end}}
         <button type="button" data-theme-switch aria-label="Theme" class="rounded-full border border-line p-1.5 hover:bg-subtle hover:text-ink"></button>
       </p>

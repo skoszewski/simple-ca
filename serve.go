@@ -135,8 +135,9 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 var templateFiles embed.FS
 
 // pageTemplates are templateFiles parsed, each named after its file, with the functions json,
-// which writes a value as JSON, version, the version of simple-ca, and helpLink, the route of the
-// help page, empty for an executable without it.
+// which writes a value as JSON, version, the version of simple-ca, helpLink, the route of the
+// help page, empty for an executable without it, and docsLink, the route of the guides, empty
+// unless they are served.
 var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json": func(v any) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
@@ -145,7 +146,15 @@ var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json"
 		return ""
 	}
 	return helpPath
+}, "docsLink": func() string {
+	if !docsServed {
+		return ""
+	}
+	return docsPath
 }}).ParseFS(templateFiles, "templates/*.html"))
+
+// docsServed tells that serve shows the guides at docsPath.
+var docsServed bool
 
 // pageTheme returns the CSS of the colours of theme.json of the CA in caDir for its pages, empty
 // without the file, or when it does not read, which is logged.
@@ -181,6 +190,7 @@ type indexCA struct {
 // exchanged for them at /api/token-setup and on the page /token-setup, and with oidc in
 // simple-ca.json, the ID tokens of the OIDC sign-in at /api/oidc-token.
 func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
+	docsServed = docs && docsSite != nil
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		var cas []indexCA
@@ -258,18 +268,15 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			cas = append(cas, ca)
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		guides, tokens, certs := "", "", ""
-		if docs && docsSite != nil {
-			guides = docsPath
-		}
+		tokens, certs := "", ""
 		if webui {
 			tokens, certs = tokensPath, certsPath
 		}
 		if err := pageTemplates.ExecuteTemplate(w, "index.html", struct {
-			Title, Script, Docs, Tokens, Certs string
-			Theme                              template.CSS
-			CAs                                []indexCA
-		}{title, tailwindPath, guides, tokens, certs, pageTheme(rootDir), cas}); err != nil {
+			Title, Script, Tokens, Certs string
+			Theme                        template.CSS
+			CAs                          []indexCA
+		}{title, tailwindPath, tokens, certs, pageTheme(rootDir), cas}); err != nil {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		}
 	})
@@ -459,7 +466,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	if helpSite != nil {
 		top.Handle(helpPath, helpSite)
 	}
-	if docs && docsSite != nil {
+	if docsServed {
 		top.Handle(docsPath, docsSite)
 	}
 	if webui {

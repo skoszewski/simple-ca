@@ -14,9 +14,6 @@
           <h1 class="text-xl font-semibold">{{.Title}}</h1>
           <p class="mt-1 text-sm text-head-muted">CA certificates and certificate revocation lists, served by simple-ca</p>
           <div class="mt-2 flex flex-wrap gap-4">
-            {{- if .Docs}}
-            <a class="text-sm text-head-link hover:underline" href="{{.Docs}}">Documentation</a>
-            {{- end}}
             <a class="text-sm text-head-link hover:underline" href="/token-setup">Set up a token</a>
             {{- if .Tokens}}
             <a class="text-sm text-head-link hover:underline" href="{{.Tokens}}">Tokens</a>

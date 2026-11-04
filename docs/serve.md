@@ -110,15 +110,17 @@ does not exist is `404 Not Found`. No other file is served.
 executable, as a page drawn by the `render` package of
 [serve-markdown](https://github.com/skoszewski/serve-markdown), with an outline of its headings;
 the index page, the token, certificate and audit pages, the signing forms and `/token-setup` link
-to it as "Signing help" below the page, beside the version and the theme button. The page's
+to it as "Signing help" below the page, beside the version and the theme button, opening it in a
+new tab. The page's
 browser files are those of the
 serve-markdown release `go.mod` names, which the release builds and the `Dockerfile` embed. An
 executable built without them, as `go install` builds it, has no `/help/` page: the route is
 `404 Not Found` and nothing links to it.
 
 With `--docs`, `/docs/` shows the guides of `simple-ca`, the files of `docs/` embedded in the
-executable, drawn the same way, with a menu of the guides and an outline of the headings, and
-the index page links to them as "Documentation"; `/docs/` opens `usage.md`. An executable built
+executable, drawn the same way, with a menu of the guides and an outline of the headings; the
+same pages as for `/help/` link to them as "Documentation" below the page, beside "Signing help",
+also in a new tab, and `/docs/` opens `usage.md`. An executable built
 without the page's browser files refuses `--docs`.
 
 ```sh
