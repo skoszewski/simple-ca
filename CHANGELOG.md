@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.3
+
+fix: the Details column of the audit page lists the keys of a record with their values, a pair on each line, in place of the raw key=value text.
+
+- Each key of a record that has no column of its own shows on a line with its value, and a record
+  without such keys shows `-`.
+
 ## 1.9.2
 
 fix: the pages of serve keep a token refused for the scope of a page, which still opens the other pages of the browser tab.

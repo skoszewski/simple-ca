@@ -14,16 +14,22 @@ async function showCA() {
     return;
   }
   const field = (e, key) => (e.fields.find(([k]) => k === key) || ["", ""])[1];
-  const details = (e) => e.fields.filter(([k]) => !auditKeys.includes(k)).map(([k, v]) => `${k}=${v}`).join(" ");
+  // The other keys of a record are listed with their values, a pair on each line.
+  const details = (e) => {
+    const pairs = e.fields.filter(([k]) => !auditKeys.includes(k));
+    return pairs.length === 0 ? "-" : element("dl", { className: "grid grid-cols-[6rem_1fr] gap-x-3 gap-y-0.5 text-xs" },
+      ...pairs.flatMap(([k, v]) => [element("dt", { className: "text-muted", textContent: k }),
+        element("dd", { className: "font-mono break-all", textContent: v || "-" })]));
+  };
   const distinct = (key) => [...new Set(answer.entries.map((e) => key === "event" ? e.event : field(e, key)))]
     .filter(Boolean).sort().map((v) => [v, v]);
-  const row = (e) => element("tr", {},
+  const row = (e) => element("tr", { className: "align-top" },
     cell(time(e.time), "whitespace-nowrap"),
     cell(e.event, "font-mono whitespace-nowrap"),
     cell(field(e, "actor") || "-"),
     cell(field(e, "via") || "-"),
     cell(field(e, "client") || "-", "font-mono"),
-    cell(details(e), "font-mono text-xs break-all"));
+    cell(details(e)));
   $("ca-section").replaceChildren(...[
     heading(ca),
     answer.entries.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No records." }) :
