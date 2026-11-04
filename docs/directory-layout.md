@@ -1,4 +1,6 @@
-# Directory layout
+---
+title: Directory layout
+---
 
 ```text
 CA_DIR/

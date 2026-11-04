@@ -1,4 +1,6 @@
-# ACME
+---
+title: ACME
+---
 
 With `acme.domains` in `simple-ca.json`, `serve` is also an ACME server (RFC 8555) for each CA
 whose key is in its directory: the root CA at `/acme/directory` and the issuing CA `NAME` at

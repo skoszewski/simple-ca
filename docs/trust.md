@@ -1,4 +1,6 @@
-# Trust stores
+---
+title: Trust stores
+---
 
 `simple-ca-trust` adds the root CA and the issuing CAs of a simple-ca CA to the trust store of a
 machine, so that its programs accept the certificates the CA issues, removes them, and lists the

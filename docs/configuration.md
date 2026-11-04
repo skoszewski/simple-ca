@@ -1,4 +1,6 @@
-# simple-ca.json
+---
+title: simple-ca.json
+---
 
 The settings of the root CA and its issuing CAs, in the root CA directory; a command working with
 an issuing CA reads the file of its root CA. The file is optional: `ca create --ca-url`

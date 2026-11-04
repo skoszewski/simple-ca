@@ -1,4 +1,6 @@
-# OIDC sign-in
+---
+title: OIDC sign-in
+---
 
 `serve` can hand out tokens to the users of an OpenID Connect provider, next to
 [setup codes](signing-api.md#one-time-setup-codes): a user signs in at the provider, and `serve`

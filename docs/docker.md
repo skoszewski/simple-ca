@@ -1,4 +1,6 @@
-# Docker
+---
+title: Docker
+---
 
 The `Dockerfile` builds an image of `simple-ca`: the static executable on
 `gcr.io/distroless/static-debian13`, run as the user and group 1000, the first user of Ubuntu, with

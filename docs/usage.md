@@ -1,4 +1,6 @@
-# Usage
+---
+title: Usage
+---
 
 The commands of `simple-ca` for CAs, certificates and CRLs. The token commands are described in
 [signing-api.md](signing-api.md), `serve` in [serve.md](serve.md), and the files the commands

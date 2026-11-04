@@ -1,4 +1,6 @@
-# Signing API
+---
+title: Signing API
+---
 
 `serve` signs certificate signing requests sent by programs to `/api/sign`, and pasted by people
 on the `/sign` page, for the tokens that `token create` makes. `serve` shows the clients how to

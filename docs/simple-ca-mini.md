@@ -1,4 +1,6 @@
-# Simple CA Mini
+---
+title: Simple CA Mini
+---
 
 `simple-ca-mini.py` is a lightweight re-implementation of the Simple CA command line tool, a
 single Python 3 script using the standard library alone. It creates root and issuing CAs, issues

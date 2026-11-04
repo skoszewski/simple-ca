@@ -1,4 +1,6 @@
-# systemd
+---
+title: systemd
+---
 
 `systemd/` holds units for a CA in `/etc/simple-ca` and the executable in
 `/usr/local/bin/simple-ca`, both run as the user `simple-ca`:

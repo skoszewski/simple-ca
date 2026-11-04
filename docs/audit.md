@@ -1,4 +1,6 @@
-# Audit log
+---
+title: Audit log
+---
 
 simple-ca records what changes a CA and who changed it in an audit log:
 

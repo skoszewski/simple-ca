@@ -1,4 +1,6 @@
-# serve
+---
+title: serve
+---
 
 Serves the certificates and CRLs of the root CA of the CA directory, and of all its issuing CAs,
 over HTTP, until it is stopped with Ctrl-C. `--address` is the address of the interface it

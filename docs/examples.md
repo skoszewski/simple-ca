@@ -1,4 +1,6 @@
-# Signing API clients
+---
+title: Signing API clients
+---
 
 Each of these programs requests a server certificate from the [signing API](signing-api.md) of
 `simple-ca serve`, the same way in Python, Node.js, Go and the shell; the Go one is a command of

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.6
+
+fix: the pages of serve --docs show the title of the guide in the browser tab, in place of its file name.
+
+- Each guide in `docs/` has its title in its front matter, as `help/index.md` has, in place of its
+  first heading. The page shows the title in its top row.
+
 ## 1.9.5
 
 fix: "Signing help" moves below the pages of serve, beside the version and the theme button, and "Set up a token" is also on the token, certificate and audit pages and the signing forms.
