@@ -25,6 +25,8 @@ go.work.sum
 !/simple-ca-mini.py
 /request-cert
 /request-cert-*
+/token-setup
+/token-setup-*
 /trust/macos/.build/
 /trust/windows/bin/
 /trust/windows/obj/

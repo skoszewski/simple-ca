@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.0
+
+feat: the new command token-setup exchanges a setup code for its token, beside request-cert in the release archives and the container image.
+
+- `token-setup [--url URL] [--token-file NEW_FILE] CODE` prints the token, or writes it to the new
+  file, mode 0600. The server is `--url` or `SIMPLE_CA_URL`, and a path of the URL is left out, so
+  the URL of an issuing CA works too; the file is also `SIMPLE_CA_TOKEN_FILE`.
+- An answer without a token is reported with its status and text, also a page of a proxy in front
+  of `serve`.
+
 ## 1.9.8
 
 fix: a token whose setup code has expired can be renewed, the new example token_setup.py exchanges a setup code for its token, and the examples exchanging one with curl print the answer of a refused exchange, in place of a jq error or the word null as the token.

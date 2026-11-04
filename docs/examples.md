@@ -109,18 +109,33 @@ go install github.com/skoszewski/simple-ca/cmd/request-cert@latest
 
 ## Exchanging a setup code alone
 
-`examples/token_setup.py`, in Python 3 with its standard library, exchanges a
-[one-time setup code](signing-api.md#one-time-setup-codes) for its token and prints it. `--url`,
+The Go command `token-setup`, in `cmd/token-setup/`, and `examples/token_setup.py`, in Python 3
+with its standard library, exchange a
+[one-time setup code](signing-api.md#one-time-setup-codes) for its token and print it. `--url`,
 or else `SIMPLE_CA_URL`, is the URL of the server, the same for a code of an issuing CA as for one
 of the root CA:
 
 ```sh
 export SIMPLE_CA_URL=https://pki.example.com:8443
 CODE=K7QF-M2XA-JP4D-W5ZR
+TOKEN=$(token-setup "$CODE")
 TOKEN=$(examples/token_setup.py "$CODE")
 ```
 
 An error goes to the standard error, and the program exits with status 1.
+
+`token-setup` leaves out a path of the URL, so the URL of a CA such as
+`https://pki.example.com:8443/servers` works too; `examples/token_setup.py` takes the URL of the
+server alone. `--token-file`, or else `SIMPLE_CA_TOKEN_FILE`, makes `token-setup` write the token to
+that file, mode 0600, in place of printing it; the file must not exist yet, which is checked before
+the code is used. `--version` prints its version.
+
+`./build.mjs` builds it as `token-setup` beside `simple-ca`, and the release archives and the
+container image hold it too. With Go installed, it is also installed on its own:
+
+```sh
+go install github.com/skoszewski/simple-ca/cmd/token-setup@latest
+```
 
 ## HTTPS with the CA's own certificate
 

@@ -3,7 +3,7 @@
 # as a release, with the tag's message as its notes and as a prerelease for a prerelease version.
 # A tag vX.Y.Z-N, a later release of the same code with changes to the documentation or the
 # packaging alone, is not built.
-# simple-ca and request-cert are given the tag as their version and published together in a
+# simple-ca, request-cert and token-setup are given the tag as their version and published together in a
 # tar.gz, or a zip for Windows, named after the version, without the v, and the platform.
 # simple-ca embeds the browser files of serve-markdown's page for its /help/ page, which build.mjs
 # downloads from the serve-markdown release go.mod names. simple-ca-trust is built by build.mjs for macOS with Swift on the Xcode 27
@@ -71,13 +71,14 @@ jobs:
           version="${TAG#v}"
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/simple-ca$exe" .
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/request-cert$exe" ./cmd/request-cert
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/token-setup$exe" ./cmd/token-setup
           mkdir -p dist
           if [ "$GOOS" = "windows" ]; then
             archive="simple-ca-$version-$GOOS-$GOARCH.zip"
-            (cd build && zip -9 "../dist/$archive" "simple-ca$exe" "request-cert$exe")
+            (cd build && zip -9 "../dist/$archive" "simple-ca$exe" "request-cert$exe" "token-setup$exe")
           else
             archive="simple-ca-$version-$GOOS-$GOARCH.tar.gz"
-            tar -czf "dist/$archive" -C build "simple-ca$exe" "request-cert$exe"
+            tar -czf "dist/$archive" -C build "simple-ca$exe" "request-cert$exe" "token-setup$exe"
           fi
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7

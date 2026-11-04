@@ -7,10 +7,10 @@ title: Development
 `./build.mjs` needs Node.js and Go; the tests need `openssl` on the `PATH`.
 
 ```sh
-./build.mjs                    # build simple-ca and request-cert for the host, and
-                               # simple-ca-trust on Linux
-./build.mjs build linux/arm64  # build simple-ca-linux-arm64, request-cert-linux-arm64 and
-                               # simple-ca-trust-linux-arm64
+./build.mjs                    # build simple-ca, request-cert and token-setup for the host,
+                               # and simple-ca-trust on Linux
+./build.mjs build linux/arm64  # build simple-ca-linux-arm64, request-cert-linux-arm64,
+                               # token-setup-linux-arm64 and simple-ca-trust-linux-arm64
 ./build.mjs trust              # build simple-ca-trust for the host with its own toolchain
 ./build.mjs trust darwin/amd64 # build simple-ca-trust-darwin-amd64, on macOS only
 ./build.mjs trust --self-contained windows/arm64

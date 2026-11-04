@@ -4,9 +4,10 @@
 // Usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
 //
 // The build action writes simple-ca, request-cert, the Go client of the signing API in
-// cmd/request-cert, and on Linux simple-ca-trust of cmd/simple-ca-trust. The platform defaults
-// to the host's. Naming one builds for it instead, writing simple-ca-<goos>-<goarch> and
-// request-cert-<goos>-<goarch>, and for linux simple-ca-trust-linux-<goarch>. While the newest
+// cmd/request-cert, token-setup, which exchanges a setup code, in cmd/token-setup, and on Linux
+// simple-ca-trust of cmd/simple-ca-trust. The platform defaults to the host's. Naming one builds
+// for it instead, writing simple-ca-<goos>-<goarch>, request-cert-<goos>-<goarch> and
+// token-setup-<goos>-<goarch>, and for linux simple-ca-trust-linux-<goarch>. While the newest
 // CHANGELOG.md entry is not tagged, the Go programs report its release candidate, vX.Y.Z-rc, as
 // their version. Releases are made by release.mjs.
 //
@@ -178,6 +179,7 @@ switch (action) {
   case "build":
     goBuild(`simple-ca${nameSuffix}`, ".");
     goBuild(`request-cert${nameSuffix}`, "./cmd/request-cert");
+    goBuild(`token-setup${nameSuffix}`, "./cmd/token-setup");
     if (platform !== "" ? env.GOOS === "linux" : process.platform === "linux") {
       goBuild(`simple-ca-trust${nameSuffix}`, "./cmd/simple-ca-trust");
     }
@@ -260,7 +262,7 @@ switch (action) {
   }
   case "clean":
     for (const name of readdirSync(root)) {
-      if (["simple-ca", "request-cert"].some((program) =>
+      if (["simple-ca", "request-cert", "token-setup"].some((program) =>
         name === program || name === `${program}.exe` || name.startsWith(`${program}-`))) {
         rmSync(`${root}/${name}`, { force: true });
       }
