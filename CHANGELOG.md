@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.8
+
+fix: a token whose setup code has expired can be renewed, the new example token_setup.py exchanges a setup code for its token, and the examples exchanging one with curl print the answer of a refused exchange, in place of a jq error or the word null as the token.
+
+- `token renew` and the Renew button of the token page take a token whose setup code has expired,
+  with a new code or a JWT; the token keeps the validity it was to have from the old code. A code
+  that has not expired is still revoked first.
+- `examples/token_setup.py` exchanges a setup code and prints the token.
+- The examples of `/help/` and `docs/signing-api.md` keep the answer of the server and read the
+  token from it. An answer without a token, an error or a page of a proxy, is printed; `token.txt`
+  is not left behind, and `TOKEN` stays empty.
+
 ## 1.9.7
 
 fix: "Documentation" moves below the pages of serve, beside "Signing help", the version and the theme button, and both links open in a new tab.

@@ -107,6 +107,21 @@ beside `simple-ca`, `request-cert.exe` on Windows, and `./build.mjs build <goos>
 go install github.com/skoszewski/simple-ca/cmd/request-cert@latest
 ```
 
+## Exchanging a setup code alone
+
+`examples/token_setup.py`, in Python 3 with its standard library, exchanges a
+[one-time setup code](signing-api.md#one-time-setup-codes) for its token and prints it. `--url`,
+or else `SIMPLE_CA_URL`, is the URL of the server, the same for a code of an issuing CA as for one
+of the root CA:
+
+```sh
+export SIMPLE_CA_URL=https://pki.example.com:8443
+CODE=K7QF-M2XA-JP4D-W5ZR
+TOKEN=$(examples/token_setup.py "$CODE")
+```
+
+An error goes to the standard error, and the program exits with status 1.
+
 ## HTTPS with the CA's own certificate
 
 When `serve` uses a certificate of the CA itself, the clients must trust the root CA. Each of them

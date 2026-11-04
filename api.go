@@ -516,7 +516,7 @@ func renewToken(caDir, name string, valid time.Duration) (string, error) {
 // default validity of token create when it was revoked, keeping what it allows and where it is
 // used from, and returns its JWT. The JWT it had is refused from then on. With a setupValid, the
 // token becomes pending instead, as addToken makes it, and reissueToken returns its new setup
-// code.
+// code. A token waiting for a setup code that has not expired is refused.
 func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClients []string) (string, error) {
 	if valid != 0 && valid < time.Second {
 		return "", errors.New("--valid must be at least 1s")
@@ -543,11 +543,16 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 	if !ok {
 		return "", fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokensFile))
 	}
-	if old.pending() {
+	if old.pending() && time.Now().Before(old.Expires) {
 		return "", fmt.Errorf("token '%s' waits for its setup code; revoke it first to renew it", name)
 	}
 	switch {
 	case valid != 0:
+	case old.pending():
+		// The expiry of a pending token is that of its code; the validity of the token is kept apart.
+		if valid, err = time.ParseDuration(old.Setup.Valid); err != nil {
+			return "", fmt.Errorf("token '%s': '%s' is not a validity such as 8h", name, old.Setup.Valid)
+		}
 	case !old.revoked():
 		valid = old.Expires.Sub(old.Issued)
 	default:

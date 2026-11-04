@@ -20,12 +20,16 @@ token, at `/api/token-setup` of this server; the administrator may allow it from
 only. Keep the token it gives you, as it is shown only once:
 
 ```sh
-(umask 077; jq -n --arg code K7QF-M2XA-JP4D-W5ZR '{code: $code}' | curl -s \
-  -H 'Content-Type: application/json' --data @- http://pki.example.com:8080/api/token-setup |
-  jq -r .token > token.txt)
+SERVER=http://pki.example.com:8080
+CODE=K7QF-M2XA-JP4D-W5ZR
+answer=$(jq -n --arg code "$CODE" '{code: $code}' | curl -sS \
+  -H 'Content-Type: application/json' --data @- "$SERVER/api/token-setup")
+(umask 077; printf '%s' "$answer" | jq -er .token > token.txt) 2>/dev/null ||
+  { rm -f token.txt; printf '%s\n' "$answer" >&2; }
 ```
 
-A used, unknown or expired code is `401 Unauthorized`, and a code from another network
+An answer without a token is printed, and leaves no `token.txt`. A used, unknown or expired code
+is `401 Unauthorized`, and a code from another network
 `403 Forbidden`. In a browser, "Set up a token" on the pages of the server, `/token-setup`, does
 the same and shows the token once. `request-cert` exchanges the code itself, as below. For a single
 certificate, the code is entered in place of a token on the

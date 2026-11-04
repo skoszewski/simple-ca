@@ -43,7 +43,7 @@ async function showCA() {
       cell((t.clients || []).map(address).join(", ") || "any"),
       cell(String(t.certs.length)),
       element("td", { className: "py-1.5 text-right" }, !managed ? null : element("div", { className: "flex justify-end gap-2" },
-        t.pending ? null : button("Renew", () => renew(t.name, ended)),
+        t.pending && !t.expired ? null : button("Renew", () => renew(t.name, ended)),
         ended
           ? button("Remove", () => change("purge", t.name, `Remove the token ${t.name}? It can no longer be renewed.`, "Remove"))
           : button("Revoke", () => change("revoke", t.name, t.pending

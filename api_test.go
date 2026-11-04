@@ -775,6 +775,23 @@ func TestSetupCode(t *testing.T) {
 		t.Error("lookupToken of a pending token with an empty JWT ID succeeded, want an error")
 	}
 
+	// A token whose code has expired is renewed with a new code, keeping its own validity.
+	if _, err := addToken(caDir, "again", 3*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil); err != nil {
+		t.Fatalf("addToken --otc-valid 1s: %v", err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	fresh, err := reissueToken(caDir, "again", 0, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("reissueToken of an expired setup code: %v", err)
+	}
+	if status, _ := exchange(fresh); status != http.StatusOK {
+		t.Errorf("exchanging the new code: %d, want 200", status)
+	}
+	db, _ = loadTokens(caDir)
+	if tok := db.Tokens["again"]; tok.Expires.Sub(tok.Issued) != 3*time.Hour {
+		t.Errorf("the token of the new code is valid for %s, want 3h", tok.Expires.Sub(tok.Issued))
+	}
+
 	// A token renewed with a setup code waits for it again: its JWT is refused at once, and the
 	// code gives it a new one.
 	if _, err := reissueToken(issuingDir, "remote", 0, 0, []string{"10.0.0.0/8"}); err == nil {

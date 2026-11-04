@@ -120,10 +120,11 @@ the API and the web UIs. The token stays in `tokens-db.json`, without a JWT ID, 
 renewed. An entry without `scopes` has the scope `sign`.
 
 `token renew` renews the token `NAME`, whether revoked, expired or still valid, and prints it; a
-token waiting for its setup code is refused, and is revoked first to be renewed. It gets a new
-JWT, valid from now, with the
+token waiting for a setup code that has not expired is refused, and is revoked first to be
+renewed. It gets a new JWT, valid from now, with the
 same scopes and limits; the old JWT stops working. It is valid for `--valid`, or else for as long
-as before; a revoked token gets the default validity of `token create`. Its certificate count
+as before; a revoked token gets the default validity of `token create`, and a token whose setup
+code has expired the validity it was to have from that code. Its certificate count
 starts again from zero. With `--otc`, `--otc-valid` and `--otc-network`, as for `token create`,
 it prints a setup code instead: the old JWT stops working at once, and the new one is made, valid
 from then on, when the code is exchanged.
@@ -206,7 +207,8 @@ root CA. On it you can:
 
 A new or renewed token, or the setup code of a new one, is shown once, in a dialog with a Copy
 button, and is gone from the page when the dialog closes. A token waiting for its setup code is
-marked `setup code`; it is revoked, which cancels the code, but not renewed. A CA whose key is
+marked `setup code`; it is revoked, which cancels the code, but not renewed until the code has
+expired. A CA whose key is
 not in its directory has no create form, because its
 tokens cannot be signed there.
 
@@ -278,10 +280,14 @@ outside `--otc-network`, `415 Unsupported Media Type` for a body that is not
 `application/json`, and `429 Too Many Requests` for a client held back after refused codes.
 
 ```sh
-TOKEN=$(jq -n --arg code K7QF-M2XA-JP4D-W5ZR '{code: $code}' | curl -s \
-  -H 'Content-Type: application/json' --data @- http://pki.example.com:8080/api/token-setup |
-  jq -r .token)
+SERVER=http://pki.example.com:8080
+CODE=K7QF-M2XA-JP4D-W5ZR
+answer=$(jq -n --arg code "$CODE" '{code: $code}' | curl -sS \
+  -H 'Content-Type: application/json' --data @- "$SERVER/api/token-setup")
+TOKEN=$(printf '%s' "$answer" | jq -er '.token // empty' 2>/dev/null) || printf '%s\n' "$answer" >&2
 ```
+
+An answer without a token is printed, and leaves `TOKEN` empty.
 
 The page `/token-setup`, "Set up a token" on the index page, the token, certificate and audit
 pages and the signing forms, does the same in a browser: it asks
