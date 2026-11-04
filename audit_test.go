@@ -176,21 +176,30 @@ func TestAudit(t *testing.T) {
 	}
 	guard = newAuthGuard()
 
-	// The audit page wants the scope audit, and shows a CA's records, newest first, within limit.
-	if status, _ := call(signer, "GET", "/audit/api/entries?ca=servers", nil); status != http.StatusOK {
-		t.Errorf("the audit page with the scope audit: %d, want 200", status)
-	}
-	status, answer = call(signer, "GET", "/audit/api/entries?ca=servers&limit=2", nil)
+	// The audit page wants the scope audit, and shows the log of the server, newest first, within
+	// limit, to a root CA token, and the records of its own CA to an issuing CA token.
+	status, answer = call(signer, "GET", "/audit/api/entries?limit=2", nil)
 	if entries, _ := answer["entries"].([]any); status != http.StatusOK || len(entries) != 2 ||
 		entries[0].(map[string]any)["event"] != "cert.issue" || answer["total"].(float64) < 8 {
 		t.Errorf("the 2 newest records of servers: %d %v, want cert.issue first of at least 8", status, answer)
 	}
-	if status, _ := call(signer, "GET", "/audit/api/entries?ca=", nil); status != http.StatusNotFound {
-		t.Errorf("the root CA records with an issuing CA token: %d, want 404", status)
+	cas := func(token string) map[string]bool {
+		_, answer := call(token, "GET", "/audit/api/entries", nil)
+		seen := map[string]bool{}
+		for _, e := range answer["entries"].([]any) {
+			seen[e.(map[string]any)["ca"].(string)] = true
+		}
+		return seen
+	}
+	if seen := cas(signer); !seen["servers"] || seen[""] {
+		t.Errorf("the CAs of the records of an issuing CA token: %v, want servers alone", seen)
+	}
+	if seen := cas(admin); !seen["servers"] || !seen[""] {
+		t.Errorf("the CAs of the records of a root CA token: %v, want the root CA and servers", seen)
 	}
 	if web, err := makeToken(serversDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
 		t.Fatal(err)
-	} else if status, _ := call(web, "GET", "/audit/api/entries?ca=servers", nil); status != http.StatusForbidden {
+	} else if status, _ := call(web, "GET", "/audit/api/entries", nil); status != http.StatusForbidden {
 		t.Errorf("the audit page without the scope audit: %d, want 403", status)
 	}
 

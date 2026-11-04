@@ -158,7 +158,10 @@ async function load() {
   if (!info.cas.some((ca) => ca.id === caID)) {
     caID = info.cas[0].id;
   }
-  $("chooser-row").classList.replace("hidden", "flex");
+  // The audit page shows the log of the server, so it has no CA to choose.
+  if (pageScope !== "audit") {
+    $("chooser-row").classList.replace("hidden", "flex");
+  }
   await showCA();
 }
 

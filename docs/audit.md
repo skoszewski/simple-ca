@@ -135,20 +135,19 @@ simple-ca audit list --ca-dir /etc/simple-ca --ca ""
 ## The audit page
 
 With `--webui`, `serve` serves the audit page at `/audit/`, which a token with the scope `audit`
-opens; the index page and the token and certificate pages link to it. A root CA token opens every
-CA, and an issuing CA token its own alone. The page shows the newest 1000 records of the CA
-chosen, with the time, the event, the actor, the way and the client, and a column for each other
-key of the records shown. A search and the filters of the event and the way pick the records, as
-on the token page. The `auth`
-events of the token, certificate and audit pages, of the setup code exchange and of the OIDC
-sign-in belong to the root CA, as a refused credential names no CA.
+opens; the index page and the token and certificate pages link to it. The page shows the audit
+log of the server, the root CA and all its issuing CAs together: the newest 1000 records, with the
+time, the event, the CA, the actor, the way and the client, and a column for each other key of the
+records shown. An issuing CA token sees the records of its own CA alone. A search and the filters
+of the event, the CA and the way pick the records, as on the token page. A refused signing request
+is a record of the CA in its URL; the `auth` events of the token, certificate and audit pages, of
+the setup code exchange and of the OIDC sign-in are records of the root CA, as a refused credential
+names no CA.
 
-`GET /audit/api/entries?ca=CA&limit=N` answers with `{"entries": [...], "total": N}`: in
-`entries`, the newest records of the CA first, 1000 without `limit`, each with `time`, `event`,
-`ca`, `fields`, its key and value pairs in their order, and `line`; in `total`, the count of all
-the records of the CA. `ca` is empty or left out for the root CA. A CA that does not exist or that
-the token does not open is `404 Not Found`, and a `limit` that is not a positive number is
-`400 Bad Request`.
+`GET /audit/api/entries?limit=N` answers with `{"entries": [...], "total": N}`: in `entries`, the
+newest records first, 1000 without `limit`, each with `time`, `event`, `ca`, `fields`, its key and
+value pairs in their order, and `line`; in `total`, the count of all the records the token sees. A
+`limit` that is not a positive number is `400 Bad Request`.
 
 ## Reading the records
 

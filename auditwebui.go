@@ -36,16 +36,12 @@ const auditLimit = 1000
 
 // auditAPI answers a request of the audit page:
 //
-//	GET /api/entries?ca=ID&limit=N    the newest records of a CA, auditLimit without limit, and
-//	                                  the count of all its records
+//	GET /api/entries?limit=N    the newest records of the audit log of the server, auditLimit
+//	                            without limit, and the count of all of them; an issuing CA token
+//	                            gets those of its own CA
 func (s *webuiServer) auditAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet || r.URL.Path != "/api/entries" {
 		webuiFail(w, http.StatusNotFound, "no such request")
-		return
-	}
-	id := r.URL.Query().Get("ca")
-	if _, ok := s.caDir(id); !ok {
-		webuiFail(w, http.StatusNotFound, "no such CA")
 		return
 	}
 	limit := auditLimit
@@ -65,7 +61,7 @@ func (s *webuiServer) auditAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, total := []auditEntry{}, 0
 	for _, e := range slices.Backward(all) {
-		if e.CA != id {
+		if s.userCA != "" && e.CA != s.userCA {
 			continue
 		}
 		if total++; len(entries) < limit {

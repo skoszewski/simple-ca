@@ -138,7 +138,8 @@ name. A role left out keeps its built-in colour, and a setting not described her
 |---|---|
 | the index page, `/token-setup`, `/oidc-callback` | those of the root CA |
 | `/sign`, `/NAME/sign` | those of the CA of the form |
-| the token, certificate and audit pages | those of the CA chosen in their selector, changing with it |
+| the token and certificate pages | those of the CA chosen in their selector, changing with it |
+| the audit page | those of the root CA, or of its own CA for an issuing CA token |
 
 `serve` refuses to start with an unknown role or a value that is not a colour in the
 `theme.json` of any CA, and the pages read the colours on each request, so a change shows

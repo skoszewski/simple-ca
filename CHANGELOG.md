@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.3
+
+fix: the audit page shows the audit log of the server, with the records of all its CAs in one list, in place of those of one CA chosen.
+
+- The audit page has no CA selector. Its list has a CA column and a CA filter, so a refused request
+  to any CA shows with the rest; an issuing CA token still sees the records of its own CA alone.
+- `GET /audit/api/entries` takes no `ca` and answers with the records the token sees.
+
 ## 1.10.2
 
 fix: request-cert and the example clients take the URL of the CA, and add /api/sign themselves.
