@@ -1,16 +1,16 @@
 #!/bin/bash
 # Request a server certificate from the signing API of simple-ca serve.
 #
-# Usage: SIMPLE_CA_TOKEN=TOKEN request-cert.sh API_URL CN [DNS_NAME ...]
-#        SIMPLE_CA_TOKEN_FILE=FILE request-cert.sh API_URL CN [DNS_NAME ...]
-#        [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert.sh --setup-code CODE API_URL CN [DNS_NAME ...]
+# Usage: SIMPLE_CA_TOKEN=TOKEN request-cert.sh CA_URL CN [DNS_NAME ...]
+#        SIMPLE_CA_TOKEN_FILE=FILE request-cert.sh CA_URL CN [DNS_NAME ...]
+#        [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert.sh --setup-code CODE CA_URL CN [DNS_NAME ...]
 #
-# A setup code is exchanged for the token at /api/token-setup of the server of API_URL first; the
+# A setup code is exchanged for the token at /api/token-setup of the server of CA_URL first; the
 # token is written to SIMPLE_CA_TOKEN_FILE, a file that does not exist yet, when it is set.
 #
 # openssl makes an EC P-256 key and a certificate signing request for the CN, with the CN and the
-# DNS names as its DNS names; curl sends it to API_URL, such as
-# https://pki.example.com/servers/api/sign, with a token made by simple-ca token create, in
+# DNS names as its DNS names; curl sends it to the signing API of the CA at CA_URL, such as
+# https://pki.example.com/servers, with a token made by simple-ca token create, in
 # SIMPLE_CA_TOKEN or in the file SIMPLE_CA_TOKEN_FILE names, and the certificate type in
 # SIMPLE_CA_TYPE, the first type of the token when it is unset; jq builds the request and reads
 # the response. curl reads the
@@ -27,9 +27,9 @@ if [ "${1:-}" = --setup-code ] && [ "$#" -ge 2 ]; then
   shift 2
 fi
 if [ "$#" -lt 2 ] || [ -z "$token$token_file$code" ]; then
-  echo "Usage: SIMPLE_CA_TOKEN=TOKEN $0 API_URL CN [DNS_NAME ...]" >&2
-  echo "       SIMPLE_CA_TOKEN_FILE=FILE $0 API_URL CN [DNS_NAME ...]" >&2
-  echo "       [SIMPLE_CA_TOKEN_FILE=NEW_FILE] $0 --setup-code CODE API_URL CN [DNS_NAME ...]" >&2
+  echo "Usage: SIMPLE_CA_TOKEN=TOKEN $0 CA_URL CN [DNS_NAME ...]" >&2
+  echo "       SIMPLE_CA_TOKEN_FILE=FILE $0 CA_URL CN [DNS_NAME ...]" >&2
+  echo "       [SIMPLE_CA_TOKEN_FILE=NEW_FILE] $0 --setup-code CODE CA_URL CN [DNS_NAME ...]" >&2
   exit 1
 fi
 if [ -n "$token" ] && [ -n "$token_file$code" ]; then
@@ -51,7 +51,8 @@ if [ -n "$token_file" ] && [ -z "$code" ]; then
     exit 1
   fi
 fi
-url=$1
+url=${1%/}
+url=${url%/api/sign}/api/sign
 cn=$2
 shift 2
 
@@ -75,7 +76,7 @@ trap cleanup EXIT
 
 if [ -n "$code" ]; then
   if [[ ! $url =~ ^(https?://[^/]+) ]]; then
-    echo "$url is not a URL such as https://pki.example.com/servers/api/sign" >&2
+    echo "$url is not a URL such as https://pki.example.com/servers" >&2
     exit 1
   fi
   setup_url="${BASH_REMATCH[1]}/api/token-setup"

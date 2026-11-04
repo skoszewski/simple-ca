@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.10.2
+
+fix: request-cert and the example clients take the URL of the CA, and add /api/sign themselves.
+
+- `request-cert`, `examples/request_cert.py`, `examples/request-cert.mjs` and
+  `examples/request-cert.sh` take `CA_URL`, such as `https://pki.example.com` for the root CA or
+  `https://pki.example.com/servers` for the issuing CA `servers`, in place of the URL of its API,
+  which gave `405 Method Not Allowed`. A URL ending in `/api/sign` still works.
+
 ## 1.10.1
 
 fix: the container image builds again, with token-setup in its build context.

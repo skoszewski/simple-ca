@@ -51,8 +51,9 @@ docker run -d -p 8443:8443 -v simple-ca:/data -e SIMPLE_CA_TLS_CERT=/data/server
 working directory, so a host directory is mounted there, with `--user` of its owner:
 
 ```sh
+CA_URL=https://pki.example.com:8443/servers
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" -w /work -e SIMPLE_CA_TOKEN \
-  --entrypoint request-cert simple-ca https://pki.example.com:8443/servers/api/sign web.example.com
+  --entrypoint request-cert simple-ca "$CA_URL" web.example.com
 ```
 
 ## Docker Compose

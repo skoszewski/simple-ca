@@ -2,16 +2,16 @@
 /**
  * Request a server certificate from the signing API of simple-ca serve.
  *
- * Usage: SIMPLE_CA_TOKEN=TOKEN request-cert.mjs API_URL CN [DNS_NAME ...]
- *        SIMPLE_CA_TOKEN_FILE=FILE request-cert.mjs API_URL CN [DNS_NAME ...]
- *        [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert.mjs --setup-code CODE API_URL CN [DNS_NAME ...]
+ * Usage: SIMPLE_CA_TOKEN=TOKEN request-cert.mjs CA_URL CN [DNS_NAME ...]
+ *        SIMPLE_CA_TOKEN_FILE=FILE request-cert.mjs CA_URL CN [DNS_NAME ...]
+ *        [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert.mjs --setup-code CODE CA_URL CN [DNS_NAME ...]
  *
- * A setup code is exchanged for the token at /api/token-setup of the server of API_URL first; the
+ * A setup code is exchanged for the token at /api/token-setup of the server of CA_URL first; the
  * token is written to SIMPLE_CA_TOKEN_FILE, a file that does not exist yet, when it is set.
  *
  * The openssl command makes an EC P-256 key and a certificate signing request for the CN, with
- * the CN and the DNS names as its DNS names. The request is sent to API_URL, such as
- * https://pki.example.com/servers/api/sign, with a token made by simple-ca token create, in
+ * the CN and the DNS names as its DNS names. The request is sent to the signing API of the CA at
+ * CA_URL, such as https://pki.example.com/servers, with a token made by simple-ca token create, in
  * SIMPLE_CA_TOKEN or in the file SIMPLE_CA_TOKEN_FILE names, and the certificate type in
  * SIMPLE_CA_TYPE, the first type of the token when it is unset. The key, the certificate and the
  * chain are written to CN_key.pem, CN_cert.pem and CN_chain.pem, a wildcard CN *.NAME as
@@ -26,13 +26,14 @@ let token = process.env.SIMPLE_CA_TOKEN ?? "";
 const tokenFile = process.env.SIMPLE_CA_TOKEN_FILE ?? "";
 const args = process.argv.slice(2);
 const code = args[0] === "--setup-code" ? args.splice(0, 2)[1] ?? "" : "";
-const [url, cn, ...names] = args;
+const [caURL, cn, ...names] = args;
 if (!cn || !(token || tokenFile || code)) {
-  console.error("Usage: SIMPLE_CA_TOKEN=TOKEN request-cert.mjs API_URL CN [DNS_NAME ...]\n" +
-    "       SIMPLE_CA_TOKEN_FILE=FILE request-cert.mjs API_URL CN [DNS_NAME ...]\n" +
-    "       [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert.mjs --setup-code CODE API_URL CN [DNS_NAME ...]");
+  console.error("Usage: SIMPLE_CA_TOKEN=TOKEN request-cert.mjs CA_URL CN [DNS_NAME ...]\n" +
+    "       SIMPLE_CA_TOKEN_FILE=FILE request-cert.mjs CA_URL CN [DNS_NAME ...]\n" +
+    "       [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request-cert.mjs --setup-code CODE CA_URL CN [DNS_NAME ...]");
   process.exit(1);
 }
+const url = caURL.replace(/\/$/, "").replace(/\/api\/sign$/, "") + "/api/sign";
 if (token && (tokenFile || code)) {
   console.error("set SIMPLE_CA_TOKEN or SIMPLE_CA_TOKEN_FILE, or give --setup-code, not two of them");
   process.exit(1);
@@ -44,9 +45,9 @@ if (code && tokenFile && existsSync(tokenFile)) {
 if (code) {
   let setupURL;
   try {
-    setupURL = new URL("/api/token-setup", url).href;
+    setupURL = new URL("/api/token-setup", caURL).href;
   } catch {
-    console.error(`${url} is not a URL such as https://pki.example.com/servers/api/sign`);
+    console.error(`${caURL} is not a URL such as https://pki.example.com/servers`);
     process.exit(1);
   }
   let response;

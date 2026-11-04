@@ -42,9 +42,12 @@ command. It is in the release archives of simple-ca, `simple-ca-X.Y.Z-<platform>
 [GitHub](https://github.com/skoszewski/simple-ca/releases), beside `simple-ca`; with Go
 installed, `go install github.com/skoszewski/simple-ca/cmd/request-cert@latest` installs it.
 
+It takes the URL of the CA: that of the server for the root CA, and with `/NAME` for the issuing
+CA `NAME`.
+
 ```sh
-request-cert --token-file token.txt http://pki.example.com:8080/servers/api/sign \
-  web.example.com www.example.com
+CA_URL=http://pki.example.com:8080/servers
+request-cert --token-file token.txt "$CA_URL" web.example.com www.example.com
 ```
 
 The first name is the CN of the certificate and its first DNS name; the names after it are its
@@ -61,8 +64,9 @@ The token is read from the file of `--token-file`, or from the environment varia
 for the token first, and writes the token to `--token-file`, a new file, for later requests:
 
 ```sh
-request-cert --setup-code K7QF-M2XA-JP4D-W5ZR --token-file token.txt \
-  http://pki.example.com:8080/servers/api/sign web.example.com
+CA_URL=http://pki.example.com:8080/servers
+CODE=K7QF-M2XA-JP4D-W5ZR
+request-cert --setup-code "$CODE" --token-file token.txt "$CA_URL" web.example.com
 ```
  `--type` names the certificate type, when the
 token allows more than one; without it, the first type of the token is used. An existing key is

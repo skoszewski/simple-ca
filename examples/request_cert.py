@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Request a server certificate from the signing API of simple-ca serve.
 
-Usage: SIMPLE_CA_TOKEN=TOKEN request_cert.py API_URL CN [DNS_NAME ...]
-       SIMPLE_CA_TOKEN_FILE=FILE request_cert.py API_URL CN [DNS_NAME ...]
-       [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request_cert.py --setup-code CODE API_URL CN [DNS_NAME ...]
+Usage: SIMPLE_CA_TOKEN=TOKEN request_cert.py CA_URL CN [DNS_NAME ...]
+       SIMPLE_CA_TOKEN_FILE=FILE request_cert.py CA_URL CN [DNS_NAME ...]
+       [SIMPLE_CA_TOKEN_FILE=NEW_FILE] request_cert.py --setup-code CODE CA_URL CN [DNS_NAME ...]
 
-A setup code is exchanged for the token at /api/token-setup of the server of API_URL first; the
+A setup code is exchanged for the token at /api/token-setup of the server of CA_URL first; the
 token is written to SIMPLE_CA_TOKEN_FILE, a file that does not exist yet, when it is set. The
 openssl command makes an EC P-256 key and a certificate signing request for the CN, with the
-CN and the DNS names as its DNS names. The request is sent to API_URL, such as
-https://pki.example.com/servers/api/sign, with a token made by simple-ca token create, in
+CN and the DNS names as its DNS names. The request is sent to the signing API of the CA at
+CA_URL, such as https://pki.example.com/servers, with a token made by simple-ca token create, in
 SIMPLE_CA_TOKEN or in the file SIMPLE_CA_TOKEN_FILE names, and the certificate type in
 SIMPLE_CA_TYPE, the first type of the token when it is unset. The key, the certificate and the
 chain are written to CN_key.pem, CN_cert.pem and CN_chain.pem, a wildcard CN *.NAME as
@@ -40,7 +40,7 @@ def main():
     if code:
         parts = urllib.parse.urlsplit(args[0])
         if not parts.scheme or not parts.netloc:
-            sys.exit(f"{args[0]} is not a URL such as https://pki.example.com/servers/api/sign")
+            sys.exit(f"{args[0]} is not a URL such as https://pki.example.com/servers")
         setup_url = f"{parts.scheme}://{parts.netloc}/api/token-setup"
         request = urllib.request.Request(setup_url, data=json.dumps({"code": code}).encode(), method="POST",
                                          headers={"Content-Type": "application/json"})
@@ -69,6 +69,7 @@ def main():
         if not token:
             sys.exit(f"SIMPLE_CA_TOKEN_FILE: {token_file} is empty")
     url, cn, *names = args
+    url = url.rstrip("/").removesuffix("/api/sign") + "/api/sign"
     prefix = "wildcard." + cn[2:] if cn.startswith("*.") else cn
     key_path, cert_path, chain_path = f"{prefix}_key.pem", f"{prefix}_cert.pem", f"{prefix}_chain.pem"
     if os.path.exists(key_path):

@@ -55,13 +55,14 @@ var errUsage = errors.New("usage")
 func run() error {
 	flag.Usage = func() {
 		fmt.Fprint(flag.CommandLine.Output(), "Usage:\n"+
-			"  SIMPLE_CA_TOKEN=TOKEN request-cert [options] API_URL CN [DNS_NAME ...]\n"+
-			"  request-cert --token-file FILE [options] API_URL CN [DNS_NAME ...]\n"+
-			"  request-cert --setup-code CODE [--token-file NEW_FILE] [options] API_URL CN [DNS_NAME ...]\n\n"+
-			"Requests a server certificate for CN and the DNS names from the signing API of\n"+
-			"simple-ca serve at API_URL, such as https://pki.example.com/servers/api/sign.\n\n"+
+			"  SIMPLE_CA_TOKEN=TOKEN request-cert [options] CA_URL CN [DNS_NAME ...]\n"+
+			"  request-cert --token-file FILE [options] CA_URL CN [DNS_NAME ...]\n"+
+			"  request-cert --setup-code CODE [--token-file NEW_FILE] [options] CA_URL CN [DNS_NAME ...]\n\n"+
+			"Requests a server certificate for CN and the DNS names from the signing API of the CA\n"+
+			"of simple-ca serve at CA_URL: https://pki.example.com for the root CA, or\n"+
+			"https://pki.example.com/servers for the issuing CA servers.\n\n"+
 			"With --setup-code, it exchanges the one-time setup code for the token at\n"+
-			"/api/token-setup of the server of API_URL first, and writes the token to --token-file,\n"+
+			"/api/token-setup of the server of CA_URL first, and writes the token to --token-file,\n"+
 			"a file that does not exist yet, when it is given.\n\n"+
 			"Options:\n")
 		flag.PrintDefaults()
@@ -88,7 +89,7 @@ func run() error {
 		return nil
 	}
 	if flag.NArg() < 2 {
-		fmt.Fprintln(flag.CommandLine.Output(), "request-cert: API_URL and CN are required")
+		fmt.Fprintln(flag.CommandLine.Output(), "request-cert: CA_URL and CN are required")
 		flag.Usage()
 		return errUsage
 	}
@@ -127,7 +128,7 @@ func run() error {
 		return errors.New("no token: set SIMPLE_CA_TOKEN, or give --token-file, SIMPLE_CA_TOKEN_FILE or --setup-code")
 	}
 
-	url, cn := flag.Arg(0), flag.Arg(1)
+	url, cn := strings.TrimSuffix(strings.TrimSuffix(flag.Arg(0), "/"), "/api/sign")+"/api/sign", flag.Arg(1)
 	prefix := cn
 	if rest, ok := strings.CutPrefix(cn, "*."); ok {
 		prefix = "wildcard." + rest
@@ -207,12 +208,12 @@ func run() error {
 	return nil
 }
 
-// exchange exchanges the setup code at /api/token-setup of the server of the signing API at
-// apiURL, and returns the token.
-func exchange(apiURL, code string) (string, error) {
-	u, err := url.Parse(apiURL)
+// exchange exchanges the setup code at /api/token-setup of the server of the CA at caURL, and
+// returns the token.
+func exchange(caURL, code string) (string, error) {
+	u, err := url.Parse(caURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("%s is not a URL such as https://pki.example.com/servers/api/sign", apiURL)
+		return "", fmt.Errorf("%s is not a URL such as https://pki.example.com/servers", caURL)
 	}
 	setupURL := u.Scheme + "://" + u.Host + "/api/token-setup"
 	body, err := json.Marshal(map[string]string{"code": code})
