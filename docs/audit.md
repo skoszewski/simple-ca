@@ -135,9 +135,9 @@ simple-ca audit list --ca-dir /etc/simple-ca --ca ""
 With `--webui`, `serve` serves the audit page at `/audit/`, which a token with the scope `audit`
 opens; the index page and the token and certificate pages link to it. A root CA token opens every
 CA, and an issuing CA token its own alone. The page shows the newest 1000 records of the CA
-chosen, with the time, the event, the actor, the way and the client, and the other keys under
-Details, each on a line with its value. A search and the filters of the event and the way pick
-the records, as on the token page. The `auth`
+chosen, with the time, the event, the actor, the way and the client, and a column for each other
+key of the records shown. A search and the filters of the event and the way pick the records, as
+on the token page. The `auth`
 events of the token, certificate and audit pages, of the setup code exchange and of the OIDC
 sign-in belong to the root CA, as a refused credential names no CA.
 

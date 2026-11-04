@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.4
+
+fix: the audit page shows each key of the records in a column of its own, in place of a single Details column.
+
+- The table has a column for each key of the records shown, so the columns follow the search and
+  the filters; a record without a key shows `-` in its column.
+
 ## 1.9.3
 
 fix: the Details column of the audit page lists the keys of a record with their values, a pair on each line, in place of the raw key=value text.

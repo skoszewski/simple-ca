@@ -14,26 +14,23 @@ async function showCA() {
     return;
   }
   const field = (e, key) => (e.fields.find(([k]) => k === key) || ["", ""])[1];
-  // The other keys of a record are listed with their values, a pair on each line.
-  const details = (e) => {
-    const pairs = e.fields.filter(([k]) => !auditKeys.includes(k));
-    return pairs.length === 0 ? "-" : element("dl", { className: "grid grid-cols-[6rem_1fr] gap-x-3 gap-y-0.5 text-xs" },
-      ...pairs.flatMap(([k, v]) => [element("dt", { className: "text-muted", textContent: k }),
-        element("dd", { className: "font-mono break-all", textContent: v || "-" })]));
-  };
+  // The other keys of the records shown each get a column, in the order they first appear.
+  const fixed = ["Time", "Event", "Actor", "Via", "Client"];
+  const headings = (shown) => [...fixed,
+    ...new Set(shown.flatMap((e) => e.fields.map(([k]) => k).filter((k) => !auditKeys.includes(k))))];
   const distinct = (key) => [...new Set(answer.entries.map((e) => key === "event" ? e.event : field(e, key)))]
     .filter(Boolean).sort().map((v) => [v, v]);
-  const row = (e) => element("tr", { className: "align-top" },
+  const row = (e, columns) => element("tr", {},
     cell(time(e.time), "whitespace-nowrap"),
     cell(e.event, "font-mono whitespace-nowrap"),
-    cell(field(e, "actor") || "-"),
+    cell(field(e, "actor") || "-", "whitespace-nowrap"),
     cell(field(e, "via") || "-"),
     cell(field(e, "client") || "-", "font-mono"),
-    cell(details(e)));
+    ...columns.slice(fixed.length).map((key) => cell(field(e, key) || "-", "font-mono text-xs whitespace-nowrap")));
   $("ca-section").replaceChildren(...[
     heading(ca),
     answer.entries.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No records." }) :
-      searchable({ items: answer.entries, row, noun: "records", headings: ["Time", "Event", "Actor", "Via", "Client", "Details"],
+      searchable({ items: answer.entries, row, noun: "records", headings,
         text: (e) => [e.line],
         filters: [
           { name: "event", label: "Event", multiple: true, match: (e, values) => values.includes(e.event),

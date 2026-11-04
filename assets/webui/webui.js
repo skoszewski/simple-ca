@@ -211,10 +211,12 @@ const heading = (ca) => {
 const list = (text) => text.split(/[\s,]+/).filter(Boolean);
 
 // searchable returns the table of items with a search field, filter pickers and a count; the
-// search and the filters are kept in the address.
+// search and the filters are kept in the address. headings is a list, or a function of the items
+// shown returning one, which row gets with its item.
 function searchable({ items, text, row, headings, filters, noun }) {
   const words = () => (params.get("q") || "").toLowerCase().split(/\s+/).filter(Boolean);
   const chosen = (name) => (params.get(name) || "").split(",").filter(Boolean);
+  const head = element("tr", {});
   const body = element("tbody", { className: "divide-y divide-line" });
   const count = element("p", { className: "text-sm text-muted" });
   const keep = (name, value) => {
@@ -232,7 +234,9 @@ function searchable({ items, text, row, headings, filters, noun }) {
       return wanted.every((word) => haystack.includes(word))
         && filters.every(({ name, match }) => chosen(name).length === 0 || match(item, chosen(name)));
     });
-    body.replaceChildren(...shown.map(row));
+    const columns = typeof headings === "function" ? headings(shown) : headings;
+    head.replaceChildren(...columns.map((h) => element("th", { className: "py-1 pr-3 font-medium", textContent: h })));
+    body.replaceChildren(...shown.map((item) => row(item, columns)));
     count.textContent = shown.length === items.length ? `${items.length} ${noun}`
       : `${shown.length} of ${items.length} ${noun}` + (shown.length === 0 ? "; none matches the search and the filters" : "");
   };
@@ -258,8 +262,7 @@ function searchable({ items, text, row, headings, filters, noun }) {
   return element("div", { className: "space-y-3" },
     element("div", { className: "flex flex-wrap items-center gap-3" }, search, ...pickers),
     element("div", { className: "overflow-x-auto" }, element("table", { className: "w-full text-left text-sm" },
-      element("thead", { className: "text-muted" }, element("tr", {}, ...headings.map((h) =>
-        element("th", { className: "py-1 pr-3 font-medium", textContent: h })))), body)),
+      element("thead", { className: "text-muted" }, head), body)),
     count);
 }
 
