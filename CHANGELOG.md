@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.11.2
+
+fix: the Columns picker of the audit page reads All, Some or None, in place of the names of every column shown.
+
+- The collapsed Columns picker named every column shown, which made it as wide as the page; it
+  now reads All, Some or None.
+
 ## 1.11.1
 
 gap: the audit page has a Columns picker that hides and shows its columns, headed in words.

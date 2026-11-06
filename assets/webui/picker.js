@@ -16,9 +16,10 @@ function element(tag, props = {}, ...children) {
 // onchange is called with a value chosen anew. The chooser is a details element with id, when
 // given; with fit, it is as wide as its longest choice. With multiple, value and the argument of
 // onchange are lists, the input holds them comma-separated, the choice "" clears them, the choice
-// only, when given, stands alone, and placeholder shows while none is chosen.
+// only, when given, stands alone, and placeholder shows while none is chosen; summary, when given,
+// returns the text of the chooser for the values chosen, in place of their labels.
 function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}, fit = false, multiple = false,
-  only = null, placeholder = "" }) {
+  only = null, placeholder = "", summary = null }) {
   const input = element("input", { type: "hidden", name });
   const current = element("span", { className: "col-start-1 row-start-1 truncate" });
   const shown = !fit ? current : element("span", { className: "grid min-w-0" }, current,
@@ -41,7 +42,7 @@ function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}
   const show = (chosen) => {
     const picked = (v) => !multiple ? v === chosen : v === "" ? chosen.length === 0 : chosen.includes(v);
     input.value = multiple ? chosen.join(",") : chosen;
-    current.textContent = !multiple ? labelOf(chosen)
+    current.textContent = summary ? summary(chosen) : !multiple ? labelOf(chosen)
       : chosen.length === 0 ? labelOf("") || placeholder : chosen.map(labelOf).join(", ");
     current.title = current.textContent;
     list.replaceChildren(...choices.map(([v, label], i) => element("li", { role: "option", ariaSelected: String(picked(v)) },

@@ -247,7 +247,8 @@ function searchable({ items, text, row, headings, filters, noun, label = (h) => 
     if (hideable && all.join("\n") !== offered) {
       offered = all.join("\n");
       columnPicker.replaceChildren(picker({ name: "columns", labelledBy: "filter-columns",
-        choices: all.map((h) => [h, label(h)]), value: columns, multiple: true, fit: true, placeholder: "none",
+        choices: all.map((h) => [h, label(h)]), value: columns, multiple: true, fit: true,
+        summary: (visible) => visible.length === all.length ? "All" : visible.length === 0 ? "None" : "Some",
         onchange: (visible) => {
           keep("hide", [...chosen("hide").filter((h) => !all.includes(h)), ...all.filter((h) => !visible.includes(h))].join(","));
           draw();
