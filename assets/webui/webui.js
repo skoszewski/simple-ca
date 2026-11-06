@@ -91,6 +91,8 @@ function showOnce(text, value, closed) {
 $("shown").addEventListener("close", () => {
   $("shown-value").value = "";
   $("shown-text").textContent = "";
+  $("shown-download").classList.add("hidden");
+  $("shown-download").onclick = null;
 });
 copying($("shown-copy"), $("shown-value"));
 // The name of the signed-in token opens the dialog of its attributes.

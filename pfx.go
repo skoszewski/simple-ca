@@ -38,59 +38,15 @@ import (
 // makePFX writes a PKCS#12 bundle of the certificate at certPath, its key and the chain of the CA
 // in caDir that signed it next to the certificate.
 func makePFX(certPath, caDir, password string) error {
-	certDir := filepath.Dir(certPath)
-	certName := strings.TrimSuffix(filepath.Base(certPath), "_cert.pem")
-	keyPath := filepath.Join(certDir, certName+"_key.pem")
-	pfxPath := filepath.Join(certDir, certName+".pfx")
-
-	if !dirExists(certDir) {
-		return fmt.Errorf("certificate directory %s does not exist", certDir)
-	}
-	if !dirExists(caDir) {
-		return fmt.Errorf("CA directory %s does not exist", caDir)
-	}
-	if !fileExists(certPath) || !fileExists(keyPath) {
-		return errors.New("server certificate or key not found")
-	}
-	rootDir, issuingCA, err := locateCA(caDir)
-	if err != nil {
-		return err
-	}
-	rootCertPath := filepath.Join(rootDir, "ca_cert.pem")
-	if !fileExists(rootCertPath) {
-		return fmt.Errorf("root CA certificate not found in %s", rootDir)
+	pfxPath := filepath.Join(filepath.Dir(certPath), strings.TrimSuffix(filepath.Base(certPath), "_cert.pem")+".pfx")
+	if fileExists(pfxPath) {
+		return errors.New("PKCS#12 (PFX) file already exists, aborting generation")
 	}
 	if password == "" {
 		password = "changeit"
 	}
-	if fileExists(pfxPath) {
-		return errors.New("PKCS#12 (PFX) file already exists, aborting generation")
-	}
-
 	fmt.Print("Generating PKCS#12 (PFX) file...")
-
-	cert, err := loadCert(certPath)
-	if err != nil {
-		return err
-	}
-	key, err := loadKey(keyPath)
-	if err != nil {
-		return err
-	}
-	root, err := loadCert(rootCertPath)
-	if err != nil {
-		return err
-	}
-	chain := []*x509.Certificate{root}
-	if issuingCA != "" {
-		issuing, err := loadCert(filepath.Join(caDir, "ca_cert.pem"))
-		if err != nil {
-			return err
-		}
-		chain = append(chain, issuing)
-	}
-
-	pfxBytes, err := pkcs12.Modern.Encode(key, cert, chain, password)
+	pfxBytes, err := encodePFX(certPath, caDir, password)
 	if err != nil {
 		return err
 	}
@@ -99,4 +55,52 @@ func makePFX(certPath, caDir, password string) error {
 	}
 	fmt.Println("done.")
 	return nil
+}
+
+// encodePFX returns the PKCS#12 bundle, protected with password, of the certificate at certPath,
+// its key next to it and the chain of the CA in caDir that signed it.
+func encodePFX(certPath, caDir, password string) ([]byte, error) {
+	certDir := filepath.Dir(certPath)
+	certName := strings.TrimSuffix(filepath.Base(certPath), "_cert.pem")
+	keyPath := filepath.Join(certDir, certName+"_key.pem")
+
+	if !dirExists(certDir) {
+		return nil, fmt.Errorf("certificate directory %s does not exist", certDir)
+	}
+	if !dirExists(caDir) {
+		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
+	}
+	if !fileExists(certPath) || !fileExists(keyPath) {
+		return nil, errors.New("server certificate or key not found")
+	}
+	rootDir, issuingCA, err := locateCA(caDir)
+	if err != nil {
+		return nil, err
+	}
+	rootCertPath := filepath.Join(rootDir, "ca_cert.pem")
+	if !fileExists(rootCertPath) {
+		return nil, fmt.Errorf("root CA certificate not found in %s", rootDir)
+	}
+	cert, err := loadCert(certPath)
+	if err != nil {
+		return nil, err
+	}
+	key, err := loadKey(keyPath)
+	if err != nil {
+		return nil, err
+	}
+	root, err := loadCert(rootCertPath)
+	if err != nil {
+		return nil, err
+	}
+	chain := []*x509.Certificate{root}
+	if issuingCA != "" {
+		issuing, err := loadCert(filepath.Join(caDir, "ca_cert.pem"))
+		if err != nil {
+			return nil, err
+		}
+		chain = append(chain, issuing)
+	}
+
+	return pkcs12.Modern.Encode(key, cert, chain, password)
 }

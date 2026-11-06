@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.11.5
+
+fix: the certificate page offers a PKCS#12 file with a random password to download, also after Create a certificate.
+
+- A certificate whose key is in the CA directory has a Download button, left of Revoke. It makes
+  the PKCS#12 file of the certificate, as `cert pfx` does, with a new random password; a dialog
+  shows the password once and offers the file, which the server does not keep.
+- Create a certificate ends with the same dialog for the new certificate and its key.
+- `POST /certificates/api/certs/pfx` returns the file and the password, `GET .../api/certs` tells
+  with `has_key` which certificates have a key, and `POST .../api/certs` returns the `serial`.
+
 ## 1.11.4
 
 fix: the signing forms and the setup and describe pages have a Cancel button in place of their links.

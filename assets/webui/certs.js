@@ -1,6 +1,7 @@
 // The certificate page of serve: the certificates and the CRL of the CA, and the dialog creating a
 // certificate or signing a request. The certificates and the CRL are written to the CA directory,
-// as the commands write them; the page offers no file.
+// as the commands write them; the PKCS#12 file of a certificate with a key there is offered for
+// download, with a new random password shown once.
 let signing = false;
 
 // showCA draws the certificates of the CA on the page, and its CRL.
@@ -19,6 +20,7 @@ async function showCA() {
     cell(time(c.expires), "whitespace-nowrap"),
     cell(c.revoked ? time(c.revoked) + (c.reason ? ", " + c.reason : "") : "-", "whitespace-nowrap"),
     element("td", { className: "py-1.5 text-right" }, element("div", { className: "flex justify-end gap-2" },
+      c.has_key ? button("Download", () => download(c.serial)) : null,
       c.status === "revoked" ? null : button("Revoke", () => revoke(c)),
       button("Show", () => show(c)))));
   const crl = answer.crl
@@ -38,6 +40,26 @@ async function showCA() {
     ca.has_key ? element("div", { className: "flex flex-wrap gap-2" },
       button("Create a certificate", () => openCert(false), true), button("Sign a request", () => openCert(true), true))
       : element("p", { className: "text-sm text-muted", textContent: "No key of this CA on this server" }));
+}
+
+// download makes the PKCS#12 file of the certificate with the serial number, with a new random
+// password, shows the password once, and offers the file in the same dialog.
+async function download(serial) {
+  let answer;
+  try {
+    answer = await api("POST", "/api/certs/pfx", { ca: caID, serial });
+  } catch (error) {
+    failed(error);
+    return;
+  }
+  const bytes = Uint8Array.from(atob(answer.pfx), (char) => char.charCodeAt(0));
+  showOnce(`The password of ${answer.file}, shown once:`, answer.password);
+  $("shown-download").classList.remove("hidden");
+  $("shown-download").onclick = () => {
+    const link = element("a", { href: URL.createObjectURL(new Blob([bytes], { type: "application/x-pkcs12" })), download: answer.file });
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 }
 
 // show shows the fields of the certificate c in its dialog.
@@ -132,6 +154,7 @@ $("cert-form").addEventListener("submit", async (event) => {
   const fields = event.target.elements;
   const common = { ca: caID, type: fields.type.value, days: Number(fields.days.value),
     ku: list(fields.ku.value), eku: list(fields.eku.value) };
+  let created = "";
   try {
     if (signing) {
       const answer = await api("POST", "/api/certs/sign", { ...common, name: fields.name.value.trim(), csr: fields.csr.value });
@@ -139,9 +162,13 @@ $("cert-form").addEventListener("submit", async (event) => {
     } else {
       const answer = await api("POST", "/api/certs", { ...common, subject: fields.subject.value.trim(), sans: list(fields.sans.value) });
       say(`Certificate ${answer.subject} and its key were written to the CA directory.`);
+      created = answer.serial;
     }
     $("cert-dialog").close();
     showCA();
+    if (created) {
+      download(created);
+    }
   } catch (error) {
     if (error.message !== "no token") {
       $("cert-error").textContent = error.message;

@@ -44,7 +44,7 @@ form. A record never holds a token, a setup code, an ID token, a key or a passwo
 | `ca.create` | `subject`, `days` |
 | `cert.issue` | `serial`, `subject`, `type`; `setup_code` for the signing API and form |
 | `cert.revoke` | `serial`, `reason` |
-| `cert.pfx` | `file`, the certificate the bundle was made of |
+| `cert.pfx` | `file`, the certificate the bundle was made of; also when the certificate page makes a file to download |
 | `crl.write` | `number` |
 | `token.create` | `name`, `scopes`, `setup_code` |
 | `token.renew` | `name`, `setup_code` |

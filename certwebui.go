@@ -23,6 +23,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -39,7 +40,7 @@ import (
 
 // webuiCert is a certificate of the API, as index.txt of its CA records it: its serial number, the
 // attributes of its subject, each a type and a value, its status, valid, revoked or expired, its
-// expiry, and when and why it was revoked.
+// expiry, when and why it was revoked, and whether the CA directory holds its key.
 type webuiCert struct {
 	Serial  string      `json:"serial"`
 	Subject [][2]string `json:"subject"`
@@ -47,6 +48,7 @@ type webuiCert struct {
 	Expires time.Time   `json:"expires"`
 	Revoked *time.Time  `json:"revoked"`
 	Reason  string      `json:"reason"`
+	HasKey  bool        `json:"has_key"`
 }
 
 // webuiCRL is the current CRL of a CA: its number, its next update, and whether that has passed.
@@ -80,14 +82,17 @@ type webuiCertRequest struct {
 //	GET  /api/certs?ca=ID     the certificates of a CA and its CRL
 //	GET  /api/certs/show?ca=ID&serial=HEX
 //	                          the content of a certificate, as cert show shows it
-//	POST /api/certs           creates a certificate, as cert create does
+//	POST /api/certs           creates a certificate, as cert create does, and returns its serial
+//	                          number
 //	POST /api/certs/sign      signs a certificate signing request, as cert sign does, and returns
 //	                          the name of the certificate file
+//	POST /api/certs/pfx       returns the PKCS#12 bundle of a certificate whose key the CA
+//	                          directory holds, as cert pfx makes it, with a new random password
 //	POST /api/certs/revoke    revokes a certificate, as cert revoke does
 //	POST /api/crl             writes the CRL of a CA, as crl create does
 //
 // The certificates and the CRL are written to the CA directory, as the commands write them; the
-// API returns no file.
+// bundle is not written, but returned with its password.
 func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/certs":
@@ -107,7 +112,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 		s.showCert(w, dir, r.URL.Query().Get("serial"))
 		return
 	case r.Method != http.MethodPost ||
-		!slices.Contains([]string{"/api/certs", "/api/certs/sign", "/api/certs/revoke", "/api/crl"}, r.URL.Path):
+		!slices.Contains([]string{"/api/certs", "/api/certs/sign", "/api/certs/pfx", "/api/certs/revoke", "/api/crl"}, r.URL.Path):
 		webuiFail(w, http.StatusNotFound, "no such request")
 		return
 	}
@@ -116,6 +121,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 	fields := map[string][]string{
 		"/api/certs":        {"ca", "type", "subject", "sans", "days", "ku", "eku"},
 		"/api/certs/sign":   {"ca", "type", "csr", "name", "days", "ku", "eku"},
+		"/api/certs/pfx":    {"ca", "serial"},
 		"/api/certs/revoke": {"ca", "serial", "reason"},
 		"/api/crl":          {"ca", "days"},
 	}[r.URL.Path]
@@ -144,7 +150,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		auditIssued(dir, cert, req.Type, s.auditActor()...)
-		webuiReply(w, http.StatusCreated, map[string]string{"subject": req.Subject})
+		webuiReply(w, http.StatusCreated, map[string]string{"subject": req.Subject, "serial": serialHex(cert.SerialNumber)})
 	case "/api/certs/sign":
 		// The certificate is named after the name given, as cert sign names it after the request
 		// file, and replaces an earlier certificate of the name.
@@ -168,6 +174,21 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		auditIssued(dir, cert, req.Type, s.auditActor()...)
 		webuiReply(w, http.StatusCreated, map[string]string{"file": file})
+	case "/api/certs/pfx":
+		certPath, ok := certFiles(dir)[req.Serial]
+		if !ok || !fileExists(strings.TrimSuffix(certPath, "_cert.pem")+"_key.pem") {
+			webuiFail(w, http.StatusNotFound, "no certificate file with a key of the CA directory holds the certificate "+req.Serial)
+			return
+		}
+		password := rand.Text()
+		bundle, err := encodePFX(certPath, dir, password)
+		if err != nil {
+			webuiFail(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		file := strings.TrimSuffix(filepath.Base(certPath), "_cert.pem") + ".pfx"
+		audit(dir, "cert.pfx", append([]any{"file", filepath.Base(certPath)}, s.auditActor()...)...)
+		webuiReply(w, http.StatusOK, map[string]any{"file": file, "password": password, "pfx": bundle})
 	case "/api/certs/revoke":
 		reason := ""
 		if req.Reason != "" {
@@ -212,6 +233,7 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 		return
 	}
 	now := time.Now()
+	files := certFiles(dir)
 	certs := []webuiCert{}
 	for _, e := range entries {
 		status, err := entryStatus(e, now)
@@ -225,6 +247,9 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 			return
 		}
 		c := webuiCert{Serial: e.serial, Subject: subjectAttributes(e.subject), Status: status, Expires: expires}
+		if path, ok := files[e.serial]; ok {
+			c.HasKey = fileExists(strings.TrimSuffix(path, "_cert.pem") + "_key.pem")
+		}
 		if e.revoked != "" {
 			if t, err := parseIndexTime(e.revoked); err == nil {
 				c.Revoked = &t
@@ -243,6 +268,22 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 		}
 	}
 	webuiReply(w, http.StatusOK, map[string]any{"certs": certs, "crl": crl})
+}
+
+// certFiles returns the certificate files NAME_cert.pem of the CA directory dir, besides that of
+// the CA, by the serial numbers of the certificates they hold.
+func certFiles(dir string) map[string]string {
+	paths, _ := filepath.Glob(filepath.Join(dir, "*_cert.pem"))
+	files := map[string]string{}
+	for _, path := range paths {
+		if filepath.Base(path) == "ca_cert.pem" {
+			continue
+		}
+		if cert, err := loadCert(path); err == nil {
+			files[serialHex(cert.SerialNumber)] = path
+		}
+	}
+	return files
 }
 
 // showCert answers with the file holding the certificate of the serial number serial, and the

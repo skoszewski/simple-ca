@@ -297,7 +297,11 @@ starting with the root CA:
   replaced, or which is not in the CA directory, cannot be shown;
 - **Create a certificate**: a dialog of `cert create`, with the type, the subject and the other
   names, the days, and the key usages and extended key usages added to those of the type; the
-  certificate and its key are written to the CA directory;
+  certificate and its key are written to the CA directory, and the dialog of **Download** follows;
+- **Download**: for a certificate whose key is in the CA directory, left of Revoke. It makes the
+  PKCS#12 file of the certificate, as `cert pfx` does, protected with a new random password. A
+  dialog shows the password once and offers the file; the file is not kept on the server, and each
+  Download makes a new password;
 - **Sign a request**: a dialog of `cert sign`, with the type, the name of the certificate file,
   the request in PEM, the days and the usages; the certificate is written to the CA directory as
   `NAME_cert.pem`, `NAME` cleaned as `cert sign` cleans the name of the request file;
@@ -327,10 +331,11 @@ simple-ca serve --ca-dir /etc/simple-ca --webui
 | Request | Body | Answer |
 |---|---|---|
 | `GET /certificates/api/cas` | | `title`, `user`, `user_ca`, `user_token`, the token signed in with, `cas`, the CAs the token opens, `types`, `names`, the name rules of each type, `reasons` and `defaults`, `days` and `crl_days` |
-| `GET /certificates/api/certs?ca=CA` | | `certs`, each with `serial`, `subject`, the attributes of its subject as type and value pairs, `status`, `expires`, `revoked` and `reason`; `crl`, with `number`, `next_update` and `overdue`, or null |
+| `GET /certificates/api/certs?ca=CA` | | `certs`, each with `serial`, `subject`, the attributes of its subject as type and value pairs, `status`, `expires`, `revoked`, `reason` and `has_key`, true when the CA directory holds the key of the certificate; `crl`, with `number`, `next_update` and `overdue`, or null |
 | `GET /certificates/api/certs/show?ca=CA&serial=SERIAL` | | `file`, the file holding the certificate, relative to the CA directory; `certificate`, its content, as `cert show` shows it: `subject` and `issuer`, as type and value pairs, `serial`, `not_before`, `not_after`, `validity` (`valid`, `not yet valid` or `expired`), `signature_algorithm`, `key` (`algorithm`, with `bits` or `curve`), `ca`, `path_length`, absent when unlimited, `key_usage`, `ext_key_usage`, `dns_names`, `ip_addresses`, `email_addresses`, `uris`, `registered_ids`, `subject_key_id`, `authority_key_id`, `ca_issuers`, `ocsp`, `crl_distribution_points` and `sha256_fingerprint`, the serial, the key IDs and the fingerprint in hex, a field the certificate does not have left out; `404 Not Found` when no file holds it |
-| `POST /certificates/api/certs` | `ca`, `type`, `subject`, `sans`, `days`, `ku`, `eku` | `201 Created`, `subject` |
+| `POST /certificates/api/certs` | `ca`, `type`, `subject`, `sans`, `days`, `ku`, `eku` | `201 Created`, `subject`, `serial` |
 | `POST /certificates/api/certs/sign` | `ca`, `type`, `name`, `csr`, `days`, `ku`, `eku` | `201 Created`, `file`, the name of the certificate file |
+| `POST /certificates/api/certs/pfx` | `ca`, `serial` | `file`, the name of the PKCS#12 file; `password`, a new random password; `pfx`, the file, base64 encoded; `404 Not Found` when no certificate file with a key holds the certificate |
 | `POST /certificates/api/certs/revoke` | `ca`, `serial`, `reason` | `serial` |
 | `POST /certificates/api/crl` | `ca`, `days` | `ca` |
 
