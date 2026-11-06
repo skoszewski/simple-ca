@@ -114,9 +114,6 @@
           <a class="rounded-lg bg-solid px-3 py-1.5 text-sm font-medium text-solid-ink hover:bg-solid-hover" href="{{.Path}}crl.crl">CRL (DER)</a>
           <a class="rounded-lg border border-field-line px-3 py-1.5 text-sm font-medium hover:bg-subtle" href="{{.Path}}crl.pem">CRL (PEM)</a>
           {{- end}}
-          {{- if .API}}
-          <a class="rounded-lg bg-action px-3 py-1.5 text-sm font-medium text-action-ink hover:bg-action-hover" href="{{.Path}}sign">Sign a request</a>
-          {{- end}}
         </div>
         <div class="flex justify-end">
           <button value="close" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Close</button>

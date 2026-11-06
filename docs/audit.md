@@ -137,12 +137,13 @@ simple-ca audit list --ca-dir /etc/simple-ca --ca ""
 With `--webui`, `serve` serves the audit page at `/audit/`, which a token with the scope `audit`
 opens; the index page and the token and certificate pages link to it. The page shows the audit
 log of the server, the root CA and all its issuing CAs together: the newest 1000 records, with the
-time, the event, the CA, the actor, the way and the client, and a column for each other key of the
-records shown, headed by the words of the key, such as Setup Code for `setup_code`. An issuing CA
-token sees the records of its own CA alone. A search and the filters of the event, the CA and the
-way pick the records, as on the token page, and the Columns picker hides and shows columns; the
-hidden ones are kept in the address as `?hide=`, their keys separated by commas, so a reload or a
-link keeps them, and a column new to the list is shown. A refused signing request
+time, the event, the CA, the actor, the way and the client. The Columns picker also offers a
+column for each other key of the records shown, headed by the words of the key, such as Setup Code
+for `setup_code`, and hides and shows any column; the columns shown are kept in the address as
+`?columns=`, their keys separated by commas, while they differ from the six of the start, so a
+reload or a link keeps them. An issuing CA token sees the records of its own CA alone. A search and
+the filters of the event, the CA and the way pick the records, as on the token page. A refused
+signing request
 is a record of the CA in its URL; the `auth` events of the token, certificate and audit pages, of
 the setup code exchange and of the OIDC sign-in are records of the root CA, as a refused credential
 names no CA.

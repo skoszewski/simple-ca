@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.11.3
+
+fix: the audit page shows the time, event, CA, actor, way and client at first, and the lists of the pickers are as wide as their widest choice.
+
+- The audit page starts with the columns Time, Event, CA, Actor, Via and Client; the Columns picker
+  shows the columns of the other keys of the records. The columns shown are kept in the address as
+  `?columns=` while they differ from these, in place of the hidden ones as `?hide=`.
+- An open picker list was as wide as its button, so with a scrollbar that takes width, such as
+  that of the Columns picker of the audit page, its longer choices were cut, as "Setup ...". The
+  list now grows to its widest choice, within the window, and keeps room for the scrollbar.
+- The Info dialog of a CA on the index page no longer has a "Sign a request" button; the row of
+  the CA keeps it.
+
 ## 1.11.2
 
 fix: the Columns picker of the audit page reads All, Some or None, in place of the names of every column shown.

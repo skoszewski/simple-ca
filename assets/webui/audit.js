@@ -37,7 +37,7 @@ async function showCA() {
     fixedCells[key] ? fixedCells[key](e) : cell(field(e, key) || "-", "font-mono text-xs whitespace-nowrap")));
   $("ca-section").replaceChildren(...[
     answer.entries.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No records." }) :
-      searchable({ items: answer.entries, row, noun: "records", headings, label: readable, hideable: true,
+      searchable({ items: answer.entries, row, noun: "records", headings, label: readable, shownColumns: fixed,
         text: (e) => [e.line],
         filters: [
           { name: "event", label: "Event", multiple: true, match: (e, values) => values.includes(e.event),

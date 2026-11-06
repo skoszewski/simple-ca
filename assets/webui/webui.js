@@ -216,9 +216,10 @@ const list = (text) => text.split(/[\s,]+/).filter(Boolean);
 // searchable returns the table of items with a search field, filter pickers and a count; the
 // search and the filters are kept in the address. headings is a list, or a function of the items
 // shown returning one, which row gets with its item, without the hidden ones; label gives the text
-// of a heading. With hideable, a picker chooses the columns shown, and the hidden ones are kept in
-// the address as ?hide=.
-function searchable({ items, text, row, headings, filters, noun, label = (h) => h, hideable = false }) {
+// of a heading. With shownColumns, the columns shown at first, a picker chooses the columns shown,
+// which are kept in the address as ?columns= while they differ from shownColumns.
+function searchable({ items, text, row, headings, filters, noun, label = (h) => h, shownColumns = null }) {
+  const hideable = shownColumns !== null;
   const words = () => (params.get("q") || "").toLowerCase().split(/\s+/).filter(Boolean);
   const chosen = (name) => (params.get(name) || "").split(",").filter(Boolean);
   const head = element("tr", {});
@@ -233,6 +234,7 @@ function searchable({ items, text, row, headings, filters, noun, label = (h) => 
     history.replaceState(null, "", base + "/?" + params);
   };
   const columnPicker = element("div", { className: "min-w-0" });
+  const visible = () => params.has("columns") ? chosen("columns") : shownColumns;
   let offered = "";
   const draw = () => {
     const wanted = words();
@@ -242,15 +244,22 @@ function searchable({ items, text, row, headings, filters, noun, label = (h) => 
         && filters.every(({ name, match }) => chosen(name).length === 0 || match(item, chosen(name)));
     });
     const all = typeof headings === "function" ? headings(shown) : headings;
-    const columns = hideable ? all.filter((h) => !chosen("hide").includes(h)) : all;
+    const columns = hideable ? all.filter((h) => visible().includes(h)) : all;
     // The picker is made again only when the columns offered change, so it stays open while used.
     if (hideable && all.join("\n") !== offered) {
       offered = all.join("\n");
       columnPicker.replaceChildren(picker({ name: "columns", labelledBy: "filter-columns",
         choices: all.map((h) => [h, label(h)]), value: columns, multiple: true, fit: true,
-        summary: (visible) => visible.length === all.length ? "All" : visible.length === 0 ? "None" : "Some",
-        onchange: (visible) => {
-          keep("hide", [...chosen("hide").filter((h) => !all.includes(h)), ...all.filter((h) => !visible.includes(h))].join(","));
+        summary: (picked) => picked.length === all.length ? "All" : picked.length === 0 ? "None" : "Some",
+        onchange: (picked) => {
+          // The columns shown that are not offered now stay shown.
+          const next = [...visible().filter((h) => !all.includes(h)), ...picked];
+          if (next.length === shownColumns.length && next.every((h) => shownColumns.includes(h))) {
+            params.delete("columns");
+          } else {
+            params.set("columns", next.join(","));
+          }
+          history.replaceState(null, "", base + "/?" + params);
           draw();
         } }));
     }

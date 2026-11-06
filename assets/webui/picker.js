@@ -25,8 +25,10 @@ function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}
   const shown = !fit ? current : element("span", { className: "grid min-w-0" }, current,
     ...choices.map(([, label]) => element("span", { className: "invisible col-start-1 row-start-1 truncate",
       ariaHidden: "true", textContent: label })));
+  // The list is as wide as the chooser, or as its widest choice, within the window; the choices
+  // keep room on the right for a scrollbar that takes width.
   const list = element("ul", { role: "listbox",
-    className: "absolute right-0 left-0 z-10 mt-1 max-h-80 overflow-y-auto rounded-lg border border-line bg-card py-1 text-sm shadow-lg" });
+    className: "absolute left-0 z-10 mt-1 max-h-80 w-max min-w-full max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-line bg-card py-1 text-sm shadow-lg" });
   const chooser = element("details", { id, className: "relative min-w-0" },
     element("summary", { className: "flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-field-line bg-field px-3 py-2 text-sm hover:border-action [&::-webkit-details-marker]:hidden" },
       shown, element("span", { className: "shrink-0 text-muted", ariaHidden: "true",
@@ -46,7 +48,7 @@ function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}
       : chosen.length === 0 ? labelOf("") || placeholder : chosen.map(labelOf).join(", ");
     current.title = current.textContent;
     list.replaceChildren(...choices.map(([v, label], i) => element("li", { role: "option", ariaSelected: String(picked(v)) },
-      element("button", { type: "button", className: "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-subtle" +
+      element("button", { type: "button", className: "flex w-full items-center gap-2 py-2 pr-7 pl-3 text-left hover:bg-subtle" +
         (picked(v) ? " font-semibold" : ""), onclick: (event) => {
         if (multiple) {
           // A choice toggles with the list kept open.
