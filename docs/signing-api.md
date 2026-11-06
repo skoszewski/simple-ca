@@ -180,7 +180,8 @@ and the token of the sign-in signs in when it has the scope of the page. A token
 scope of the page, or not allowed from the client, stays kept for the other pages of the tab, and
 another token given replaces it; an invalid token is forgotten. The page shows who is signed
 in, with a Sign out button; the name opens a dialog of the attributes of the token, as
-`token describe` prints them. A root CA token sees every CA; an issuing CA token sees only its
+`token describe` prints them. The index page shows the name too, with Sign out, when the token
+kept has the scope of one of the pages. A root CA token sees every CA; an issuing CA token sees only its
 own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
 root CA. On it you can:
 
@@ -295,11 +296,13 @@ TOKEN=$(printf '%s' "$answer" | jq -er '.token // empty' 2>/dev/null) || printf 
 
 An answer without a token is printed, and leaves `TOKEN` empty.
 
-The page `/token-setup`, "Set up a token" on the index page, the token, certificate and audit
-pages and the signing forms, does the same in a browser: it asks
+The page `/token-setup`, "Set up a token" on the index page and the token, certificate and audit
+pages, does the same in a browser: it asks
 for the code and shows the token once, with a Copy button and its attributes, as
 `token describe` prints them, or the error. With the [OIDC sign-in](oidc.md), it also has a
-"Sign in with LABEL" button, and shows the token of the sign-in once in the same way.
+"Sign in with LABEL" button, and shows the token of the sign-in once in the same way. Cancel, and
+Close once the token is shown, return to the page of `serve` it was opened from, or to the index
+page, as on the [signing form](#signing-form).
 
 ## Describe a token
 
@@ -307,7 +310,8 @@ The page `/token-describe`, "Describe a token" beside "Set up a token", shows th
 token pasted into it, as `token describe --ca-dir` prints them with the CA that signed it: it
 checks the token against the root CA and each issuing CA of the server, and names its CA. A token
 renewed, revoked or removed is shown as refused. A value that is no token of a CA of the server is
-refused, and counted as a refused token is.
+refused, and counted as a refused token is. Cancel returns to the page of `serve` it was opened
+from, or to the index page.
 
 ## Requests and responses
 
@@ -441,6 +445,8 @@ was. The signed certificate downloads as a PEM file named by the
 [file name rules](directory-layout.md): `web_cert.pem` for the CN `web.example.com`, or the serial
 number for a request without a name. If the request is
 refused, the form shows the error again, keeping the CSR and the type and clearing the token.
+Cancel returns to the page of `serve` the form was opened from, also after a refused request or
+an OIDC sign-in, or to the index page when it was opened otherwise.
 
 With the [OIDC sign-in](oidc.md), the form has a "Sign in with LABEL" button. The CSR and the
 type are kept while the browser is at the provider, and the token of the sign-in fills the token

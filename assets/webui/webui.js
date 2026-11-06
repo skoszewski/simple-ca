@@ -11,7 +11,8 @@ let info = null;
 const $ = (id) => document.getElementById(id);
 
 // api sends a request of the API of the page, below its path, and returns its answer; a token
-// refused asks for another, and the tab forgets it only when it is invalid.
+// refused asks for another, and the tab forgets it only when it is invalid. A request that succeeds
+// hides the error shown, and leaves the message.
 async function api(method, path, body) {
   const headers = { Authorization: "Bearer " + (sessionStorage.getItem(tokenName) || "") };
   if (body) {
@@ -30,6 +31,8 @@ async function api(method, path, body) {
   if (!response.ok) {
     throw new Error(answer.error || response.statusText);
   }
+  $("error").textContent = "";
+  $("error").classList.add("hidden");
   return answer;
 }
 
@@ -172,15 +175,17 @@ function choose(id) {
   showCA();
 }
 
-// currentCA puts the CA in the address, the chooser and the page links, applies its theme, and
-// returns it.
+// currentCA puts the CA in the address, the chooser and the links to the other pages, applies its
+// theme, and returns it.
 function currentCA() {
   params.set("ca", caID);
   history.replaceState(null, "", base + "/?" + params);
   const query = new URLSearchParams({ ca: caID });
-  $("tokens-link").href = "/tokens/?" + query;
-  $("certs-link").href = "/certificates/?" + query;
-  $("audit-link").href = "/audit/?" + query;
+  for (const [id, path] of [["tokens-link", "/tokens/"], ["certs-link", "/certificates/"], ["audit-link", "/audit/"]]) {
+    if ($(id)) {
+      $(id).href = path + "?" + query;
+    }
+  }
   $("ca-picker").replaceChildren(picker({ name: "ca", id: "ca-chooser", labelledBy: "ca-label",
     choices: info.cas.map((ca) => [ca.id, caRole(ca) + ": " + subjectName(ca.subject)]), value: caID, onchange: choose }));
   const ca = info.cas.find((ca) => ca.id === caID);

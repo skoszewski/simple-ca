@@ -10,3 +10,29 @@ for (const button of document.querySelectorAll("button[data-info]")) {
 if (location.hash) {
   document.getElementById(decodeURIComponent(location.hash.slice(1)))?.querySelector("button[data-info]")?.click();
 }
+
+// With the webui pages, the token kept in the tab by them is named by the first page accepting
+// it, and Sign out forgets it; a token refused as invalid is forgotten.
+const userRow = document.getElementById("user-row");
+const tokenName = "simple-ca-webui-token";
+if (userRow && sessionStorage.getItem(tokenName)) {
+  document.getElementById("sign-out").addEventListener("click", () => {
+    sessionStorage.removeItem(tokenName);
+    userRow.classList.replace("flex", "hidden");
+  });
+  (async () => {
+    for (const page of ["/tokens", "/certificates", "/audit"]) {
+      const response = await fetch(page + "/api/cas", { headers: { Authorization: "Bearer " + sessionStorage.getItem(tokenName) } });
+      if (response.status === 401) {
+        sessionStorage.removeItem(tokenName);
+        return;
+      }
+      if (response.ok) {
+        const info = await response.json();
+        document.getElementById("user").textContent = "Signed in as " + info.user + (info.user_ca ? " of issuing CA " + info.user_ca : "");
+        userRow.classList.replace("hidden", "flex");
+        return;
+      }
+    }
+  })();
+}

@@ -19,8 +19,8 @@ async function showCA() {
     cell(time(c.expires), "whitespace-nowrap"),
     cell(c.revoked ? time(c.revoked) + (c.reason ? ", " + c.reason : "") : "-", "whitespace-nowrap"),
     element("td", { className: "py-1.5 text-right" }, element("div", { className: "flex justify-end gap-2" },
-      button("Show", () => show(c)),
-      c.status === "revoked" ? null : button("Revoke", () => revoke(c)))));
+      c.status === "revoked" ? null : button("Revoke", () => revoke(c)),
+      button("Show", () => show(c)))));
   const crl = answer.crl
     ? element("span", {}, `CRL number ${answer.crl.number}, next update ${time(answer.crl.next_update)}`,
       answer.crl.overdue ? " " : "", answer.crl.overdue ? badge("overdue") : null)

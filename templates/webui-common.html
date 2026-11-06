@@ -1,7 +1,7 @@
-{{/* The parts the token and certificate pages share: the top of the page with the links to the
-     index page and to both pages and the CA chooser, and the dialogs asking for the token or a
-     setup code, showing a token or a code once, showing the signed-in token, and asking for a
-     confirmation. */}}
+{{/* The parts the token, certificate and audit pages share: the top of the page, titled with its
+     name, with the links to the index page and to the other pages, but not to itself, and the CA
+     chooser, and the dialogs asking for the token or a setup code, showing a token or a code once,
+     showing the signed-in token, and asking for a confirmation. */}}
 
 {{define "webui-top" -}}
         <div class="flex items-start justify-between gap-4 rounded-t-2xl bg-head px-6 py-4 text-head-ink">
@@ -12,9 +12,15 @@
               <a class="text-sm text-head-link hover:underline" href="/">All CAs</a>
               <a class="text-sm text-head-link hover:underline" href="/token-setup">Set up a token</a>
               <a class="text-sm text-head-link hover:underline" href="/token-describe">Describe a token</a>
+              {{- if ne . "Tokens"}}
               <a id="tokens-link" class="text-sm text-head-link hover:underline" href="/tokens/">Tokens</a>
+              {{- end}}
+              {{- if ne . "Certificates"}}
               <a id="certs-link" class="text-sm text-head-link hover:underline" href="/certificates/">Certificates</a>
+              {{- end}}
+              {{- if ne . "Audit log"}}
               <a id="audit-link" class="text-sm text-head-link hover:underline" href="/audit/">Audit log</a>
+              {{- end}}
             </div>
           </div>
           <div id="user-row" class="hidden items-center gap-3 text-sm">

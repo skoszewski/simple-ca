@@ -133,6 +133,21 @@ function readable(name) {
     .map((w) => readableAcronyms[w.toLowerCase()] || w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
+// A button with data-cancel goes to the page of serve its page was opened from, kept for the tab
+// across the page's own answers and the OIDC sign-in, or else to the index page.
+{
+  const fromKey = "simple-ca-from:" + location.pathname;
+  try {
+    const from = new URL(document.referrer);
+    if (from.origin === location.origin && from.pathname !== location.pathname && from.pathname !== "/oidc-callback") {
+      sessionStorage.setItem(fromKey, from.pathname + from.search);
+    }
+  } catch {}
+  for (const cancel of document.querySelectorAll("[data-cancel]")) {
+    cancel.addEventListener("click", () => location.assign(sessionStorage.getItem(fromKey) || "/"));
+  }
+}
+
 // A popup placed by the page's position is hidden once the page scrolls.
 addEventListener("scroll", () => {
   for (const popup of document.querySelectorAll('[role="tooltip"]')) {

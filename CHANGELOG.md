@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.11.4
+
+fix: the signing forms and the setup and describe pages have a Cancel button in place of their links.
+
+- Cancel returns to the page of `serve` the page was opened from, also after a refused request
+  or an OIDC sign-in, or to the index page; it does not use the history of the browser.
+- The links "All CAs", "Set up a token" and "Describe a token" are no longer on the signing forms,
+  also not on a form of a CA that signs no requests; "All CAs" and "Set up a token" are no longer
+  on the setup and describe pages. The setup page has Close in place of Cancel once the token is
+  shown.
+- The Show button of a certificate on the certificate page stands at the right of its row, after
+  Revoke, so it keeps its place whether the certificate can be revoked or not.
+- An error on the token, certificate and audit pages goes away with the next request that
+  succeeds, such as showing another certificate; it stayed until the page was loaded again. A
+  message such as "CRL written." stays.
+- The token, certificate and audit pages no longer link to themselves at the top; each links to
+  the other two.
+- With `--webui`, the index page shows "Signed in as NAME" with Sign out when the tab keeps the
+  token of a page, as the token, certificate and audit pages do; a token refused as invalid is
+  forgotten.
+
 ## 1.11.3
 
 fix: the audit page shows the time, event, CA, actor, way and client at first, and the lists of the pickers are as wide as their widest choice.
