@@ -11,9 +11,10 @@
 # openssl makes an EC P-256 key and a certificate signing request for the CN, with the CN and the
 # DNS names as its DNS names; curl sends it to the signing API of the CA at CA_URL, such as
 # https://pki.example.com/servers, with a token made by simple-ca token create, in
-# SIMPLE_CA_TOKEN or in the file SIMPLE_CA_TOKEN_FILE names, and the certificate type in
-# SIMPLE_CA_TYPE, the first type of the token when it is unset; jq builds the request and reads
-# the response. curl reads the
+# SIMPLE_CA_TOKEN or in the file SIMPLE_CA_TOKEN_FILE names, the certificate type in
+# SIMPLE_CA_TYPE, server when it is unset, the validity in days in SIMPLE_CA_DAYS, 365 when it is
+# unset, and the name of the certificate file of the CA directory, the prefix of the files written
+# here; jq builds the request and reads the response. curl reads the
 # token from a file in a private temporary directory, so it does not show in the process list.
 # The key, the certificate and the chain are written to CN_key.pem, CN_cert.pem and CN_chain.pem,
 # a wildcard CN *.NAME as wildcard.NAME; the key only once the certificate is signed.
@@ -111,8 +112,15 @@ if ! openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout
   exit 1
 fi
 
-jq -n --rawfile csr "$tmp/request.csr" --arg type "${SIMPLE_CA_TYPE:-}" \
-  '{csr: $csr} + (if $type == "" then {} else {type: $type} end)' > "$tmp/request.json"
+days=${SIMPLE_CA_DAYS:-365}
+case $days in
+  '' | *[!0-9]*)
+    echo "SIMPLE_CA_DAYS: '$days' is not a number of days" >&2
+    exit 1
+    ;;
+esac
+jq -n --rawfile csr "$tmp/request.csr" --arg type "${SIMPLE_CA_TYPE:-server}" --argjson days "$days" \
+  --arg name "$prefix" '{csr: $csr, type: $type, days: $days, name: $name}' > "$tmp/request.json"
 printf "Authorization: Bearer %s\n" "$token" > "$tmp/headers"
 status=$(curl -sS -o "$tmp/response" -w "%{http_code}" -X POST \
   -H "@$tmp/headers" -H "Content-Type: application/json" \

@@ -145,7 +145,7 @@ func TestAudit(t *testing.T) {
 		return resp.StatusCode, answer
 	}
 	if status, _ := call(admin, "POST", "/tokens/api/tokens", map[string]any{"ca": "servers", "name": "web", "valid": "1h",
-		"scopes": []string{"sign"}, "domains": []string{"example.com"}}); status != http.StatusCreated {
+		"scopes": []string{"sign"}, "types": []string{"server"}, "domains": []string{"example.com"}}); status != http.StatusCreated {
 		t.Fatalf("create a token on the token page: %d", status)
 	}
 	if e := last(); e.Event != "token.create" || field(e, "via") != "webui" || field(e, "actor") != "admin" || field(e, "client") != "127.0.0.1" {
@@ -160,8 +160,9 @@ func TestAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, answer := call(signer, "POST", "/servers/api/sign", map[string]string{
-		"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))})
+	status, answer := call(signer, "POST", "/servers/api/sign", map[string]any{
+		"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})), "type": "server", "name": "web",
+		"days": 30})
 	if e := last(); status != http.StatusOK || e.Event != "cert.issue" || field(e, "serial") != answer["serial"] ||
 		field(e, "via") != "api" || field(e, "actor") != "signer" {
 		t.Errorf("signing API: %d, %s, want cert.issue of serial %v by signer", status, e.Line, answer["serial"])

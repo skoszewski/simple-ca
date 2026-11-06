@@ -4,7 +4,8 @@ title: Development
 
 ## Building
 
-`./build.mjs` needs Node.js and Go; the tests need `openssl` on the `PATH`.
+`./build.mjs` needs Node.js and Go; the tests need `openssl` on the `PATH`. It writes the
+executables to `build/`, which `.gitignore` leaves out.
 
 ```sh
 ./build.mjs                    # build simple-ca, request-cert and token-setup for the host,
@@ -17,8 +18,8 @@ title: Development
                                # build simple-ca-trust-windows-arm64.exe carrying the .NET runtime
 ./build.mjs test               # run the tests
 ./build.mjs check              # check formatting, vet and run the tests
-./build.mjs clean              # remove the built executables, build/, dist/ and the build
-                               # files of trust/macos and trust/windows
+./build.mjs clean              # remove build/, dist/ and the build files of trust/macos and
+                               # trust/windows
 ./build.mjs assets             # download the browser files of the /help/ and /docs/ pages
 ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]
                                # build simple-ca:<version> and simple-ca:latest; --push pushes them
@@ -50,11 +51,13 @@ only; and the .NET 10 SDK from `trust/windows/` for `windows/*` on any host, pub
 single `simple-ca-trust.exe` that runs on the .NET 10 runtime installed on the machine, or
 carries it with `--self-contained`. `build.mjs` writes the project file of the Windows version,
 `trust/windows/simple-ca-trust.csproj`, which is not in the repository, for each build. A
-platform the host cannot build for is skipped with a note. The release workflow builds the
-macOS version for `darwin/amd64` and `darwin/arm64` on GitHub's Xcode 27 image, and the Windows
-version for `windows/amd64` and `windows/arm64`, running on the installed .NET runtime, with
-`build.mjs trust`, and publishes them as `simple-ca-trust-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip`
-for Windows; [Trust stores](trust.md) has the commands for building it by hand.
+platform the host cannot build for is skipped with a note. The release workflow builds the Go
+version for `linux/amd64` and `linux/arm64`, the macOS version for `darwin/amd64` and
+`darwin/arm64` on GitHub's Xcode 27 image, and the Windows version for `windows/amd64` and
+`windows/arm64`, running on the installed .NET runtime, with `build.mjs trust`, and packs each
+into the archive of its platform, `simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` for Windows,
+with `simple-ca`, `request-cert` and `token-setup`; [Trust stores](trust.md) has the commands for
+building it by hand.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
 are run with `./build.mjs test` or `./build.mjs check`. It refuses a tag that is not on `main` or

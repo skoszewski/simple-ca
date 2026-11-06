@@ -51,9 +51,9 @@ such as `web-deploy`. A name is used by one token of a CA at a time.
 Options not given default to the `tokens` section of [simple-ca.json](configuration.md). For
 example, with `"tokens": {"domains": ["*"], "networks": ["192.168.1.0/24"]}`, `token create NAME`
 makes a lab token for any name, used from 192.168.1.0/24, and `--domain example.com` limits one
-token to `example.com`. `--host` and `--network` together replace both `hosts` and `networks`, and
-`--localhost=false` turns off a `localhost` default. The defaults of `--type`, `--domain`, `--ip`
-and `--localhost` apply only to tokens with the scope `sign`.
+token to `example.com`. `--host` and `--network` together replace both `hosts` and `networks`.
+The defaults of `--type`, `--domain` and `--ip` apply only to tokens with the scope `sign`.
+`--localhost` has no default: it is given for each token that allows it.
 
 ### One-time setup codes
 
@@ -197,8 +197,9 @@ root CA. On it you can:
   A count tells how many are shown. The search and the filters are kept in the address, as `?q=`,
   `?status=`, `?scope=` and `?kind=`, several values separated by commas, so a reload or a link
   keeps them;
-- renew a token, as `token renew` does, confirming first, with a setup code in place of its JWT
-  when "One-time setup code" is checked in the question;
+- renew a token, as `token renew` does, confirming first, for the validity of "Valid for", the
+  one it had by default, with a setup code in place of its JWT when "One-time setup code" is
+  checked in the question;
 - revoke a token, or remove a revoked or expired one, or all of them, as `token purge` does,
   confirming first;
 - create a token with the options of `token create`, in a dialog filled with the `tokens`
@@ -233,24 +234,29 @@ with the name of the token that made it.
 The API of the page, below `/tokens/api/`, answers with JSON and takes the token as the bearer
 token of every request: `Authorization: Bearer TOKEN`.
 
-- `400 Bad Request` - a body that is not a JSON object of the request, a `valid` or `otc_valid`
-  that is not a duration, or a token that cannot be created, renewed, revoked or removed as asked,
-  such as an invalid name or option;
-- `401 Unauthorized` - no token, or an invalid, revoked, expired or unknown one;
+- `400 Bad Request` - a body that is not a JSON object of the request, a field the request does
+  not use, a field it needs left out, a `valid` or `otc_valid` that is not a duration, or a token
+  that cannot be created, renewed, revoked or removed as asked, such as an invalid name;
+- `401 Unauthorized` - no token, or an invalid, revoked, expired or unknown one; a request without
+  a token is recorded as `auth.refused` in the [audit log](audit.md), as a refused token is;
 - `403 Forbidden` - a token without the scope `tokens`, a client the token does not allow, or
   creating, renewing, revoking or removing a token with a scope the signed-in token does not have;
 - `404 Not Found` - a CA the token does not open;
 - `429 Too Many Requests` - a client held back after refused tokens, see
   [Refused credentials](#refused-credentials).
 
-`CA` is the name of an issuing CA, or empty for the root CA. An error is `{"error": "..."}`.
+`CA` is the name of an issuing CA, or empty for the root CA. An error is `{"error": "..."}`. The
+API takes no defaults, unlike `token create` and `token renew`: a create gives `valid` and
+`scopes`, and `types` for the scope `sign`, a renew gives `valid`, and a setup code gives
+`otc_valid`. The token page fills in the defaults of the commands, from `tokens` of
+`simple-ca.json`; `localhost` is never a default.
 
 | Request | Body | Answer |
 |---|---|---|
 | `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json`, with only the scopes of them the token can give, or `sign` without any, and `otc_valid`, always 15 minutes |
-| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `issued`, `expires`, the expiry of its setup code when it is `pending`, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, `certs`, the serials of the certificates issued with it, and `oidc`, the `issuer`, `subject` and `user` of the OIDC user it was made for, or null |
+| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `issued`, `expires`, the expiry of its setup code when it is `pending`, `valid`, the validity `token renew` keeps, empty for a revoked token, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, `certs`, the serials of the certificates issued with it, and `oidc`, the `issuer`, `subject` and `user` of the OIDC user it was made for, or null |
 | `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
-| `POST /tokens/api/tokens/renew` | `ca`, `name`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `name` and `token`, the new JWT, or `code`, the setup code |
+| `POST /tokens/api/tokens/renew` | `ca`, `name`, `valid`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `name` and `token`, the new JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/revoke` | `ca`, `name` | `name` |
 | `POST /tokens/api/tokens/purge` | `ca`, and `name` for one token | `removed`, the count |
 
@@ -295,6 +301,14 @@ for the code and shows the token once, with a Copy button and its attributes, as
 `token describe` prints them, or the error. With the [OIDC sign-in](oidc.md), it also has a
 "Sign in with LABEL" button, and shows the token of the sign-in once in the same way.
 
+## Describe a token
+
+The page `/token-describe`, "Describe a token" beside "Set up a token", shows the attributes of a
+token pasted into it, as `token describe --ca-dir` prints them with the CA that signed it: it
+checks the token against the root CA and each issuing CA of the server, and names its CA. A token
+renewed, revoked or removed is shown as refused. A value that is no token of a CA of the server is
+refused, and counted as a refused token is.
+
 ## Requests and responses
 
 `serve` signs certificate signing requests sent to `/api/sign` for the root CA, and to
@@ -306,13 +320,31 @@ of at most 64 KiB:
 ```json
 {
   "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...",
-  "type": "server"
+  "type": "server",
+  "name": "web",
+  "days": 90,
+  "ku": [
+    "digitalSignature"
+  ],
+  "eku": [
+    "serverAuth"
+  ]
 }
 ```
 
-`csr` is the request in PEM. `type` must be one of the types the token allows; it defaults to the
-token's first type, or `server` for a token with the type `*`. The names in the request are
-checked by the name rules of the type, `names` in [simple-ca.json](configuration.md):
+The API takes no defaults, as `cert sign` takes them from its options:
+
+- `csr` - the request in PEM;
+- `type` - the certificate type, one of the types the token allows;
+- `name` - the name of the certificate file, as `cert sign` takes the name of the request file:
+  each run of characters other than letters, digits, hyphens and underscores becomes one `_`, so
+  `web` is stored as `web_cert.pem`; the name `ca`, whose file is the CA certificate, is refused;
+- `days` - the validity in days;
+- `ku` and `eku` - key usages and extended key usages added to those of the type, as `--ku` and
+  `--eku` of `cert sign` add them; either may be left out.
+
+The names in the request are checked by the name rules of the type, `names` in
+[simple-ca.json](configuration.md):
 
 - the subject may hold only a CN and `emailAddress`, and the SANs only DNS names, email addresses
   and IP addresses;
@@ -323,9 +355,10 @@ checked by the name rules of the type, `names` in [simple-ca.json](configuration
   address is required, and no DNS name or IP address is allowed; the CN is free text.
 
 The certificate gets the subject and the SANs of the request, and the key usages, extended key
-usages, AIA and CRL Distribution Point URLs that `cert create` gives the type. It is valid for
-`days.cert` of `simple-ca.json`, or 365 days. It is recorded in `index.txt`, and its serial
-number in the token's entry in `tokens-db.json`. The response is JSON:
+usages, AIA and CRL Distribution Point URLs that `cert create` gives the type, with those of `ku`
+and `eku`. It is stored in the CA directory as `NAME_cert.pem`, replacing the file of an earlier
+certificate of the name, as the [directory layout](directory-layout.md) describes, recorded in
+`index.txt`, and its serial number in the token's entry in `tokens-db.json`. The response is JSON:
 
 ```json
 {
@@ -338,9 +371,11 @@ number in the token's entry in `tokens-db.json`. The response is JSON:
 `chain` holds the certificate and, for an issuing CA, the issuing CA certificate. An error is
 `{"error": "..."}` with one of these statuses:
 
-- `400 Bad Request` - a malformed body or request;
-- `401 Unauthorized` - the token is missing, belongs to another CA, or is revoked, expired or
-  unknown (as the old JWT of a renewed token is);
+- `400 Bad Request` - a malformed body or request, a field missing, a name that gives no file
+  name or is `ca`, or a key usage or extended key usage that is not one;
+- `401 Unauthorized` - the token is missing, belongs to another CA, which the error names, or is
+  revoked, expired or unknown (as the old JWT of a renewed token is); a request without a token is
+  recorded as `auth.refused` in the [audit log](audit.md), as a refused token is;
 - `403 Forbidden` - the token has no scope `sign`, does not allow the type or a name, or is not
   accepted from the client, or the request breaks the name rules above, such as a subject
   attribute other than CN and `emailAddress`, or a SAN other than a DNS name, an email address
@@ -357,9 +392,10 @@ keys. Without `--tls-cert`, tokens are sent in clear.
 TOKEN=$(simple-ca token create --ca-dir /tmp/ca/servers --domain example.com deploy)
 openssl req -new -newkey rsa:2048 -nodes -keyout web_key.pem -subj /CN=web.example.com \
   -addext subjectAltName=DNS:web.example.com -out web.csr
-jq -n --rawfile csr web.csr '{csr: $csr}' | curl -s -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' --data @- http://pki.example.com:8080/servers/api/sign |
-  jq -r .certificate > web_cert.pem
+CA_URL=http://pki.example.com:8080/servers
+jq -n --rawfile csr web.csr '{csr: $csr, type: "server", name: "web", days: 90}' |
+  curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @- \
+  "$CA_URL/api/sign" | jq -r .certificate > web_cert.pem
 ```
 
 [examples.md](examples.md) describes the API clients in `examples/` and `cmd/request-cert/`, in

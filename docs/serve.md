@@ -68,6 +68,7 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/NAME/sign` | the signing form of the issuing CA `NAME` | `text/html` |
 | `/token-setup` | the exchange of a [setup code](signing-api.md#setup-code-exchange) for its token | `text/html` |
 | `/api/token-setup` | the exchange of a setup code, `POST` | `application/json` |
+| `/token-describe` | the attributes of a token pasted into it, see [Describe a token](signing-api.md#describe-a-token) | `text/html` |
 | `/api/oidc` | the settings of the [OIDC sign-in](oidc.md), `404 Not Found` when it is off, `502 Bad Gateway` when the discovery document of the provider cannot be read | `application/json` |
 | `/api/oidc-token` | the exchange of an ID token for the token of its user, `POST` | `application/json` |
 | `/oidc-callback` | the page the OIDC provider sends the browser back to, its redirect URI | `text/html` |

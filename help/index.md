@@ -100,20 +100,21 @@ The subject holds a CN and, for a user certificate, an `emailAddress`, and nothi
 
 ### Send the request
 
-The request is a `POST` of JSON with the CSR, and the token as a bearer token:
+The request is a `POST` of JSON with the CSR, the certificate type, a name for the copy of the
+certificate the CA keeps, and its validity in days, and the token as a bearer token:
 
 ```sh
-jq -n --rawfile csr web.csr '{csr: $csr}' |
+TYPE=server
+NAME=web
+DAYS=90
+jq -n --rawfile csr web.csr --arg type "$TYPE" --arg name "$NAME" --argjson days "$DAYS" \
+  '{csr: $csr, type: $type, name: $name, days: $days}' |
   curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
     --data @- "$API" > web.json
 ```
 
-`type` names the certificate type, when the token allows more than one; without it, the first
-type of the token is used:
-
-```sh
-jq -n --rawfile csr web.csr '{csr: $csr, type: "server"}'
-```
+`type` is one of the types the token allows. The CA keeps the certificate as `NAME_cert.pem`,
+replacing an earlier one of the name; the name `ca` is refused.
 
 ### Save the certificate
 
@@ -141,8 +142,8 @@ status, and `jq -r .error web.json` prints from the answer saved above:
 
 | Status | Meaning |
 |---|---|
-| `400 Bad Request` | the body is not JSON with `csr` and `type`, or the CSR does not read |
-| `401 Unauthorized` | the token is missing, expired, revoked, or of another CA |
+| `400 Bad Request` | the body is not JSON with `csr`, `type`, `name` and `days`, or the CSR does not read |
+| `401 Unauthorized` | the token is missing, expired, revoked, or of another CA, which the error names |
 | `403 Forbidden` | the token does not allow a name, an address or the type, whose error names the types it allows, or your address |
 | `404 Not Found` | the CA does not sign requests here |
 | `415 Unsupported Media Type` | the `Content-Type` header is not `application/json` |

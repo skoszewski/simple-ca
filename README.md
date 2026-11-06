@@ -17,8 +17,8 @@ requests.
 
 Download the archive for your platform from the
 [releases](https://github.com/skoszewski/simple-ca/releases) and put `simple-ca` on your `PATH`;
-the archive also holds `request-cert`, the Go client of the signing API, and `token-setup`, which
-exchanges a setup code for its token.
+the archive also holds `request-cert`, the Go client of the signing API, `token-setup`, which
+exchanges a setup code for its token, and `simple-ca-trust`, which adds the CAs to the trust store.
 With Go installed:
 
 ```sh

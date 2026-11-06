@@ -88,11 +88,11 @@ writes it, and it can be written or edited by hand. A setting not described here
   - `request_log` - `true` logs each request, `false` by default; `serve --request-log` sets it.
 - `tokens` - the defaults of [token create](signing-api.md#token-create-list-renew-revoke-and-purge);
   the option of the same name overrides each: `valid`, a duration such as `8h`, `scopes`,
-  `types`, `domains`, `ips`, `localhost`, `hosts`, and `networks`, a list of prefixes. `--host`
-  and `--network` together replace both `hosts` and `networks`. `types`, `domains`, `ips` and
-  `localhost` apply only to tokens with the scope `sign`; `scopes` and `types` may be `["*"]`,
-  every scope or every type. `keep_expired`, a duration such as `720h`, is how long `serve` keeps
-  an expired or revoked token before removing it; without it, such tokens stay until
+  `types`, `domains`, `ips`, `hosts`, and `networks`, a list of prefixes. `--host` and
+  `--network` together replace both `hosts` and `networks`. `types`, `domains` and `ips` apply
+  only to tokens with the scope `sign`; `--localhost` has no default. `scopes` and `types` may be
+  `["*"]`, every scope or every type. `keep_expired`, a duration such as `720h`, is how long
+  `serve` keeps an expired or revoked token before removing it; without it, such tokens stay until
   `token purge` removes them.
 - `types` - certificate types for `cert create --type` and `cert sign --type`, by **kebab-case**
   name: words of lower-case letters and digits joined by hyphens, such as `web-server`. A type

@@ -25,6 +25,7 @@ package main
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -111,8 +112,19 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The fields each request uses; the API takes no defaults, so those it needs are required.
+	fields := map[string][]string{
+		"/api/certs":        {"ca", "type", "subject", "sans", "days", "ku", "eku"},
+		"/api/certs/sign":   {"ca", "type", "csr", "name", "days", "ku", "eku"},
+		"/api/certs/revoke": {"ca", "serial", "reason"},
+		"/api/crl":          {"ca", "days"},
+	}[r.URL.Path]
 	var req webuiCertRequest
-	if !webuiDecode(w, r, &req) {
+	if !webuiDecode(w, r, &req, fields...) {
+		return
+	}
+	if (r.URL.Path == "/api/certs" || r.URL.Path == "/api/certs/sign") && strings.TrimSpace(req.Type) == "" {
+		webuiFail(w, http.StatusBadRequest, "type: the certificate type is required")
 		return
 	}
 	dir, ok := s.caDir(req.CA)
@@ -124,26 +136,25 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 	case "/api/certs":
 		cert, err := makeCert(strings.TrimSpace(req.Subject), req.SANs, dir, "", req.Type, req.Days, req.EKU, req.KU)
 		switch {
+		case errors.Is(err, errCertExists):
+			webuiFail(w, http.StatusConflict, err.Error())
+			return
 		case err != nil:
 			webuiFail(w, http.StatusBadRequest, err.Error())
-			return
-		case cert == nil:
-			webuiFail(w, http.StatusConflict, "a certificate with the files of this name exists already in the CA directory")
 			return
 		}
 		auditIssued(dir, cert, req.Type, s.auditActor()...)
 		webuiReply(w, http.StatusCreated, map[string]string{"subject": req.Subject})
 	case "/api/certs/sign":
-		// The certificate is named after the name given, each run of characters besides letters,
-		// digits, - and _ as one _, as cert sign names it after the request file.
-		name := strings.Trim(fileNameRE.ReplaceAllString(strings.TrimSpace(req.Name), "_"), "_")
-		if name == "" || strings.ContainsAny(req.Name, `/\`) {
-			webuiFail(w, http.StatusBadRequest, "name: the file name of the certificate is required, without a directory")
+		// The certificate is named after the name given, as cert sign names it after the request
+		// file, and replaces an earlier certificate of the name.
+		if strings.ContainsAny(req.Name, `/\`) {
+			webuiFail(w, http.StatusBadRequest, "name: the file name of the certificate is given without a directory")
 			return
 		}
-		file := name + "_cert.pem"
-		if fileExists(filepath.Join(dir, file)) {
-			webuiFail(w, http.StatusConflict, "a certificate "+file+" exists already in the CA directory")
+		file, err := certFile(req.Name)
+		if err != nil {
+			webuiFail(w, http.StatusBadRequest, "name: "+err.Error())
 			return
 		}
 		cert, err := requestCert(dir, []byte(req.CSR), req.Type, req.Days, req.EKU, req.KU)
@@ -177,7 +188,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 		case err != nil:
 			webuiFail(w, http.StatusBadRequest, err.Error())
 		case !revoked:
-			webuiFail(w, http.StatusBadRequest, "the certificate is revoked already")
+			webuiFail(w, http.StatusBadRequest, "certificate "+req.Serial+" is revoked already")
 		default:
 			audit(dir, "cert.revoke", append([]any{"serial", req.Serial, "reason", reason}, s.auditActor()...)...)
 			webuiReply(w, http.StatusOK, map[string]string{"serial": req.Serial})

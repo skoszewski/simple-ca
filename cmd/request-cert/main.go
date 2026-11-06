@@ -25,6 +25,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -42,6 +43,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -71,8 +73,19 @@ func run() error {
 		"`file` holding the token, instead of SIMPLE_CA_TOKEN, or the token of --setup-code is\n"+
 			"written to (default: SIMPLE_CA_TOKEN_FILE)")
 	setupCode := flag.String("setup-code", "", "one-time setup `code` exchanged for the token")
-	certType := flag.String("type", os.Getenv("SIMPLE_CA_TYPE"),
-		"certificate `type` (default: SIMPLE_CA_TYPE, else the first type of the token)")
+	certType := flag.String("type", cmp.Or(os.Getenv("SIMPLE_CA_TYPE"), "server"),
+		"certificate `type` (default: SIMPLE_CA_TYPE, else server)")
+	envDays := 365
+	if v := os.Getenv("SIMPLE_CA_DAYS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("SIMPLE_CA_DAYS: '%s' is not a number of days", v)
+		}
+		envDays = n
+	}
+	days := flag.Int("days", envDays, "validity period in `days` (default: SIMPLE_CA_DAYS, else 365)")
+	name := flag.String("name", "", "`name` of the certificate file of the CA directory, NAME_cert.pem\n"+
+		"(default: the CN, as the files written here)")
 	outDir := flag.String("out-dir", ".", "`directory` the key, the certificate and the chain are written to")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
@@ -133,6 +146,7 @@ func run() error {
 	if rest, ok := strings.CutPrefix(cn, "*."); ok {
 		prefix = "wildcard." + rest
 	}
+	fileName := cmp.Or(*name, prefix)
 	prefix = filepath.Join(*outDir, prefix)
 	keyPath, certPath, chainPath := prefix+"_key.pem", prefix+"_cert.pem", prefix+"_chain.pem"
 	if _, err := os.Stat(keyPath); err == nil {
@@ -155,11 +169,8 @@ func run() error {
 		return err
 	}
 
-	request := map[string]string{"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr}))}
-	if *certType != "" {
-		request["type"] = *certType
-	}
-	body, err := json.Marshal(request)
+	body, err := json.Marshal(map[string]any{"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
+		"type": *certType, "days": *days, "name": fileName})
 	if err != nil {
 		return err
 	}

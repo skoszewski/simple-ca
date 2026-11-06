@@ -80,7 +80,7 @@ func revocationReason(revoked string) (string, int, error) {
 // revoked, with the CRL number of its crlnumber, which it then raises.
 func makeCRL(caDir string, days int) error {
 	if days < 1 {
-		return errors.New("--days must be a positive integer")
+		return errors.New("the validity in days must be a positive integer")
 	}
 
 	signingDir := caDir
@@ -227,8 +227,7 @@ func revokeCert(certPath, caDir, reason string) error {
 		return err
 	}
 	if !revoked {
-		fmt.Printf("Certificate %s (serial %s) is already revoked.\n", certPath, serial)
-		return nil
+		return fmt.Errorf("certificate %s is revoked already", serial)
 	}
 	audit(signingDir, "cert.revoke", "serial", serial, "reason", reason, "via", "cli", "actor", cliActor())
 	if reason != "" {

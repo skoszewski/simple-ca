@@ -108,14 +108,13 @@ type webuiCA struct {
 // simple-ca.json; the scopes are those of them the token of the request grants, and the validity
 // of a setup code is tokenSetupValid.
 type webuiDefaults struct {
-	Valid     string   `json:"valid"`
-	Scopes    []string `json:"scopes"`
-	Types     []string `json:"types"`
-	Domains   []string `json:"domains"`
-	IPs       []string `json:"ips"`
-	Clients   []string `json:"clients"`
-	Localhost bool     `json:"localhost"`
-	OTCValid  string   `json:"otc_valid"`
+	Valid    string   `json:"valid"`
+	Scopes   []string `json:"scopes"`
+	Types    []string `json:"types"`
+	Domains  []string `json:"domains"`
+	IPs      []string `json:"ips"`
+	Clients  []string `json:"clients"`
+	OTCValid string   `json:"otc_valid"`
 }
 
 // webuiToken is a token of the API: its name, its issue time and its expiry, the expiry of its
@@ -126,6 +125,7 @@ type webuiToken struct {
 	Name    string     `json:"name"`
 	Issued  time.Time  `json:"issued"`
 	Expires time.Time  `json:"expires"`
+	Valid   string     `json:"valid"`
 	Revoked bool       `json:"revoked"`
 	Expired bool       `json:"expired"`
 	Pending bool       `json:"pending"`
@@ -141,9 +141,20 @@ type webuiToken struct {
 // newWebuiToken returns the token name of tokens-db.json, t, as the API answers with it, expired
 // or not at the time now.
 func newWebuiToken(name string, t *apiToken, now time.Time) webuiToken {
-	return webuiToken{Name: name, Issued: t.Issued, Expires: t.Expires, Revoked: t.revoked(), Expired: !now.Before(t.Expires),
-		Pending: t.pending(), Scopes: t.scopes(), Types: t.Types, Domains: t.Domains, IPs: t.IPs, Clients: t.Clients,
-		Certs: append([]string{}, t.Certs...), OIDC: t.OIDC}
+	// The validity token renew keeps: that of the token, or of a pending token once its code is
+	// exchanged; none for a revoked token, which takes the default of token create.
+	valid := ""
+	switch {
+	case t.pending():
+		if d, err := time.ParseDuration(t.Setup.Valid); err == nil {
+			valid = durationText(d)
+		}
+	case !t.revoked():
+		valid = durationText(t.Expires.Sub(t.Issued))
+	}
+	return webuiToken{Name: name, Issued: t.Issued, Expires: t.Expires, Valid: valid, Revoked: t.revoked(),
+		Expired: !now.Before(t.Expires), Pending: t.pending(), Scopes: t.scopes(), Types: t.Types, Domains: t.Domains,
+		IPs: t.IPs, Clients: t.Clients, Certs: append([]string{}, t.Certs...), OIDC: t.OIDC}
 }
 
 // webuiRequest is the body of a request changing the tokens of the CA CA: the token Name, and,
@@ -189,6 +200,8 @@ func (s *webuiServer) authenticate(w http.ResponseWriter, r *http.Request) bool 
 	var err error = apiErr(http.StatusUnauthorized, "a token with the scope %s is required", scope)
 	if given = strings.TrimSpace(given); given != "" {
 		err = guard.attempt(w, r, s.rootDir, func() error { return s.identify(given, scope, client) })
+	} else {
+		auditRefused(r, s.rootDir, "a token with the scope "+scope+" is required", client)
 	}
 	if err == nil {
 		return true
@@ -294,14 +307,26 @@ func (s *webuiServer) api(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// webuiDecode reads the JSON body of a request into v, refusing an unknown field, and answers with
-// the error when it does not read.
-func webuiDecode(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(io.LimitReader(r.Body, acmeMaxBody))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
+// webuiDecode reads the JSON body of a request into v, refusing a field that is not one of
+// fields, those the request uses, and answers with the error when it does not read.
+func webuiDecode(w http.ResponseWriter, r *http.Request, v any, fields ...string) bool {
+	b, err := io.ReadAll(io.LimitReader(r.Body, acmeMaxBody))
+	var given map[string]json.RawMessage
+	if err == nil {
+		err = json.Unmarshal(b, &given)
+	}
+	if err == nil {
+		err = json.Unmarshal(b, v)
+	}
+	if err != nil || given == nil {
 		webuiFail(w, http.StatusBadRequest, "the body is not a JSON object of the request")
 		return false
+	}
+	for _, field := range slices.Sorted(maps.Keys(given)) {
+		if !slices.Contains(fields, field) {
+			webuiFail(w, http.StatusBadRequest, "'"+field+"' is not a field of this request")
+			return false
+		}
 	}
 	return true
 }
@@ -329,8 +354,16 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The fields each request uses; the API takes no defaults, so those it needs are required.
+	fields := map[string][]string{
+		"/api/tokens": {"ca", "name", "valid", "scopes", "types", "domains", "ips", "clients", "localhost", "otc",
+			"otc_valid", "otc_networks"},
+		"/api/tokens/renew":  {"ca", "name", "valid", "otc", "otc_valid", "otc_networks"},
+		"/api/tokens/revoke": {"ca", "name"},
+		"/api/tokens/purge":  {"ca", "name"},
+	}[r.URL.Path]
 	var req webuiRequest
-	if !webuiDecode(w, r, &req) {
+	if !webuiDecode(w, r, &req, fields...) {
 		return
 	}
 	dir, ok := s.caDir(req.CA)
@@ -364,30 +397,31 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		webuiReply(w, status, map[string]string{"name": name, key: token})
 	}
-	switch r.URL.Path {
-	case "/api/tokens":
-		valid, err := time.ParseDuration(strings.TrimSpace(req.Valid))
-		if err != nil {
+	// A validity is given for a token created or renewed, as token create and token renew take it.
+	var valid time.Duration
+	if r.URL.Path == "/api/tokens" || r.URL.Path == "/api/tokens/renew" {
+		if valid, err = time.ParseDuration(strings.TrimSpace(req.Valid)); err != nil {
 			webuiFail(w, http.StatusBadRequest, "valid: '"+req.Valid+"' is not a duration such as 8h")
 			return
 		}
-		scopes := req.Scopes
-		if len(scopes) == 0 {
-			scopes = []string{"sign"}
-		}
-		if !s.grants(scopes) {
+	}
+	switch r.URL.Path {
+	case "/api/tokens":
+		scopes, domains, ips, types := req.Scopes, req.Domains, req.IPs, req.Types
+		switch {
+		case len(scopes) == 0:
+			webuiFail(w, http.StatusBadRequest, "scopes: a token needs at least one scope")
+			return
+		case allows(scopes, "sign") && len(types) == 0:
+			webuiFail(w, http.StatusBadRequest, "types: a token with the scope sign needs at least one certificate type")
+			return
+		case !s.grants(scopes):
 			webuiFail(w, http.StatusForbidden, "your token can only grant the scopes sign, "+
 				strings.Join(s.userScopes, ", "))
 			return
 		}
-		domains, ips, types := req.Domains, req.IPs, req.Types
-		if allows(scopes, "sign") {
-			if req.Localhost {
-				domains, ips = append(domains, "localhost"), append(ips, "127.0.0.1")
-			}
-			if len(types) == 0 {
-				types = []string{"server"}
-			}
+		if req.Localhost {
+			domains, ips = append(domains, "localhost"), append(ips, "127.0.0.1")
 		}
 		token, err := addToken(dir, req.Name, valid, scopes, types, domains, ips, req.Clients, setupValid, req.OTCNetworks)
 		if err != nil {
@@ -398,7 +432,7 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 			s.auditActor()...)...)
 		answer(http.StatusCreated, req.Name, token)
 	case "/api/tokens/renew":
-		token, err := reissueToken(dir, req.Name, 0, setupValid, req.OTCNetworks)
+		token, err := reissueToken(dir, req.Name, valid, setupValid, req.OTCNetworks)
 		if err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
@@ -493,8 +527,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 	case "tokens":
 		defaults := webuiDefaults{Valid: cmp.Or(cfg.Tokens.Valid, "1h"), Types: cfg.Tokens.Types,
 			Domains: cfg.Tokens.Domains, IPs: cfg.Tokens.IPs,
-			Clients: append(slices.Clone(cfg.Tokens.Hosts), cfg.Tokens.Networks...), Localhost: cfg.Tokens.Localhost,
-			OTCValid: durationText(tokenSetupValid)}
+			Clients: append(slices.Clone(cfg.Tokens.Hosts), cfg.Tokens.Networks...), OTCValid: durationText(tokenSetupValid)}
 		if len(defaults.Types) == 0 {
 			defaults.Types = []string{"server"}
 		}

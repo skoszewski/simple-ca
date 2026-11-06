@@ -33,7 +33,10 @@ SIMPLE_CA_TOKEN_FILE=FILE request-cert CA_URL CN [DNS_NAME ...]
   certificate with the token. With `SIMPLE_CA_TOKEN_FILE` also set, the token is written to that
   file, mode 0600, for later requests; the file must not exist yet, which is checked before the
   code is used. It is not given together with `SIMPLE_CA_TOKEN`.
-- `SIMPLE_CA_TYPE` is the certificate type; without it, the first type of the token.
+- `SIMPLE_CA_TYPE` is the certificate type, `server` without it, and `SIMPLE_CA_DAYS` the validity
+  in days, 365 without it, as `cert sign` defaults them; the signing API takes no defaults, so the
+  programs send them. The CA keeps its copy of the certificate under the name the files written
+  here have, the CN, or `wildcard.NAME` for `*.NAME`.
 - `CN` is the CN of the certificate and its first DNS name; the `DNS_NAME`s are its other DNS
   names. All of them must be domains of the token or below them.
 
@@ -67,7 +70,10 @@ request-cert --setup-code CODE [--token-file NEW_FILE] [options] CA_URL CN [DNS_
   `SIMPLE_CA_TOKEN` or the file, never from the command line.
 - `--setup-code CODE` - a one-time setup code, exchanged for the token; with the Go command it may
   come anywhere among the options.
-- `--type TYPE` - the certificate type, `SIMPLE_CA_TYPE` by default.
+- `--type TYPE` - the certificate type, `SIMPLE_CA_TYPE` by default, else `server`.
+- `--days DAYS` - the validity in days, `SIMPLE_CA_DAYS` by default, else 365.
+- `--name NAME` - the name of the copy of the certificate the CA keeps, `NAME_cert.pem`; the CN of
+  the files written here by default.
 - `--out-dir DIR` - the directory of the three files, the working directory by default.
 - `--version` prints the version, and `-h` the usage. Wrong arguments print the usage and exit
   with 2.
@@ -99,9 +105,10 @@ request-cert --setup-code "$CODE" "$CA_URL" web.example.com
 request-cert "$CA_URL" www.example.com
 ```
 
-The commands run from the repository root. `./build.mjs` builds the Go program as `request-cert`
-beside `simple-ca`, `request-cert.exe` on Windows, and `./build.mjs build <goos>/<goarch>` as
-`request-cert-<goos>-<goarch>` (see [Development](development.md)). The release archives of
+The commands run from the repository root. `./build.mjs` builds the Go program as
+`build/request-cert` beside `build/simple-ca`, `request-cert.exe` on Windows, and
+`./build.mjs build <goos>/<goarch>` as `build/request-cert-<goos>-<goarch>` (see
+[Development](development.md)). The release archives of
 `simple-ca` hold it too. With Go installed, it is also installed on its own:
 
 ```sh
@@ -125,14 +132,14 @@ TOKEN=$(examples/token_setup.py "$CODE")
 
 An error goes to the standard error, and the program exits with status 1.
 
-`token-setup` leaves out a path of the URL, so the URL of a CA such as
-`https://pki.example.com:8443/servers` works too; `examples/token_setup.py` takes the URL of the
-server alone. `--token-file`, or else `SIMPLE_CA_TOKEN_FILE`, makes `token-setup` write the token to
-that file, mode 0600, in place of printing it; the file must not exist yet, which is checked before
-the code is used. `--version` prints its version.
+Both leave out a path of the URL, so the URL of a CA such as
+`https://pki.example.com:8443/servers` works too. `--token-file`, or else
+`SIMPLE_CA_TOKEN_FILE`, makes `token-setup` write the token to that file, mode 0600, in place of
+printing it; the file must not exist yet, which is checked before the code is used. `--version`
+prints its version.
 
-`./build.mjs` builds it as `token-setup` beside `simple-ca`, and the release archives and the
-container image hold it too. With Go installed, it is also installed on its own:
+`./build.mjs` builds it as `build/token-setup` beside `build/simple-ca`, and the release archives
+and the container image hold it too. With Go installed, it is also installed on its own:
 
 ```sh
 go install github.com/skoszewski/simple-ca/cmd/token-setup@latest

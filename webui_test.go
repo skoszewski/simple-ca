@@ -105,12 +105,13 @@ func TestTokenWebUI(t *testing.T) {
 
 	// A token is created, listed, renewed with a new JWT ID, revoked, kept, and purged.
 	if status, answer := call(key, "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "Bad_Name",
-		"valid": "1h", "domains": []string{"example.com"}}); status != http.StatusBadRequest ||
+		"valid": "1h", "scopes": []string{"sign"}, "types": []string{"server"}, "domains": []string{"example.com"}}); status != http.StatusBadRequest ||
 		!strings.Contains(fmt.Sprint(answer["error"]), "kebab-case") {
 		t.Errorf("create with a bad name: %d %v, want 400 with the error", status, answer)
 	}
 	status, answer := call(key, "POST", "/api/tokens", map[string]any{"ca": "issuing-ca", "name": "web-deploy",
-		"valid": "8h", "domains": []string{"example.com"}, "clients": []string{"192.168.1.0/24"}, "types": []string{"server"}})
+		"valid": "8h", "scopes": []string{"sign"}, "domains": []string{"example.com"}, "clients": []string{"192.168.1.0/24"},
+		"types": []string{"server"}})
 	if status != http.StatusCreated || !strings.HasPrefix(fmt.Sprint(answer["token"]), "eyJ") {
 		t.Fatalf("create: %d %v, want 201 with the token", status, answer)
 	}
@@ -121,7 +122,8 @@ func TestTokenWebUI(t *testing.T) {
 		t.Fatalf("GET /api/tokens: %d %v, want web-deploy from 192.168.1.0/24", status, answer)
 	}
 	created, _ := loadTokens(filepath.Join(caDir, "issuing-ca"))
-	if status, answer := call(key, "POST", "/api/tokens/renew", map[string]any{"ca": "issuing-ca", "name": "web-deploy"}); status != http.StatusOK ||
+	if status, answer := call(key, "POST", "/api/tokens/renew", map[string]any{"ca": "issuing-ca", "name": "web-deploy",
+		"valid": "8h"}); status != http.StatusOK ||
 		!strings.HasPrefix(fmt.Sprint(answer["token"]), "eyJ") {
 		t.Errorf("renew: %d %v, want the renewed token", status, answer)
 	}

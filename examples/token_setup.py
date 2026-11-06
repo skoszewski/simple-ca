@@ -6,17 +6,20 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("code", help="the setup code")
-parser.add_argument("--url", default=os.environ.get("SIMPLE_CA_URL"), help="URL of the server (default: $SIMPLE_CA_URL)")
+parser.add_argument("--url", default=os.environ.get("SIMPLE_CA_URL"),
+                    help="URL of the server, such as https://pki.example.com; a path is left out (default: $SIMPLE_CA_URL)")
 args = parser.parse_args()
-if not args.url:
-    parser.error("give --url or set SIMPLE_CA_URL")
+parts = urllib.parse.urlsplit(args.url or "")
+if not parts.scheme or not parts.netloc:
+    parser.error("give --url or set SIMPLE_CA_URL to a URL such as https://pki.example.com")
 
-request = urllib.request.Request(args.url.rstrip("/") + "/api/token-setup", data=json.dumps({"code": args.code}).encode(),
-                                 headers={"Content-Type": "application/json"})
+request = urllib.request.Request(f"{parts.scheme}://{parts.netloc}/api/token-setup",
+                                 data=json.dumps({"code": args.code}).encode(), headers={"Content-Type": "application/json"})
 try:
     with urllib.request.urlopen(request) as response:
         print(json.load(response)["token"])

@@ -157,9 +157,10 @@ A profile is a token profile:
 - `ca` - the issuing CA of the tokens, empty or left out for the root CA. Its key must be in its
   directory.
 - `token` - the settings of the token, those of the `tokens` section of `simple-ca.json`:
-  `valid`, `scopes`, `types`, `domains`, `ips`, `localhost`, `hosts` and `networks`. A setting
-  left out takes its value from the `tokens` section, as for `token create`. `keep_expired` is not
-  a setting of a profile.
+  `valid`, `scopes`, `types`, `domains`, `ips`, `hosts` and `networks`, and `localhost`, as
+  `token create --localhost` gives it. A setting left out takes its value from the `tokens`
+  section, as for `token create`; `localhost` has no default. `keep_expired` is not a setting of a
+  profile.
 
 A rule gives its `profile` to the users of `users`, compared with the user claim, and to the
 members of `groups`, compared with the groups claim.

@@ -354,7 +354,10 @@ func TestAPISign(t *testing.T) {
 		return resp.StatusCode, m
 	}
 	request := func(csr, certType string) string {
-		b, _ := json.Marshal(map[string]string{"csr": csr, "type": certType})
+		if certType == "" {
+			certType = "server"
+		}
+		b, _ := json.Marshal(map[string]any{"csr": csr, "type": certType, "name": "web", "days": 30})
 		return string(b)
 	}
 
@@ -828,13 +831,13 @@ func TestSetupCode(t *testing.T) {
 		t.Fatalf("addToken --otc: %v", err)
 	}
 	client := netip.MustParseAddr("127.0.0.1")
-	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", false); err == nil {
+	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", "", 0, nil, nil, false); err == nil {
 		t.Error("signWithToken of a setup code without setupCodes succeeded, want an error")
 	}
-	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.org"), "", true); err == nil {
+	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.org"), "", "", 0, nil, nil, true); err == nil {
 		t.Error("signWithToken of a setup code for a name the token does not allow succeeded, want an error")
 	}
-	cert, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", true)
+	cert, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", "", 0, nil, nil, true)
 	if err != nil {
 		t.Fatalf("signWithToken of a setup code: %v", err)
 	}
@@ -842,7 +845,7 @@ func TestSetupCode(t *testing.T) {
 	if tok := db.Tokens["once"]; !tok.revoked() || !slices.Equal(tok.Certs, []string{serialHex(cert.SerialNumber)}) {
 		t.Errorf("the token of the setup code: %+v, want it revoked, with the certificate", tok)
 	}
-	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", true); err == nil {
+	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", "", 0, nil, nil, true); err == nil {
 		t.Error("signWithToken of a used setup code succeeded, want an error")
 	}
 
@@ -990,7 +993,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 		t.Fatal(err)
 	}
 	csr := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))
-	signBody := map[string]string{"csr": csr}
+	signBody := map[string]any{"csr": csr, "type": "server", "name": "web", "days": 30}
 	apiSignStatus := func(token, target string) int {
 		t.Helper()
 		status, answer := call(token, "POST", path(target)+"/api/sign", signBody)
@@ -1087,7 +1090,8 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 							wantChange = http.StatusCreated
 						}
 						status, answer := call(token, "POST", "/tokens/api/tokens",
-							map[string]any{"ca": target, "name": made, "valid": "1h", "domains": []string{"example.com"}})
+							map[string]any{"ca": target, "name": made, "valid": "1h", "scopes": []string{"sign"},
+								"types": []string{"server"}, "domains": []string{"example.com"}})
 						if status != wantChange {
 							t.Errorf("creating %s in %s with %s: %d %v, want %d", made, label(target), who, status, answer, wantChange)
 							continue
@@ -1117,7 +1121,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 		t.Errorf("purging the tokens of the root CA with keeper of servers: %d %v, want 404", status, answer)
 	}
 	if status, answer := call(jwts[""]["keeper"], "POST", "/tokens/api/tokens/renew",
-		map[string]any{"ca": "servers", "name": "master"}); status != http.StatusForbidden {
+		map[string]any{"ca": "servers", "name": "master", "valid": "1h"}); status != http.StatusForbidden {
 		t.Errorf("renewing master of servers with keeper of root: %d %v, want 403, a scope keeper lacks", status, answer)
 	}
 	if status, answer := call(jwts[""]["keeper"], "POST", "/tokens/api/tokens/revoke",
@@ -1133,7 +1137,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 		}
 	}
 	if status, answer := call(jwts[""]["master"], "POST", "/tokens/api/tokens/renew",
-		map[string]any{"ca": "devices", "name": "keeper"}); status != http.StatusOK {
+		map[string]any{"ca": "devices", "name": "keeper", "valid": "1h"}); status != http.StatusOK {
 		t.Fatalf("renewing keeper of devices with master of root: %d %v, want 200", status, answer)
 	} else {
 		if status, _ := call(jwts["devices"]["keeper"], "GET", "/tokens/api/cas", nil); status != http.StatusUnauthorized {
@@ -1264,5 +1268,120 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 				t.Errorf("GET %s?ca=%s with master of root: %d, want 404", target, ca, status)
 			}
 		}
+	}
+}
+
+func TestAPISignStoresCertificates(t *testing.T) {
+	caDir := t.TempDir()
+	csrDir := t.TempDir()
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+		t.Fatalf("makeCA: %v", err)
+	}
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+		t.Fatalf("makeCA issuing: %v", err)
+	}
+	issuingDir := filepath.Join(caDir, "issuing-ca")
+	signer, err := makeToken(issuingDir, "deploy", time.Hour, nil, []string{"server"}, []string{"*"}, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken: %v", err)
+	}
+	viewer, err := makeToken(caDir, "viewer", time.Hour, []string{"certs"}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("makeToken viewer: %v", err)
+	}
+	server := httptest.NewServer(newServeMux(caDir, false, true))
+	defer server.Close()
+
+	do := func(method, path, token string, body any) (int, map[string]any) {
+		t.Helper()
+		var r io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			r = bytes.NewReader(b)
+		}
+		req, err := http.NewRequest(method, server.URL+path, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var m map[string]any
+		json.NewDecoder(resp.Body).Decode(&m)
+		return resp.StatusCode, m
+	}
+	sign := func(cn, name string) (int, string) {
+		t.Helper()
+		out, err := exec.Command("openssl", "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+			"-keyout", filepath.Join(csrDir, cn+"_key.pem"), "-subj", "/CN="+cn).CombinedOutput()
+		if err != nil {
+			t.Fatalf("openssl req: %v\n%s", err, out)
+		}
+		csr := string(out[bytes.Index(out, []byte("-----BEGIN CERTIFICATE REQUEST-----")):])
+		status, answer := do("POST", "/issuing-ca/api/sign", signer, map[string]any{"csr": csr, "type": "server",
+			"name": name, "days": 30})
+		serial, _ := answer["serial"].(string)
+		return status, serial
+	}
+	fileSerial := func(name string) string {
+		t.Helper()
+		cert, err := loadCert(filepath.Join(issuingDir, name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return serialHex(cert.SerialNumber)
+	}
+	shown := func(serial string) int {
+		status, _ := do("GET", "/certificates/api/certs/show?ca=issuing-ca&serial="+serial, viewer, nil)
+		return status
+	}
+
+	// A certificate the API signs is stored as NAME_cert.pem, and the page shows it.
+	status, first := sign("web.example.com", "web")
+	if status != http.StatusOK {
+		t.Fatalf("signing web.example.com: %d, want 200", status)
+	}
+	if got := fileSerial("web_cert.pem"); got != first {
+		t.Errorf("web_cert.pem holds %s, want the certificate signed, %s", got, first)
+	}
+	if status := shown(first); status != http.StatusOK {
+		t.Errorf("showing the certificate signed: %d, want 200", status)
+	}
+
+	// The newest certificate of a name replaces the file of the one before it, which index.txt
+	// still lists, and the page shows the newest.
+	status, second := sign("web.example.com", "web")
+	if status != http.StatusOK {
+		t.Fatalf("signing web.example.com again: %d, want 200", status)
+	}
+	if got := fileSerial("web_cert.pem"); got != second {
+		t.Errorf("web_cert.pem holds %s, want the newest certificate, %s", got, second)
+	}
+	if status := shown(second); status != http.StatusOK {
+		t.Errorf("showing the newest certificate: %d, want 200", status)
+	}
+	if status := shown(first); status != http.StatusNotFound {
+		t.Errorf("showing the replaced certificate: %d, want 404", status)
+	}
+
+	// The name ca is that of the file of the CA certificate, which stays as it is.
+	caCert, err := os.ReadFile(filepath.Join(issuingDir, "ca_cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := sign("ca.example.com", "ca"); status != http.StatusBadRequest {
+		t.Errorf("signing the name ca: %d, want 400", status)
+	}
+	if now, _ := os.ReadFile(filepath.Join(issuingDir, "ca_cert.pem")); !bytes.Equal(now, caCert) {
+		t.Error("ca_cert.pem changed after a request for the name ca")
+	}
+	if entries, err := readIndex(issuingDir); err != nil || len(entries) != 2 {
+		t.Errorf("index.txt: %d entries, %v, want the 2 certificates signed", len(entries), err)
 	}
 }

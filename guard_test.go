@@ -98,7 +98,7 @@ func TestAuthGuard(t *testing.T) {
 	}
 	for _, c := range []struct{ name, method, path, token, body string }{
 		{"the token page with its token", "GET", "/tokens/api/cas", admin, ""},
-		{"the signing API", "POST", "/api/sign", forged, `{"csr": ""}`},
+		{"the signing API", "POST", "/api/sign", forged, `{"csr": "", "type": "server", "name": "web", "days": 30}`},
 		{"a setup code", "POST", "/api/token-setup", "", `{"code": "AAAA-BBBB-CCCC-DDDD"}`},
 	} {
 		if resp := call(c.method, c.path, c.token, c.body); resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") == "" {

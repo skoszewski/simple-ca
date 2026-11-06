@@ -3,13 +3,14 @@
 // Builds, tests and checks simple-ca.
 // Usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
 //
-// The build action writes simple-ca, request-cert, the Go client of the signing API in
-// cmd/request-cert, token-setup, which exchanges a setup code, in cmd/token-setup, and on Linux
-// simple-ca-trust of cmd/simple-ca-trust. The platform defaults to the host's. Naming one builds
-// for it instead, writing simple-ca-<goos>-<goarch>, request-cert-<goos>-<goarch> and
-// token-setup-<goos>-<goarch>, and for linux simple-ca-trust-linux-<goarch>. While the newest
-// CHANGELOG.md entry is not tagged, the Go programs report its release candidate, vX.Y.Z-rc, as
-// their version. Releases are made by release.mjs.
+// The executables are written to build/, which clean removes. The build action writes simple-ca,
+// request-cert, the Go client of the signing API in cmd/request-cert, token-setup, which exchanges
+// a setup code, in cmd/token-setup, and on Linux simple-ca-trust of cmd/simple-ca-trust. The
+// platform defaults to the host's. Naming one builds for it instead, writing
+// simple-ca-<goos>-<goarch>, request-cert-<goos>-<goarch> and token-setup-<goos>-<goarch>, and for
+// linux simple-ca-trust-linux-<goarch>. While the newest CHANGELOG.md entry is not tagged, the Go
+// programs report its release candidate, vX.Y.Z-rc, as their version. Releases are made by
+// release.mjs.
 //
 // The trust action writes simple-ca-trust for the host, or simple-ca-trust-<goos>-<goarch> for
 // the platform named: cmd/simple-ca-trust with go for linux and trust/windows with dotnet for
@@ -28,7 +29,7 @@
 // another version, and go on without them, warning, when the download fails.
 
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -124,8 +125,12 @@ const changelogVersion = readFileSync(join(root, "CHANGELOG.md"), "utf8").match(
 const tagged = spawnSync("git", ["tag", "--list", `v${changelogVersion}`], { cwd: root, encoding: "utf8" });
 const candidate = changelogVersion !== "" && tagged.status === 0 && tagged.stdout.trim() === "" ?
   `v${changelogVersion}-rc` : "";
-const goBuild = (output, pkg) =>
-  run("go", ["build", ...(candidate ? ["-ldflags", `-X main.buildVersion=${candidate}`] : []), "-o", output, pkg], { env });
+const buildDir = join(root, "build");
+const goBuild = (output, pkg) => {
+  mkdirSync(buildDir, { recursive: true });
+  run("go", ["build", ...(candidate ? ["-ldflags", `-X main.buildVersion=${candidate}`] : []), "-o",
+    join(buildDir, output), pkg], { env });
+};
 
 if (!["build", "trust", "test", "check", "clean", "assets", "docker"].includes(action) ||
   (selfContained && action !== "trust") || (push && action !== "docker") ||
@@ -199,7 +204,8 @@ switch (action) {
       run("swift", ["build", "-c", "release", "--package-path", macos, ...arch]);
       const bin = run("swift", ["build", "-c", "release", "--package-path", macos, ...arch, "--show-bin-path"],
         { capture: true }).trim();
-      copyFileSync(join(bin, "simple-ca-trust"), join(root, name));
+      mkdirSync(buildDir, { recursive: true });
+      copyFileSync(join(bin, "simple-ca-trust"), join(buildDir, name));
     } else if (goos === "windows") {
       // The project file is written for each build, self-contained or running on the installed
       // .NET runtime.
@@ -222,10 +228,10 @@ switch (action) {
 
 </Project>
 `);
-      const out = join(root, "build", `trust-windows-${goarch}`);
+      const out = join(buildDir, `trust-windows-${goarch}`);
       run("dotnet", ["publish", project, "-c", "Release",
         "-r", `win-${{ amd64: "x64", arm64: "arm64" }[goarch] ?? goarch}`, "-o", out]);
-      copyFileSync(join(out, "simple-ca-trust.exe"), join(root, `${name}.exe`));
+      copyFileSync(join(out, "simple-ca-trust.exe"), join(buildDir, `${name}.exe`));
     } else if (goos === "darwin") {
       console.error("note: simple-ca-trust for darwin is built on darwin only; skipped");
     } else {
@@ -261,13 +267,7 @@ switch (action) {
     break;
   }
   case "clean":
-    for (const name of readdirSync(root)) {
-      if (["simple-ca", "request-cert", "token-setup"].some((program) =>
-        name === program || name === `${program}.exe` || name.startsWith(`${program}-`))) {
-        rmSync(`${root}/${name}`, { force: true });
-      }
-    }
-    rmSync(`${root}/build`, { recursive: true, force: true });
+    rmSync(buildDir, { recursive: true, force: true });
     rmSync(`${root}/dist`, { recursive: true, force: true });
     for (const dir of ["trust/macos/.build", "trust/windows/bin", "trust/windows/obj", "trust/windows/simple-ca-trust.csproj"]) {
       rmSync(join(root, dir), { recursive: true, force: true });

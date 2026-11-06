@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.11.0
+
+feat: the APIs match the commands, a page describes a token, and a release has one archive per platform.
+
+- **Breaking:** `/api/sign` needs `type`, `name` and `days`, and takes `ku` and `eku`, as
+  `cert sign` takes `--type`, the request file name, `--days`, `--ku` and `--eku`.
+  `request-cert` gets `--days` and `--name`, and it and the example clients send `server` and 365
+  days by default, as `cert sign` defaults them, and the CN as the name.
+- **Breaking:** the APIs of the token and certificate pages take no defaults: a token create needs
+  `valid`, `scopes` and, for the scope `sign`, `types`; a renew needs `valid`. A field a request
+  does not use is refused. The pages fill in the defaults of the commands.
+- **Breaking:** `tokens.localhost` of `simple-ca.json` is gone; `--localhost` and the box of the
+  token page are never a default. A profile of `oidc-users.json` still sets `localhost`.
+- The renew question of the token page has "Valid for", filled with the validity `token renew`
+  keeps.
+- A certificate signed at `/api/sign`, on the signing form or by an ACME client is written as
+  `NAME_cert.pem` beside `index.txt`, without a key, which stays with the client. The Show button
+  of the certificate page failed for these with "no certificate file of the CA directory holds
+  the certificate". Certificates signed before this release have no file, and cannot be shown.
+- `cert sign`, the sign of the certificate page, the signing API and ACME replace the file of an
+  earlier certificate of the name, which `index.txt` still lists, and refuse the name `ca`, whose
+  file is the CA certificate.
+- `cert create` of a certificate whose cert and key exist fails, with the message the API answers
+  with `409`; `cert revoke` of a revoked certificate fails, with the message of the API.
+- The errors of the APIs name the value, not a command option, such as `the validity in days must
+  be a positive integer` in place of `--days must be a positive integer`.
+- A token of another CA of the server is refused with an error naming both CAs, in place of
+  `invalid token`.
+- A request without a token to the signing API, the signing form, the pages or the new page is
+  recorded as `auth.refused` in the audit log.
+- The new page `/token-describe`, "Describe a token", shows the attributes of a token pasted into
+  it, as `token describe` does, with its CA; the pages link it beside "Set up a token".
+- `GET /NAME/api/sign` answers `405 Method Not Allowed` with `Allow: POST`, as `GET /api/sign`
+  does.
+- `examples/token_setup.py` leaves out a path of the URL, as `token-setup` does.
+- `./build.mjs` writes the executables to `build/`, and `clean` removes `build/` in place of the
+  files of the root directory, so it no longer removes `simple-ca-mini.py`.
+- A release has one archive for each platform, `simple-ca-X.Y.Z-<goos>-<goarch>`, holding
+  `simple-ca`, `request-cert`, `token-setup` and `simple-ca-trust`, in place of the separate
+  `simple-ca-trust` archives of macOS and Windows; the Linux version of `simple-ca-trust`, which
+  had no release archive, is now in the Linux archives.
+
 ## 1.10.3
 
 fix: the audit page shows the audit log of the server, with the records of all its CAs in one list, in place of those of one CA chosen.

@@ -1,14 +1,10 @@
-# A semver tag with a leading v on a commit on main, naming the newest CHANGELOG.md entry, is
-# checked for formatting and by go vet, built for every platform it is published for, and published
-# as a release, with the tag's message as its notes and as a prerelease for a prerelease version.
-# A tag vX.Y.Z-N, a later release of the same code with changes to the documentation or the
-# packaging alone, is not built.
-# simple-ca, request-cert and token-setup are given the tag as their version and published together in a
-# tar.gz, or a zip for Windows, named after the version, without the v, and the platform.
-# simple-ca embeds the browser files of serve-markdown's page for its /help/ page, which build.mjs
-# downloads from the serve-markdown release go.mod names. simple-ca-trust is built by build.mjs for macOS with Swift on the Xcode 27
-# image and for Windows with .NET, running on the installed .NET runtime, and published the same
-# way as simple-ca-trust-<version>-<platform>.
+# Publishes a GitHub release for a pushed tag vX.Y.Z or vX.Y.Z-PRE; a tag vX.Y.Z-N is not built.
+#
+# - check: gofmt and go vet.
+# - build: for each platform, simple-ca, request-cert, token-setup and simple-ca-trust, versioned
+#   with the tag, in one archive, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz, .zip for Windows.
+# - release: refuses a tag that is not semver, not on main, or not the newest CHANGELOG.md entry;
+#   creates the release with the archives and the tag's message as notes, a prerelease for -PRE.
 
 name: build
 
@@ -30,6 +26,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # Fails when a Go file is not gofmt clean.
       - name: Formatting
         run: |
           unformatted="$(gofmt -l .)"
@@ -37,15 +34,22 @@ jobs:
             printf 'these files are not gofmt clean:\n%s\n' "$unformatted" >&2
             exit 1
           fi
+      # Runs go vet on every package.
       - name: Vet
         run: go vet ./...
 
   build:
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        platform: [linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64, windows/arm64]
+        include:
+          - { platform: linux/amd64, runner: ubuntu-latest }
+          - { platform: linux/arm64, runner: ubuntu-latest }
+          - { platform: darwin/amd64, runner: xcode-27 }
+          - { platform: darwin/arm64, runner: xcode-27 }
+          - { platform: windows/amd64, runner: ubuntu-latest }
+          - { platform: windows/arm64, runner: ubuntu-latest }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -54,14 +58,21 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: lts/*
+      - if: startsWith(matrix.platform, 'windows/')
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      # Downloads the browser files of serve-markdown's page, which simple-ca embeds.
       - name: Page assets
         run: node build.mjs assets
+      # Builds the four programs for the platform and packs them into its archive.
       - name: Build
         id: build
         env:
           CGO_ENABLED: "0"
           PLATFORM: ${{ matrix.platform }}
           TAG: ${{ github.ref_name }}
+          InformationalVersion: ${{ github.ref_name }}
         run: |
           export GOOS="${PLATFORM%%/*}" GOARCH="${PLATFORM##*/}"
           exe=""
@@ -69,83 +80,33 @@ jobs:
             exe=".exe"
           fi
           version="${TAG#v}"
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/simple-ca$exe" .
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/request-cert$exe" ./cmd/request-cert
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/token-setup$exe" ./cmd/token-setup
-          mkdir -p dist
+          mkdir -p build/pack dist
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/pack/simple-ca$exe" .
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/pack/request-cert$exe" ./cmd/request-cert
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/pack/token-setup$exe" ./cmd/token-setup
+          # simple-ca-trust is the Go program on Linux, the Swift one on macOS, the .NET one on Windows.
+          case "$GOOS" in
+            linux)
+              go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o build/pack/simple-ca-trust ./cmd/simple-ca-trust
+              ;;
+            darwin)
+              printf '/// The version simple-ca-trust prints; a release build replaces this file.\nlet version = "%s"\n' "$TAG" \
+                > trust/macos/Sources/simple-ca-trust/Version.swift
+              node build.mjs trust "darwin/$GOARCH"
+              cp "build/simple-ca-trust-darwin-$GOARCH" build/pack/simple-ca-trust
+              ;;
+            windows)
+              node build.mjs trust "windows/$GOARCH"
+              cp "build/simple-ca-trust-windows-$GOARCH.exe" build/pack/simple-ca-trust.exe
+              ;;
+          esac
           if [ "$GOOS" = "windows" ]; then
             archive="simple-ca-$version-$GOOS-$GOARCH.zip"
-            (cd build && zip -9 "../dist/$archive" "simple-ca$exe" "request-cert$exe" "token-setup$exe")
+            (cd build/pack && zip -9 "../../dist/$archive" *)
           else
             archive="simple-ca-$version-$GOOS-$GOARCH.tar.gz"
-            tar -czf "dist/$archive" -C build "simple-ca$exe" "request-cert$exe" "token-setup$exe"
+            (cd build/pack && tar -czf "../../dist/$archive" *)
           fi
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/${{ steps.build.outputs.archive }}
-          archive: false
-          if-no-files-found: error
-
-  trust-macos:
-    needs: check
-    runs-on: xcode-27
-    strategy:
-      matrix:
-        goarch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
-      - name: Swift
-        run: swift --version
-      - name: Build
-        id: build
-        env:
-          GOARCH: ${{ matrix.goarch }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          printf '/// The version simple-ca-trust prints; a release build replaces this file.\nlet version = "%s"\n' "$TAG" \
-            > trust/macos/Sources/simple-ca-trust/Version.swift
-          node build.mjs trust "darwin/$GOARCH"
-          mkdir -p build dist
-          cp "simple-ca-trust-darwin-$GOARCH" build/simple-ca-trust
-          archive="simple-ca-trust-${TAG#v}-darwin-$GOARCH.tar.gz"
-          tar -czf "dist/$archive" -C build simple-ca-trust
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/${{ steps.build.outputs.archive }}
-          archive: false
-          if-no-files-found: error
-
-  trust-windows:
-    needs: check
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        goarch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 10.0.x
-      - name: Build
-        id: build
-        env:
-          GOARCH: ${{ matrix.goarch }}
-          TAG: ${{ github.ref_name }}
-          InformationalVersion: ${{ github.ref_name }}
-        run: |
-          node build.mjs trust "windows/$GOARCH"
-          mkdir -p build dist
-          cp "simple-ca-trust-windows-$GOARCH.exe" build/simple-ca-trust.exe
-          archive="simple-ca-trust-${TAG#v}-windows-$GOARCH.zip"
-          (cd build && zip -9 "../dist/$archive" simple-ca-trust.exe)
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
@@ -154,7 +115,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [build, trust-macos, trust-windows]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -162,6 +123,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # Fails for a tag that is not semver with a leading v.
       - name: Semver tag
         env:
           TAG: ${{ github.ref_name }}
@@ -173,6 +135,7 @@ jobs:
             echo "'$TAG' is not a semver tag with a leading v" >&2
             exit 1
           fi
+      # Fails for a tag whose commit is not on main.
       - name: Tag on main
         env:
           TAG: ${{ github.ref_name }}
@@ -181,6 +144,7 @@ jobs:
             echo "'$TAG' is not on main" >&2
             exit 1
           fi
+      # Fails for a tag that is not the version of the newest CHANGELOG.md entry.
       - name: Tag of the newest CHANGELOG.md entry
         env:
           TAG: ${{ github.ref_name }}
@@ -195,6 +159,7 @@ jobs:
           path: dist
           merge-multiple: true
           skip-decompress: true
+      # Creates the release with the archives, a prerelease for a tag with a -PRE part.
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}

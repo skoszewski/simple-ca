@@ -251,7 +251,8 @@ func TestOIDC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	signBody := map[string]string{"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))}
+	signBody := map[string]any{"csr": string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})),
+		"type": "server", "name": "web", "days": 30}
 	status, answer = signIn(idToken("k1", key1, user("bob@example.com", map[string]any{"groups": []string{"web-team"},
 		"roles": []string{"ca-admin"}})))
 	if status != http.StatusOK || answer["ca"] != "clients" || answer["name"] != "bob-example-com" {

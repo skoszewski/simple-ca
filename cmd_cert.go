@@ -61,14 +61,10 @@ func runCertCreate(args []string) error {
 		*days = cfg.Days.Cert
 	}
 	cert, err := makeCert(rest[0], rest[1:], dir, *certDir, *certType, *days, *ekus, *kus)
-	out := cmp.Or(*certDir, dir)
-	switch {
-	case err != nil:
+	if err != nil {
 		return err
-	case cert == nil:
-		fmt.Printf("The certificate and its key exist in %s; nothing was created.\n", out)
-		return nil
 	}
+	out := cmp.Or(*certDir, dir)
 	auditIssued(dir, cert, *certType, "via", "cli", "actor", cliActor())
 	fmt.Printf("The %s certificate and its key, written to %s:\n\n", *certType, out)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)

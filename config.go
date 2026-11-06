@@ -74,15 +74,14 @@ type serveConfig struct {
 
 // tokensConfig holds the defaults of token create, each replaced by the option of the same name:
 // the validity, a duration such as 8h, the scopes, the certificate types, the domains, the IP
-// addresses, localhost, and the client addresses and prefixes; and how long serve keeps an expired
-// token, a duration, kept until token purge without it.
+// addresses, and the client addresses and prefixes; and how long serve keeps an expired token, a
+// duration, kept until token purge without it.
 type tokensConfig struct {
 	Valid       string   `json:"valid,omitempty"`
 	Scopes      []string `json:"scopes,omitempty"`
 	Types       []string `json:"types,omitempty"`
 	Domains     []string `json:"domains,omitempty"`
 	IPs         []string `json:"ips,omitempty"`
-	Localhost   bool     `json:"localhost,omitempty"`
 	Hosts       []string `json:"hosts,omitempty"`
 	Networks    []string `json:"networks,omitempty"`
 	KeepExpired string   `json:"keep_expired,omitempty"`
@@ -188,7 +187,14 @@ type oidcUsers struct {
 type oidcProfile struct {
 	Name  string       `json:"name"`
 	CA    string       `json:"ca"`
-	Token tokensConfig `json:"token"`
+	Token profileToken `json:"token"`
+}
+
+// profileToken is the token of a profile: the settings of tokensConfig, and localhost, which a
+// profile gives its tokens itself, as token create --localhost does, and is never a default.
+type profileToken struct {
+	tokensConfig
+	Localhost bool `json:"localhost,omitempty"`
 }
 
 // oidcRule gives the profile Profile to the users of Users and to the members of Groups.

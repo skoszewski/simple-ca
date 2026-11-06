@@ -90,13 +90,19 @@ func (g *authGuard) attempt(w http.ResponseWriter, r *http.Request, dir string, 
 	hold := g.record(client, err)
 	var e *apiError
 	if errors.As(err, &e) && e.status == http.StatusUnauthorized {
-		route, _, _ := strings.Cut(r.RequestURI, "?")
-		audit(dir, "auth.refused", "route", route, "reason", e.msg, "client", client.String())
+		auditRefused(r, dir, e.msg, client)
 		if hold > 0 {
 			audit(dir, "auth.held", "client", client.String(), "wait", hold.String())
 		}
 	}
 	return err
+}
+
+// auditRefused audits the refusal of a credential, or of a request without one, to the client of
+// r for the CA in dir, with the reason.
+func auditRefused(r *http.Request, dir, reason string, client netip.Addr) {
+	route, _, _ := strings.Cut(r.RequestURI, "?")
+	audit(dir, "auth.refused", "route", route, "reason", reason, "client", client.String())
 }
 
 // check returns an error of status 429, setting Retry-After on w, while client is held back.

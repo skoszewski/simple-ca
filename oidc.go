@@ -357,7 +357,7 @@ func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiTok
 		if len(types) == 0 {
 			types = []string{"server"}
 		}
-		if t.Localhost || defaults.Localhost {
+		if t.Localhost {
 			domains, ips = append(domains, "localhost"), append(ips, "127.0.0.1")
 		}
 	}

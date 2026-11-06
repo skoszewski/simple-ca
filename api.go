@@ -77,10 +77,10 @@ func allows(values []string, value string) bool {
 	return slices.Contains(values, value) || slices.Contains(values, "*")
 }
 
-// checkAll returns an error, naming option, when values hold * with other values.
-func checkAll(option string, values []string) error {
+// checkAll returns an error, naming what values are, when values hold * with other values.
+func checkAll(what string, values []string) error {
 	if slices.Contains(values, "*") && len(values) > 1 {
-		return fmt.Errorf("%s * stands for every value and must be given alone", option)
+		return fmt.Errorf("the %s * stands for every %s and must be given alone", what, what)
 	}
 	return nil
 }
@@ -149,13 +149,13 @@ func setupCodeHash(code string) string {
 func newTokenSetup(valid, setupValid time.Duration, setupClients []string) (*tokenSetup, string, error) {
 	switch {
 	case setupValid < 0 || (setupValid == 0 && len(setupClients) > 0):
-		return nil, "", errors.New("--otc-valid and --otc-network need --otc")
+		return nil, "", errors.New("the validity and the networks of a setup code need a setup code")
 	case setupValid == 0:
 		return nil, "", nil
 	case setupValid < time.Second:
-		return nil, "", errors.New("--otc-valid must be at least 1s")
+		return nil, "", errors.New("the validity of a setup code must be at least 1s")
 	}
-	prefixes, err := toPrefixes("--otc-network", setupClients)
+	prefixes, err := toPrefixes("setup code network", setupClients, false)
 	if err != nil {
 		return nil, "", err
 	}
@@ -166,18 +166,18 @@ func newTokenSetup(valid, setupValid time.Duration, setupClients []string) (*tok
 	return &tokenSetup{Code: setupCodeHash(code), Clients: prefixes, Valid: valid.String()}, code, nil
 }
 
-// toPrefixes returns the addresses and prefixes of values, the option named in its error, as
-// masked prefixes, an address as the prefix of that address alone; for --ip, "*" is kept.
-func toPrefixes(option string, values []string) ([]string, error) {
+// toPrefixes returns the addresses and prefixes of values, what they are named in its error, as
+// masked prefixes, an address as the prefix of that address alone; with any, "*" is kept.
+func toPrefixes(what string, values []string, any bool) ([]string, error) {
 	var prefixes []string
 	for _, s := range values {
-		if s == "*" && option == "--ip" {
+		if s == "*" && any {
 			prefixes = append(prefixes, s)
 			continue
 		}
 		prefix, ok := parsePrefix(s)
 		if !ok {
-			return nil, fmt.Errorf("%s '%s' is not an IP address or a prefix such as 10.0.0.0/8", option, s)
+			return nil, fmt.Errorf("%s '%s' is not an IP address or a prefix such as 10.0.0.0/8", what, s)
 		}
 		prefixes = append(prefixes, prefix.String())
 	}
@@ -381,7 +381,7 @@ func addToken(caDir, name string, valid time.Duration, scopes, certTypes, domain
 // prepareToken validates and returns the token name of the CA in caDir, unsaved, and the CA key.
 func prepareToken(caDir, name string, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (*apiToken, *rsa.PrivateKey, error) {
 	if valid < time.Second {
-		return nil, nil, errors.New("--valid must be at least 1s")
+		return nil, nil, errors.New("the validity of a token must be at least 1s")
 	}
 	if !kebabCaseRE.MatchString(name) {
 		return nil, nil, fmt.Errorf("token name '%s' is not a kebab-case name, such as web-deploy", name)
@@ -394,7 +394,7 @@ func prepareToken(caDir, name string, valid time.Duration, scopes, certTypes, do
 			return nil, nil, fmt.Errorf("unknown scope '%s': must be one of %s or *", s, strings.Join(tokenScopes, ", "))
 		}
 	}
-	if err := cmp.Or(checkAll("--scope", scopes), checkAll("--type", certTypes)); err != nil {
+	if err := cmp.Or(checkAll("scope", scopes), checkAll("type", certTypes)); err != nil {
 		return nil, nil, err
 	}
 	if !slices.Contains(scopes, "*") {
@@ -402,24 +402,24 @@ func prepareToken(caDir, name string, valid time.Duration, scopes, certTypes, do
 	}
 	switch {
 	case !allows(scopes, "sign") && len(certTypes)+len(domains)+len(ips) > 0:
-		return nil, nil, errors.New("--type, --domain, --ip and --localhost need the scope sign")
+		return nil, nil, errors.New("certificate types, domains, IP addresses and localhost need the scope sign")
 	case !allows(scopes, "sign"):
 	case len(domains) == 0 && len(ips) == 0:
-		return nil, nil, errors.New("at least one --domain or --ip is required")
+		return nil, nil, errors.New("a token with the scope sign needs a domain or an IP address")
 	}
 	var names []string
 	for _, d := range domains {
 		d = strings.ToLower(strings.TrimSuffix(d, "."))
 		if d != "*" && !isHostname(d) {
-			return nil, nil, fmt.Errorf("--domain '%s' is not a domain name or *", d)
+			return nil, nil, fmt.Errorf("domain '%s' is not a domain name or *", d)
 		}
 		names = append(names, d)
 	}
-	prefixes, err := toPrefixes("--ip", ips)
+	prefixes, err := toPrefixes("IP address", ips, true)
 	if err != nil {
 		return nil, nil, err
 	}
-	clientPrefixes, err := toPrefixes("--host or --network", clients)
+	clientPrefixes, err := toPrefixes("client", clients, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -438,8 +438,7 @@ func prepareToken(caDir, name string, valid time.Duration, scopes, certTypes, do
 	}
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
 	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) || !fileExists(caKeyPath) {
-		return nil, nil, fmt.Errorf(
-			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory", caDir)
+		return nil, nil, fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
 	}
 	caKey, err := loadKey(caKeyPath)
 	if err != nil {
@@ -519,12 +518,11 @@ func renewToken(caDir, name string, valid time.Duration) (string, error) {
 // code. A token waiting for a setup code that has not expired is refused.
 func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClients []string) (string, error) {
 	if valid != 0 && valid < time.Second {
-		return "", errors.New("--valid must be at least 1s")
+		return "", errors.New("the validity of a token must be at least 1s")
 	}
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
 	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) || !fileExists(caKeyPath) {
-		return "", fmt.Errorf(
-			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory", caDir)
+		return "", fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
 	}
 	caKey, err := loadKey(caKeyPath)
 	if err != nil {
@@ -591,7 +589,7 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 // listTokens writes the tokens of the CA in caDir to w, one per line, sorted by name.
 func listTokens(w io.Writer, caDir string) error {
 	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) {
-		return fmt.Errorf("CA certificate not found in %s. Please point --ca-dir to a CA directory", caDir)
+		return fmt.Errorf("CA certificate not found in %s, which is not a CA directory", caDir)
 	}
 	db, err := loadTokens(caDir)
 	if err != nil {
@@ -814,6 +812,85 @@ func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string) {
 	webuiReply(w, http.StatusOK, map[string]any{"ca": id, "name": name, "token": jwt, "scopes": scopes})
 }
 
+// tokenDescribePage serves /token-describe for the root CA in rootDir and its issuing CAs: GET
+// shows the form asking for a token, and POST shows the attributes of the token, as token
+// describe --ca-dir shows them with the CA that signed it, or the form again with the error. A
+// token refused is counted as on the other pages.
+func tokenDescribePage(w http.ResponseWriter, r *http.Request, rootDir string) {
+	caCert, err := loadCert(filepath.Join(rootDir, "ca_cert.pem"))
+	if err != nil {
+		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
+		http.Error(w, "could not read the CA", http.StatusInternalServerError)
+		return
+	}
+	page := struct {
+		Title, Script, Action, Error, CA string
+		Theme                            template.CSS
+		Attributes                       [][2]string
+	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: r.URL.Path, Theme: pageTheme(rootDir)}
+	status := http.StatusOK
+	if r.Method == http.MethodPost {
+		r.Body = http.MaxBytesReader(w, r.Body, acmeMaxBody)
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "the form is too large or malformed", http.StatusBadRequest)
+			return
+		}
+		client := clientAddr(r)
+		token := strings.TrimSpace(r.PostForm.Get("token"))
+		err = apiErr(http.StatusUnauthorized, "a token is required")
+		if token == "" {
+			auditRefused(r, rootDir, "a token is required", client)
+		} else {
+			// The token is checked against each CA of the server, as token describe --ca-dir checks it
+			// against one, and its entry read from the tokens-db.json of the CA that signed it.
+			err = guard.attempt(w, r, rootDir, func() error {
+				for _, id := range caIDs(rootDir) {
+					dir := filepath.Join(rootDir, id)
+					cert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
+					if err != nil {
+						continue
+					}
+					c, err := verifyJWT(cert, token)
+					if err != nil {
+						continue
+					}
+					db, err := loadTokens(dir)
+					if err != nil {
+						return err
+					}
+					page.CA = "root CA"
+					if id != "" {
+						page.CA = "issuing CA " + id
+					}
+					if entry := db.Tokens[c.Subject]; entry != nil && entry.ID != "" && entry.ID == c.ID {
+						page.Attributes = describeToken(c.Subject, entry, true)
+					} else {
+						page.Attributes = describeToken(c.Subject, &apiToken{ID: c.ID, Scopes: strings.Fields(c.Scope),
+							Issued: time.Unix(c.IssuedAt, 0), Expires: time.Unix(c.ExpiresAt, 0)}, false)
+						page.Attributes[1][1] = "refused: the token was renewed, revoked or removed"
+					}
+					return nil
+				}
+				return apiErr(http.StatusUnauthorized, "the token is not one of a CA of this server")
+			})
+		}
+		var e *apiError
+		switch {
+		case errors.As(err, &e):
+			status, page.Error = e.status, e.msg
+		case err != nil:
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
+			status, page.Error = http.StatusInternalServerError, "could not read the tokens"
+		}
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	if err := pageTemplates.ExecuteTemplate(w, "token-describe.html", page); err != nil {
+		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
+	}
+}
+
 // tokenSetupPage serves /token-setup for the root CA in rootDir and its issuing CAs: GET shows the
 // form asking for a setup code, and POST exchanges the code, as exchangeSetupCode, and shows the
 // token once, with its attributes, or the form again with the error. The client is the one
@@ -892,6 +969,34 @@ func checkToken(db *tokensDB, caCert *x509.Certificate, token string) (string, *
 		return "", nil, err
 	}
 	return lookupToken(db, c)
+}
+
+// otherCAToken returns err, the refusal of token by the CA in caDir, or, for a token another CA of
+// the same root CA signed, the error of status 401 naming both CAs, as token describe names the CA.
+func otherCAToken(caDir, token string, err error) error {
+	rootDir, id, rerr := locateCA(caDir)
+	if rerr != nil {
+		return err
+	}
+	role := func(id string) string {
+		if id == "" {
+			return "the root CA"
+		}
+		return "the issuing CA " + id
+	}
+	for _, other := range caIDs(rootDir) {
+		if other == id {
+			continue
+		}
+		caCert, cerr := loadCert(filepath.Join(rootDir, other, "ca_cert.pem"))
+		if cerr != nil {
+			continue
+		}
+		if _, verr := verifyJWT(caCert, token); verr == nil {
+			return apiErr(http.StatusUnauthorized, "the token is one of %s, not of %s", role(other), role(id))
+		}
+	}
+	return err
 }
 
 // verifyJWT returns the claims of the JWT token signed with the key of caCert, and an error of
@@ -1063,17 +1168,21 @@ func clientAddr(r *http.Request) netip.Addr {
 }
 
 // signWithToken signs the CSR csrData, PEM or DER, with the CA in caDir as a certificate of the
-// type certType, the first type of the token by default, for the JWT token of the CA's
-// tokens-db.json used from the address client, which must be in the client prefixes of a token
-// that has them; it records the certificate in index.txt and in the token's entry, and returns
-// it with the CA certificate and the name of its file, NAME_cert.pem by the rules of cert create,
-// the serial number for a request without a name. issueMu and the lock of tokens-db.json are held
-// from the token check to the writes of index.txt and tokens-db.json. With setupCodes, token may
-// be the setup code of a pending token of the CA instead, used from a client it is exchanged from:
-// the certificate is signed with the limits of that token, which is revoked once it is issued,
-// and a refused request leaves the code as it was.
-func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certType string,
-	setupCodes bool) (cert, caCert *x509.Certificate, fileName string, err error) {
+// type certType, valid for days, with the extended key usages ekus and the key usages kus added to
+// those of the type, for the JWT token of the CA's tokens-db.json used from the address client,
+// which must be in the client prefixes of a token that has them. It writes the certificate to the
+// CA directory as the file certFile gives base, replacing an earlier certificate of the name,
+// records it in index.txt and in the token's entry, and returns it with the CA certificate and the
+// name of its file. The signing form leaves certType, days and base out: the type is then the
+// first type of the token, the days those of days.cert, and the file is named after the CN by the
+// rules of cert create, or after the serial number for a request without a name. issueMu and the
+// lock of tokens-db.json are held from the token check to the writes of the certificate file,
+// index.txt and tokens-db.json. With setupCodes, token may be the setup code of a pending token of
+// the CA instead, used from a client it is exchanged from: the certificate is signed with the
+// limits of that token, which is revoked once it is issued, and a refused request leaves the code
+// as it was.
+func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certType, base string, days int,
+	ekus, kus []string, setupCodes bool) (cert, caCert *x509.Certificate, fileName string, err error) {
 	issueMu.Lock()
 	defer issueMu.Unlock()
 	unlock, err := lockTokens(caDir)
@@ -1108,7 +1217,7 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 			return nil, nil, "", apiErr(http.StatusForbidden, "the setup code is not usable from %s", client)
 		}
 	} else if name, tok, err = checkToken(db, caCert, token); err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", otherCAToken(caDir, token, err)
 	}
 	if !tok.clientAllowed(client) {
 		return nil, nil, "", apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
@@ -1147,22 +1256,47 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 		return nil, nil, "", err
 	}
 
-	days := 365
-	if cfg.Days.Cert > 0 {
-		days = cfg.Days.Cert
+	// The signing form names the file after the CN, else the first DNS name or email address.
+	if base == "" {
+		cn, email := csr.Subject.CommonName, ""
+		if cn == "" && len(csr.DNSNames) > 0 {
+			cn = csr.DNSNames[0]
+		}
+		for _, attr := range csr.Subject.Names {
+			if s, ok := attr.Value.(string); ok && attr.Type.Equal(oidEmailAddress) && email == "" {
+				email = s
+			}
+		}
+		if email == "" && len(csr.EmailAddresses) > 0 {
+			email = csr.EmailAddresses[0]
+		}
+		base = certFileName(strings.TrimPrefix(cn, "*."), email, def.names == "user")
+	}
+	if base != "" {
+		if fileName, err = certFile(base); err != nil {
+			return nil, nil, "", apiErr(http.StatusBadRequest, "name: %v", err)
+		}
+	}
+	if days == 0 {
+		days = cmp.Or(cfg.Days.Cert, 365)
 	}
 	tmpl := &x509.Certificate{RawSubject: csr.RawSubject}
 	if san := csrSAN(csr); san != nil {
 		tmpl.ExtraExtensions = []pkix.Extension{*san}
 	}
-	cert, err = issueLeaf(caDir, certType, days, nil, nil, tmpl, csr.PublicKey)
+	if _, _, _, err := parseUsages(append(slices.Clone(def.keyUsage), kus...),
+		append(slices.Clone(def.extKeyUsage), ekus...)); err != nil {
+		return nil, nil, "", apiErr(http.StatusBadRequest, "%v", err)
+	}
+	cert, err = issueLeaf(caDir, certType, days, ekus, kus, tmpl, csr.PublicKey)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	if err := recordIssued(caDir, cert); err != nil {
+	serial := serialHex(cert.SerialNumber)
+	fileName = cmp.Or(fileName, serial+"_cert.pem")
+	if err := storeCert(caDir, filepath.Join(caDir, fileName), cert); err != nil {
 		return nil, nil, "", err
 	}
-	serial := serialHex(cert.SerialNumber)
 	tok.Certs = append(tok.Certs, serial)
 	byCode := tok.pending()
 	if byCode {
@@ -1181,21 +1315,6 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 		pairs = append(pairs, "oidc_user", tok.OIDC.User)
 	}
 	auditIssued(caDir, cert, certType, append(pairs, "client", client.String())...)
-
-	// The file is named after the CN, else the first DNS name or email address.
-	cn, email := csr.Subject.CommonName, ""
-	if cn == "" && len(csr.DNSNames) > 0 {
-		cn = csr.DNSNames[0]
-	}
-	for _, attr := range csr.Subject.Names {
-		if s, ok := attr.Value.(string); ok && attr.Type.Equal(oidEmailAddress) && email == "" {
-			email = s
-		}
-	}
-	if email == "" && len(csr.EmailAddresses) > 0 {
-		email = csr.EmailAddresses[0]
-	}
-	fileName = cmp.Or(certFileName(strings.TrimPrefix(cn, "*."), email, def.names == "user"), serial) + "_cert.pem"
 	return cert, caCert, fileName, nil
 }
 
@@ -1209,8 +1328,12 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 	}
 	var cert, caCert *x509.Certificate
 	var req struct {
-		CSR  string `json:"csr"`
-		Type string `json:"type"`
+		CSR  string   `json:"csr"`
+		Type string   `json:"type"`
+		Name string   `json:"name"`
+		Days int      `json:"days"`
+		KU   []string `json:"ku"`
+		EKU  []string `json:"eku"`
 	}
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	ct, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";")
@@ -1223,11 +1346,21 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 		err = apiErr(http.StatusUnsupportedMediaType, "the content type must be application/json")
 	case !ok:
 		err = apiErr(http.StatusUnauthorized, "a bearer token is required")
+		auditRefused(r, caDir, "a bearer token is required", client)
 	case dec.Decode(&req) != nil:
-		err = apiErr(http.StatusBadRequest, "invalid request: the body is not a JSON object of csr and type")
+		err = apiErr(http.StatusBadRequest, "invalid request: the body is not a JSON object of csr, type, name, "+
+			"days, ku and eku")
+	// The API takes no defaults: the type, the file name and the days are given, as cert sign takes them.
+	case strings.TrimSpace(req.Type) == "":
+		err = apiErr(http.StatusBadRequest, "type: the certificate type is required")
+	case strings.TrimSpace(req.Name) == "" || strings.ContainsAny(req.Name, `/\`):
+		err = apiErr(http.StatusBadRequest, "name: the file name of the certificate is required, without a directory")
+	case req.Days < 1:
+		err = apiErr(http.StatusBadRequest, "days: the validity in days must be a positive integer")
 	default:
 		err = guard.attempt(w, r, caDir, func() (err error) {
-			cert, caCert, _, err = signWithToken(caDir, token, client, []byte(req.CSR), req.Type, false)
+			cert, caCert, _, err = signWithToken(caDir, token, client, []byte(req.CSR), req.Type, req.Name, req.Days,
+				req.EKU, req.KU, false)
 			return err
 		})
 	}
@@ -1325,9 +1458,12 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 		var fileName string
 		token := strings.TrimSpace(r.PostForm.Get("token"))
 		var err error = apiErr(http.StatusUnauthorized, "a token or a setup code is required")
-		if token != "" {
+		if token == "" {
+			auditRefused(r, caDir, "a token or a setup code is required", client)
+		} else {
+			// The form takes the defaults of the type, the days and the file name.
 			err = guard.attempt(w, r, caDir, func() (err error) {
-				cert, _, fileName, err = signWithToken(caDir, token, client, []byte(page.CSR), page.Type, true)
+				cert, _, fileName, err = signWithToken(caDir, token, client, []byte(page.CSR), page.Type, "", 0, nil, nil, true)
 				return err
 			})
 		}

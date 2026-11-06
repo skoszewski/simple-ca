@@ -43,7 +43,7 @@ async function showCA() {
       cell((t.clients || []).map(address).join(", ") || "any"),
       cell(String(t.certs.length)),
       element("td", { className: "py-1.5 text-right" }, !managed ? null : element("div", { className: "flex justify-end gap-2" },
-        t.pending && !t.expired ? null : button("Renew", () => renew(t.name, ended)),
+        t.pending && !t.expired ? null : button("Renew", () => renew(t, ended)),
         ended
           ? button("Remove", () => change("purge", t.name, `Remove the token ${t.name}? It can no longer be renewed.`, "Remove"))
           : button("Revoke", () => change("revoke", t.name, t.pending
@@ -74,11 +74,14 @@ async function showCA() {
   ].filter((child) => child !== null));
 }
 
-// renew renews the token name, once confirmed, with a setup code in place of its JWT when the box
-// for it is checked; ended tells that the token is revoked or expired.
-async function renew(name, ended) {
+// renew renews the token t, once confirmed, for the validity given, the one it had by default as
+// for token renew, with a setup code in place of its JWT when the box for it is checked; ended
+// tells that the token is revoked or expired.
+async function renew(t, ended) {
+  const name = t.name;
   const field = (attributes) => element("input", { autocorrect: "off", autocapitalize: "off", spellcheck: false,
     className: "w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono", ...attributes });
+  const valid = field({ value: t.valid || info.defaults.valid, placeholder: "1h, 8h, 720h" });
   const otc = element("input", { type: "checkbox" });
   const otcValid = field({ value: info.defaults.otc_valid, placeholder: "15m, 1h" });
   const otcNetworks = field({ placeholder: "192.168.1.0/24" });
@@ -91,12 +94,13 @@ async function renew(name, ended) {
     label("Code usable from", otcNetworks));
   otc.addEventListener("change", () => otcFields.classList.toggle("hidden", !otc.checked));
   if (!(await confirmed(question, "Renew", element("div", { className: "space-y-3" },
+    label("Valid for", valid),
     element("label", { className: "flex items-center gap-1.5 text-sm" }, otc, " One-time setup code"),
     otcFields)))) {
     return;
   }
   try {
-    const answer = await api("POST", "/api/tokens/renew", { ca: caID, name, otc: otc.checked,
+    const answer = await api("POST", "/api/tokens/renew", { ca: caID, name, valid: valid.value.trim(), otc: otc.checked,
       otc_valid: otc.checked ? otcValid.value : "", otc_networks: otc.checked ? list(otcNetworks.value) : [] });
     say("");
     showToken(answer);
@@ -136,7 +140,7 @@ function openCreate() {
   fields.domains.value = (info.defaults.domains || []).join(", ");
   fields.ips.value = (info.defaults.ips || []).join(", ");
   fields.clients.value = (info.defaults.clients || []).join(", ");
-  fields.localhost.checked = info.defaults.localhost;
+  fields.localhost.checked = false;
   fields.otc.checked = false;
   fields.otc_valid.value = info.defaults.otc_valid;
   fields.otc_networks.value = "";

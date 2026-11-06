@@ -48,9 +48,17 @@ becomes one `_`, without a leading or trailing `_`: `web.example.com` is written
 `a_example_cert.pem`.
 
 `cert sign` names the certificate after the request file, as described under
-[cert sign](usage.md#cert-sign). The [signing API](signing-api.md) names it by the rules of its
-type after the CN of the request, without a leading `*.`, else its first DNS name, and its
-emailAddress or first email address; a request that gives no name is named after the serial.
+[cert sign](usage.md#cert-sign), and the [signing API](signing-api.md) after the `name` of the
+request, cleaned the same way. The signing form names it by the rules of its type after the CN of
+the request, without a leading `*.`, else its first DNS name, and its emailAddress or first email
+address; a request that gives no name is named after the serial. The [ACME](acme.md) server names
+it after the first name of the order, by the server rules.
+
+The signing API, the signing form and the ACME server store the certificate as `{name}_cert.pem`
+too, without a key, which stays with the client, so the
+[certificate page](usage.md#certificate-page) can show it. For them and for `cert sign`, the
+newest certificate of a name replaces the file of the one before it, which `index.txt` still
+lists, and the name `ca`, whose file is the CA certificate, is refused.
 
 Use `ca_bundle.pem` with `openssl verify -CAfile CA_DIR/ca_bundle.pem`; this works the same on
 Linux, macOS and Windows without hash symlinks.

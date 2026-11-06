@@ -12,10 +12,11 @@
  * The openssl command makes an EC P-256 key and a certificate signing request for the CN, with
  * the CN and the DNS names as its DNS names. The request is sent to the signing API of the CA at
  * CA_URL, such as https://pki.example.com/servers, with a token made by simple-ca token create, in
- * SIMPLE_CA_TOKEN or in the file SIMPLE_CA_TOKEN_FILE names, and the certificate type in
- * SIMPLE_CA_TYPE, the first type of the token when it is unset. The key, the certificate and the
- * chain are written to CN_key.pem, CN_cert.pem and CN_chain.pem, a wildcard CN *.NAME as
- * wildcard.NAME; the key only once the certificate is signed.
+ * SIMPLE_CA_TOKEN or in the file SIMPLE_CA_TOKEN_FILE names, the certificate type in
+ * SIMPLE_CA_TYPE, server when it is unset, the validity in days in SIMPLE_CA_DAYS, 365 when it is
+ * unset, and the name of the certificate file of the CA directory, the prefix of the files
+ * written here. The key, the certificate and the chain are written to CN_key.pem, CN_cert.pem and
+ * CN_chain.pem, a wildcard CN *.NAME as wildcard.NAME; the key only once the certificate is signed.
  */
 
 import { execFileSync } from "node:child_process";
@@ -109,10 +110,13 @@ try {
     process.exit(1);
   }
 
-  const body = { csr };
-  if (process.env.SIMPLE_CA_TYPE) {
-    body.type = process.env.SIMPLE_CA_TYPE;
+  const days = Number(process.env.SIMPLE_CA_DAYS || 365);
+  if (!Number.isInteger(days)) {
+    console.error(`SIMPLE_CA_DAYS: '${process.env.SIMPLE_CA_DAYS}' is not a number of days`);
+    rmSync(tmp, { recursive: true, force: true });
+    process.exit(1);
   }
+  const body = { csr, type: process.env.SIMPLE_CA_TYPE || "server", days, name: prefix };
   let response;
   let text = "";
   try {

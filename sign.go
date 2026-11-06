@@ -49,7 +49,7 @@ import (
 // parseUsages, and the other extensions of the request are left out.
 func requestCert(caDir string, csrData []byte, certType string, days int, ekus, kus []string) (*x509.Certificate, error) {
 	if days < 1 {
-		return nil, errors.New("--days must be a positive integer")
+		return nil, errors.New("the validity in days must be a positive integer")
 	}
 	if !dirExists(caDir) {
 		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
@@ -78,11 +78,25 @@ func storeCert(caDir, certOut string, cert *x509.Certificate) error {
 	return recordIssued(caDir, cert)
 }
 
+// certFile returns the file of the certificate the name gives, NAME_cert.pem, each run of
+// characters besides letters, digits, - and _ in name as one _; a name that gives no file name,
+// or gives ca_cert.pem, the file of the CA certificate, is an error.
+func certFile(name string) (string, error) {
+	clean := strings.Trim(fileNameRE.ReplaceAllString(strings.TrimSpace(name), "_"), "_")
+	switch {
+	case clean == "":
+		return "", fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", name)
+	case clean == "ca":
+		return "", errors.New("the name ca gives ca_cert.pem, the file of the CA certificate")
+	}
+	return clean + "_cert.pem", nil
+}
+
 // signCSR signs the request in csrPath as cert sign does, as requestCert, and writes it with
-// storeCert to certDir, the CA directory when empty, as NAME_cert.pem for the request file
-// NAME.EXT, each run of characters besides letters, digits, - and _ in NAME as one _, and returns
-// it. The certificate is shown on stdout before it is written, and written when the answer read
-// from confirm is y or yes, or without asking with force.
+// storeCert to certDir, the CA directory when empty, as the file certFile gives the request file
+// NAME.EXT, replacing an earlier certificate of the name, and returns it. The certificate is shown
+// on stdout before it is written, and written when the answer read from confirm is y or yes, or
+// without asking with force.
 func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []string, force bool, confirm io.Reader) (*x509.Certificate, error) {
 	if certDir == "" {
 		certDir = caDir
@@ -91,14 +105,11 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 		return nil, fmt.Errorf("certificate directory %s does not exist", certDir)
 	}
 	base := filepath.Base(csrPath)
-	certName := strings.Trim(fileNameRE.ReplaceAllString(strings.TrimSuffix(base, filepath.Ext(base)), "_"), "_")
-	if certName == "" {
-		return nil, fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", base)
+	file, err := certFile(strings.TrimSuffix(base, filepath.Ext(base)))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", base, err)
 	}
-	certOut := filepath.Join(certDir, certName+"_cert.pem")
-	if fileExists(certOut) {
-		return nil, fmt.Errorf("certificate %s exists", certOut)
-	}
+	certOut := filepath.Join(certDir, file)
 	data, err := os.ReadFile(csrPath)
 	if err != nil {
 		return nil, err
@@ -199,9 +210,7 @@ func issueLeaf(caDir, certType string, days int, ekus, kus []string, tmpl *x509.
 	caCertPath := filepath.Join(caDir, "ca_cert.pem")
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
 	if !fileExists(caCertPath) || !fileExists(caKeyPath) {
-		return nil, fmt.Errorf(
-			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory",
-			caDir)
+		return nil, fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
 	}
 	caCert, err := loadCert(caCertPath)
 	if err != nil {

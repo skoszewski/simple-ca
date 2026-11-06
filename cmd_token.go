@@ -120,9 +120,6 @@ func runTokenCreate(args []string) error {
 		if !given["ip"] {
 			ips = slices.Clone(defaults.IPs)
 		}
-		if !given["localhost"] {
-			*localhost = defaults.Localhost
-		}
 		if len(certTypes) == 0 {
 			certTypes = []string{"server"}
 		}

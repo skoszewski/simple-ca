@@ -127,7 +127,8 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 // templateFiles are the pages of serve, in the style of Tailwind CSS from its browser build:
 // index.html, the list of the CAs; sign.html, the signing form; tokens.html and certs.html, the
 // tokens and the certificates of the CAs, with the parts they share in webui-common.html;
-// token-setup.html, the setup code page; oidc-callback.html, the page the OIDC provider sends the
+// token-setup.html, the setup code page; token-describe.html, the page describing a token;
+// oidc-callback.html, the page the OIDC provider sends the
 // browser back to; and theme.html, the colours all of them share and the version line below each
 // of them.
 //
@@ -410,6 +411,13 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		tokenSetupPage(w, r, rootDir)
 	})
 
+	// The page describing a token of any of the CAs, as token describe does.
+	for _, method := range []string{"GET", "POST"} {
+		mux.HandleFunc(method+" /token-describe", func(w http.ResponseWriter, r *http.Request) {
+			tokenDescribePage(w, r, rootDir)
+		})
+	}
+
 	// The OIDC sign-in.
 	oidc := newOIDCClient(rootDir)
 	mux.HandleFunc("GET /api/oidc", oidc.apiSettings)
@@ -431,6 +439,15 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			return
 		}
 		apiSign(w, r, filepath.Join(rootDir, ca))
+	})
+	mux.HandleFunc("GET /{ca}/api/sign", func(w http.ResponseWriter, r *http.Request) {
+		ca := r.PathValue("ca")
+		if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 
 	// /CA and /CA/ of an issuing CA redirect to its section of the index page.

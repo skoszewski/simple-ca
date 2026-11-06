@@ -195,6 +195,10 @@ func locateCA(caDir string) (rootDir, issuingCA string, err error) {
 	return filepath.Dir(abs), filepath.Base(abs), nil
 }
 
+// errCertExists reports a certificate that exists with its key, which cert create does not
+// replace.
+var errCertExists = errors.New("the certificate and its key exist already")
+
 // makeCert issues a certificate of the type certType, one of builtinTypes or of the types of
 // simple-ca.json of the root CA, signed by the CA in caDir, writes it with its key to certDir, and
 // records it in index.txt of that CA.
@@ -207,10 +211,11 @@ func locateCA(caDir string) (rootDir, issuingCA string, err error) {
 // SAN; the rest of sans are email addresses and numeric OIDs.
 //
 // kus are added to the key usages of the type and ekus to its extended key usages, as parsed by
-// parseUsages. It returns the certificate issued, nil when the certificate and its key exist.
+// parseUsages. It returns the certificate issued, and an error wrapping errCertExists when the
+// certificate and its key exist.
 func makeCert(subjectName string, sans []string, caDir, certDir, certType string, days int, ekus, kus []string) (*x509.Certificate, error) {
 	if days < 1 {
-		return nil, errors.New("--days must be a positive integer")
+		return nil, errors.New("the validity in days must be a positive integer")
 	}
 	if !dirExists(caDir) {
 		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
@@ -307,9 +312,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 	caCertPath := filepath.Join(caDir, "ca_cert.pem")
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
 	if !fileExists(caCertPath) || !fileExists(caKeyPath) {
-		return nil, fmt.Errorf(
-			"CA certificate and key not found in %s. Please point --ca-dir to a CA directory",
-			caDir)
+		return nil, fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
 	}
 
 	publishURL := cfg.CAPublishBaseURL
@@ -351,7 +354,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 	certOut := filepath.Join(certDir, certName+"_cert.pem")
 	keyOut := filepath.Join(certDir, certName+"_key.pem")
 	if fileExists(certOut) && fileExists(keyOut) {
-		return nil, nil
+		return nil, fmt.Errorf("%w: %s and %s", errCertExists, filepath.Base(certOut), filepath.Base(keyOut))
 	}
 
 	caCert, err := loadCert(caCertPath)

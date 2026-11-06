@@ -142,9 +142,9 @@ digits; the addresses of email address SANs are ASCII.
 The certificate is signed by the CA in the CA directory (root or issuing CA) and written to
 that directory, or to `--cert-dir`, named as described under
 [Directory layout](directory-layout.md); a CN that gives no file name, such as `...`, is refused.
-A certificate whose certificate and key files both exist is left as it is; a certificate file
-without its key is written again. `--days` defaults to `days.cert` of `simple-ca.json`, 365
-without it.
+A certificate whose certificate and key files both exist is an error, and they are left as they
+are; a certificate file without its key is written again. `--days` defaults to `days.cert` of
+`simple-ca.json`, 365 without it.
 
 `--ku USAGES` adds key usages to those of the type, as a comma-separated list, and `--eku USAGE`
 adds an extended key usage; both may be specified multiple times, and a usage the type already
@@ -183,9 +183,11 @@ subject alternative name extension is critical.
 The certificate is written to the CA directory, or to `--cert-dir`, named after the request file
 without its extension, with each run of characters other than letters, digits, hyphens and
 underscores replaced by one `_`, without a leading or trailing `_`: `web.csr` is written as
-`web_cert.pem` and `my web.v2.csr` as `my_web_v2_cert.pem`. A request file that gives no name,
-such as `+.csr`, and a certificate that exists are errors. `--type` defaults to `server`, and
-`--days` to `days.cert` of `simple-ca.json`, 365 without it.
+`web_cert.pem` and `my web.v2.csr` as `my_web_v2_cert.pem`. The newest certificate of a name
+replaces the file of the one before it, which `index.txt` still lists. A request file that gives
+no name, such as `+.csr`, is an error, and so is one named `ca`, whose file would be the CA
+certificate. `--type` defaults to `server`, and `--days` to `days.cert` of `simple-ca.json`, 365
+without it.
 
 The certificate is shown, with the fields of [cert show](#ca-show-and-cert-show), and
 `cert sign` asks `Sign this certificate? [y/N]`. It is written and recorded after `y` or `yes`;
@@ -215,6 +217,7 @@ directory, which signed it. An issuing CA is revoked from the root CA directory,
 
 `--reason` records why, in any letter case: `unspecified`, `keyCompromise`, `CACompromise`,
 `affiliationChanged`, `superseded` or `cessationOfOperation`. Without it, no reason is recorded.
+A certificate revoked already is an error.
 The reason is stored in `index.txt` as `openssl ca -crl_reason` stores it, and the CRL gives it
 as the reason code of the entry; for `unspecified` and for no reason, the entry has no reason
 code. The reasons `openssl ca` records for revocations of its own, `certificateHold`,
@@ -331,9 +334,13 @@ simple-ca serve --ca-dir /etc/simple-ca --webui
 | `POST /certificates/api/certs/revoke` | `ca`, `serial`, `reason` | `serial` |
 | `POST /certificates/api/crl` | `ca`, `days` | `ca` |
 
-`CA` is the name of an issuing CA, or empty for the root CA. A create whose certificate and key
-files exist already is `409 Conflict`, as `cert create` leaves such a certificate, and so is a
-sign whose `NAME_cert.pem` exists.
+`CA` is the name of an issuing CA, or empty for the root CA. The API takes no defaults: `type`,
+`subject` and `days` of a create, `type`, `name`, `csr` and `days` of a sign, `serial` of a revoke
+and `days` of a CRL are given, and a field a request does not use is `400 Bad Request`; the page
+fills in the defaults of the commands. A create whose certificate and key files exist already is
+`409 Conflict`, as `cert create` refuses it; a sign replaces the `NAME_cert.pem` of an earlier
+certificate, as `cert sign` does, and refuses the name `ca`. A revoke of a certificate revoked
+already is `400 Bad Request`.
 
 ## Example
 

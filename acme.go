@@ -990,6 +990,12 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 	if cfg.ACME.Days > 0 {
 		days = cfg.ACME.Days
 	}
+	// The certificate is stored as the commands store it, named after the first name of the order
+	// by the server rules, and replaces an earlier certificate of the name.
+	file, err := certFile(certFileName(strings.TrimPrefix(o.Names[0], "*."), "", false))
+	if err != nil {
+		return problem(http.StatusBadRequest, "rejectedIdentifier", "%v", err)
+	}
 	tmpl := &x509.Certificate{DNSNames: o.Names}
 	if len(o.Names[0]) <= 64 {
 		tmpl.Subject = pkix.Name{CommonName: o.Names[0]}
@@ -998,7 +1004,7 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 	if err != nil {
 		return err
 	}
-	if err := recordIssued(ca.dir, cert); err != nil {
+	if err := storeCert(ca.dir, filepath.Join(ca.dir, file), cert); err != nil {
 		return err
 	}
 	chain := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
