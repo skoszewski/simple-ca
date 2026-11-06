@@ -14,26 +14,30 @@ async function showCA() {
     return;
   }
   const field = (e, key) => (e.fields.find(([k]) => k === key) || ["", ""])[1];
-  // The other keys of the records shown each get a column, in the order they first appear.
-  const fixed = ["Time", "Event", "CA", "Actor", "Via", "Client"];
+  // The columns are the keys of the records, the fixed ones first, the others in the order they
+  // first appear in the records shown.
+  const fixed = ["time", "event", "ca", "actor", "via", "client"];
+  const headings = (shown) => [...fixed,
+    ...new Set(shown.flatMap((e) => e.fields.map(([k]) => k).filter((k) => !auditKeys.includes(k))))];
   // The root CA, whose records have no CA, is "-" to its filter, as "" clears a filter.
   const caChoice = (e) => e.ca || "-";
   const caLabel = (choice) => choice === "-" ? "root CA" : choice;
-  const headings = (shown) => [...fixed,
-    ...new Set(shown.flatMap((e) => e.fields.map(([k]) => k).filter((k) => !auditKeys.includes(k))))];
   const distinct = (key) => [...new Set(answer.entries.map((e) => key === "event" ? e.event : field(e, key)))]
     .filter(Boolean).sort().map((v) => [v, v]);
-  const row = (e, columns) => element("tr", {},
-    cell(time(e.time), "whitespace-nowrap"),
-    cell(e.event, "font-mono whitespace-nowrap"),
-    cell(caLabel(caChoice(e)), "whitespace-nowrap"),
-    cell(field(e, "actor") || "-", "whitespace-nowrap"),
-    cell(field(e, "via") || "-"),
-    cell(field(e, "client") || "-", "font-mono"),
-    ...columns.slice(fixed.length).map((key) => cell(field(e, key) || "-", "font-mono text-xs whitespace-nowrap")));
+  // The cells of the columns shown, those of the fixed columns by their key.
+  const fixedCells = {
+    time: (e) => cell(time(e.time), "whitespace-nowrap"),
+    event: (e) => cell(e.event, "font-mono whitespace-nowrap"),
+    ca: (e) => cell(caLabel(caChoice(e)), "whitespace-nowrap"),
+    actor: (e) => cell(field(e, "actor") || "-", "whitespace-nowrap"),
+    via: (e) => cell(field(e, "via") || "-"),
+    client: (e) => cell(field(e, "client") || "-", "font-mono"),
+  };
+  const row = (e, columns) => element("tr", {}, ...columns.map((key) =>
+    fixedCells[key] ? fixedCells[key](e) : cell(field(e, key) || "-", "font-mono text-xs whitespace-nowrap")));
   $("ca-section").replaceChildren(...[
     answer.entries.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No records." }) :
-      searchable({ items: answer.entries, row, noun: "records", headings,
+      searchable({ items: answer.entries, row, noun: "records", headings, label: readable, hideable: true,
         text: (e) => [e.line],
         filters: [
           { name: "event", label: "Event", multiple: true, match: (e, values) => values.includes(e.event),

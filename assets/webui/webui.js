@@ -215,8 +215,10 @@ const list = (text) => text.split(/[\s,]+/).filter(Boolean);
 
 // searchable returns the table of items with a search field, filter pickers and a count; the
 // search and the filters are kept in the address. headings is a list, or a function of the items
-// shown returning one, which row gets with its item.
-function searchable({ items, text, row, headings, filters, noun }) {
+// shown returning one, which row gets with its item, without the hidden ones; label gives the text
+// of a heading. With hideable, a picker chooses the columns shown, and the hidden ones are kept in
+// the address as ?hide=.
+function searchable({ items, text, row, headings, filters, noun, label = (h) => h, hideable = false }) {
   const words = () => (params.get("q") || "").toLowerCase().split(/\s+/).filter(Boolean);
   const chosen = (name) => (params.get(name) || "").split(",").filter(Boolean);
   const head = element("tr", {});
@@ -230,6 +232,8 @@ function searchable({ items, text, row, headings, filters, noun }) {
     }
     history.replaceState(null, "", base + "/?" + params);
   };
+  const columnPicker = element("div", { className: "min-w-0" });
+  let offered = "";
   const draw = () => {
     const wanted = words();
     const shown = items.filter((item) => {
@@ -237,8 +241,19 @@ function searchable({ items, text, row, headings, filters, noun }) {
       return wanted.every((word) => haystack.includes(word))
         && filters.every(({ name, match }) => chosen(name).length === 0 || match(item, chosen(name)));
     });
-    const columns = typeof headings === "function" ? headings(shown) : headings;
-    head.replaceChildren(...columns.map((h) => element("th", { className: "py-1 pr-3 font-medium", textContent: h })));
+    const all = typeof headings === "function" ? headings(shown) : headings;
+    const columns = hideable ? all.filter((h) => !chosen("hide").includes(h)) : all;
+    // The picker is made again only when the columns offered change, so it stays open while used.
+    if (hideable && all.join("\n") !== offered) {
+      offered = all.join("\n");
+      columnPicker.replaceChildren(picker({ name: "columns", labelledBy: "filter-columns",
+        choices: all.map((h) => [h, label(h)]), value: columns, multiple: true, fit: true, placeholder: "none",
+        onchange: (visible) => {
+          keep("hide", [...chosen("hide").filter((h) => !all.includes(h)), ...all.filter((h) => !visible.includes(h))].join(","));
+          draw();
+        } }));
+    }
+    head.replaceChildren(...columns.map((h) => element("th", { className: "py-1 pr-3 font-medium", textContent: label(h) })));
     body.replaceChildren(...shown.map((item) => row(item, columns)));
     count.textContent = shown.length === items.length ? `${items.length} ${noun}`
       : `${shown.length} of ${items.length} ${noun}` + (shown.length === 0 ? "; none matches the search and the filters" : "");
@@ -263,7 +278,10 @@ function searchable({ items, text, row, headings, filters, noun }) {
   });
   draw();
   return element("div", { className: "space-y-3" },
-    element("div", { className: "flex flex-wrap items-center gap-3" }, search, ...pickers),
+    element("div", { className: "flex flex-wrap items-center gap-3" }, search, ...pickers,
+      hideable ? element("div", { className: "flex min-w-0 max-w-full items-center gap-2" },
+        element("span", { id: "filter-columns", className: "shrink-0 text-sm font-medium", textContent: "Columns" }),
+        columnPicker) : null),
     element("div", { className: "overflow-x-auto" }, element("table", { className: "w-full text-left text-sm" },
       element("thead", { className: "text-muted" }, head), body)),
     count);

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.1
+
+gap: the audit page has a Columns picker that hides and shows its columns, headed in words.
+
+- The Columns picker of the audit page chooses the columns shown, several at a time; the hidden
+  ones are kept in the address as `?hide=`.
+- The columns of the keys of the records are headed by their words, such as Setup Code and OIDC
+  User, in place of `setup_code` and `oidc_user`.
+
 ## 1.11.0
 
 feat: the APIs match the commands, a page describes a token, and a release has one archive per platform.

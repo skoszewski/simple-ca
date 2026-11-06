@@ -1,7 +1,7 @@
 // The parts the pages of serve share, the index page, the signing form, the setup code page and
-// the token and certificate pages: element, which makes elements, picker, the dropdown chooser,
-// withPopup, which shows a popup by an element, copying, the Copy button of a token or a code,
-// and named, the name of a subject with its attributes.
+// the token, certificate and audit pages: element, which makes elements, picker, the dropdown
+// chooser, withPopup, which shows a popup by an element, copying, the Copy button of a token or a
+// code, named, the name of a subject with its attributes, and readable, the words of a name.
 
 // element returns a new element with the properties given and the children appended.
 function element(tag, props = {}, ...children) {
@@ -119,6 +119,16 @@ function named(name, attributes) {
     className: "cursor-help underline decoration-muted decoration-dotted underline-offset-4" }), popup), popup];
 }
 
+
+// readableAcronyms are the words readable writes in capitals.
+const readableAcronyms = { ca: "CA", crl: "CRL", ip: "IP", oidc: "OIDC", otc: "OTC" };
+
+// readable returns the words of a snake_case or kebab-case name, each capitalized, an acronym in
+// capitals: Setup Code for setup_code, OIDC User for oidc_user.
+function readable(name) {
+  return name.split(/[_-]+/).filter(Boolean)
+    .map((w) => readableAcronyms[w.toLowerCase()] || w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
 
 // A popup placed by the page's position is hidden once the page scrolls.
 addEventListener("scroll", () => {
