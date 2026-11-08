@@ -8,6 +8,7 @@ menu:
       - ACME: docs/acme.md
       - Signing API: docs/signing-api.md
       - OIDC sign-in: docs/oidc.md
+      - Workload identity federation: docs/workload-identity.md
       - Audit log: docs/audit.md
       - Signing API clients: docs/examples.md
       - systemd: docs/systemd.md

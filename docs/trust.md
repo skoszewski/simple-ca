@@ -94,7 +94,7 @@ their own NSS databases, such as Firefox, are not changed.
 
 The release archive of each platform, `simple-ca-X.Y.Z-<goos>-<goarch>`, holds the version of that
 platform beside `simple-ca`; the Windows one runs on the installed .NET 10 runtime.
-`./build.mjs trust` builds it for the host into `build/`,
+`./build.mjs trust` builds it for the host into `bin/`,
 or `./build.mjs trust <goos>/<goarch>` for another platform the host's toolchains can build for
 (see [Development](development.md)), or by hand, from the repository root:
 

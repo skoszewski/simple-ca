@@ -365,7 +365,8 @@ func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiTok
 	if len(clients) == 0 {
 		clients = append(slices.Clone(defaults.Hosts), defaults.Networks...)
 	}
-	return prepareToken(filepath.Join(rootDir, p.CA), name, valid, scopes, types, domains, ips, clients)
+	kind := tokenKind{Type: cmp.Or(t.TokenType, defaults.TokenType)}
+	return prepareToken(filepath.Join(rootDir, p.CA), name, kind, valid, scopes, types, domains, ips, clients)
 }
 
 // checkOIDC validates the oidc section of cfg and the profiles of oidc-users.json of rootDir.

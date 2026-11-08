@@ -5,7 +5,7 @@ title: Development
 ## Building
 
 `./build.mjs` needs Node.js and Go; the tests need `openssl` on the `PATH`. It writes the
-executables to `build/`, which `.gitignore` leaves out.
+executables to `bin/`, which `.gitignore` leaves out.
 
 ```sh
 ./build.mjs                    # build simple-ca, request-cert and token-setup for the host,
@@ -18,7 +18,7 @@ executables to `build/`, which `.gitignore` leaves out.
                                # build simple-ca-trust-windows-arm64.exe carrying the .NET runtime
 ./build.mjs test               # run the tests
 ./build.mjs check              # check formatting, vet and run the tests
-./build.mjs clean              # remove build/, dist/ and the build files of trust/macos and
+./build.mjs clean              # remove bin/, dist/ and the build files of trust/macos and
                                # trust/windows
 ./build.mjs assets             # download the browser files of the /help/ and /docs/ pages
 ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]

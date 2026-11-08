@@ -55,6 +55,31 @@ The token page grants `sign` and the scopes of its own token, and manages only t
 scopes it grants, so a user of the page cannot widen their own access, as a token with `tokens`
 alone could otherwise make itself one with `certs`.
 
+## Token types shape the JWT for other verifiers, as certificate types shape a certificate
+
+A token for Google or Microsoft Entra workload identity federation is a token of
+`tokens-db.json` like any other, made by the same commands and pages, with an issuer, an audience,
+a subject and claims in its JWT. Built-in token types, `api`, `google` and `azure`, carry what
+each verifier requires, and `token_types` of `simple-ca.json` redefines them or adds types from
+them, as `types` does for certificates, so an operator names a target once instead of repeating
+its audience and claims on every token.
+
+The CA key signs these JWTs, as it signs every token, and its public key is published as a JWK;
+the key is public already in the CA certificate. The `kid` is the RFC 7638 thumbprint of the key,
+so it is computed, never stored, and changes only with the key. Tokens issued before the `kid`
+verify still, as simple-ca reads only `alg` of the header.
+
+The subject of a type may differ from the token name, which simple-ca looks tokens up by, so such
+a JWT also carries the name in `simple_ca_token`. The issuer, audience, subject and claims are
+resolved when the token is made and kept in `tokens-db.json`, so a renewal signs what the
+verifier was set up for, whatever `simple-ca.json` says by then. The verifiers never ask
+simple-ca about a token, so revocation does not reach them; the longest validity of a type, at
+most that of its base, such as the 24 hours of Google, bounds a token withdrawn too late.
+
+`token create --cert-type` names the certificate types a token allows, so `--token-type` and
+`--cert-type` read apart; `--type`, its former name, stays accepted and is hidden from the usage
+of `token create` alone, as `cert create --type` keeps it.
+
 ## The token and certificate pages are part of serve
 
 `serve --webui` serves the token page at `/tokens/` and the certificate page at `/certificates/`,

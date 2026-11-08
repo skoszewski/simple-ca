@@ -10,7 +10,8 @@ request a certificate at `/help/`.
 
 `token create` creates the token `NAME` for the CA in the CA directory (root or issuing CA),
 records it in that directory's `tokens-db.json` and prints it. The token is a JWT signed with the
-CA key (RS256) and is valid only for that CA. It is shown only once, so copy it then.
+CA key (RS256), its header naming the key by its `kid`, and is valid only for that CA. It is shown
+only once, so copy it then.
 
 `--scope` sets what the token opens; it may be specified multiple times, and defaults to `sign`:
 
@@ -27,8 +28,9 @@ A root CA token opens the pages for every CA; an issuing CA token opens only its
 With the scope `sign`, these options set what the token may sign; each may be specified multiple
 times:
 
-- `--type` - the certificate types, or `*`, given alone, for every type of `simple-ca.json`,
-  also one added later; `server` by default;
+- `--cert-type` - the certificate types, or `*`, given alone, for every type of
+  `simple-ca.json`, also one added later; `server` by default; `--type` is its former name, still
+  accepted;
 - `--domain` - the domains, with their subdomains; `--domain '*'` allows any name, for a lab;
 - `--ip` - the IP addresses: an address such as `192.0.2.10`, a prefix such as `10.0.0.0/8` or
   `2001:db8::/32`, or `*` for any address;
@@ -52,8 +54,15 @@ Options not given default to the `tokens` section of [simple-ca.json](configurat
 example, with `"tokens": {"domains": ["*"], "networks": ["192.168.1.0/24"]}`, `token create NAME`
 makes a lab token for any name, used from 192.168.1.0/24, and `--domain example.com` limits one
 token to `example.com`. `--host` and `--network` together replace both `hosts` and `networks`.
-The defaults of `--type`, `--domain` and `--ip` apply only to tokens with the scope `sign`.
+The defaults of `--cert-type`, `--domain` and `--ip` apply only to tokens with the scope `sign`.
 `--localhost` has no default: it is given for each token that allows it.
+
+`--token-type` shapes the JWT for a party other than simple-ca that verifies it, such as Google
+or Microsoft Entra workload identity federation: `api`, the default, for simple-ca alone,
+`google`, `azure`, or a type of `token_types` in `simple-ca.json`. `--audience` gives the `aud`
+claim in place of that of the type, and `--claim NAME=VALUE`, which may be specified multiple
+times, adds a claim. The token keeps its scopes and limits and works with simple-ca as well. See
+[Workload identity federation](workload-identity.md).
 
 ### One-time setup codes
 
@@ -79,21 +88,23 @@ simple-ca token create --ca-dir /tmp/ca/servers --otc --otc-network 192.168.1.0/
   --valid 720h --domain example.com builder
 ```
 
-`token list` lists the tokens of the CA: name, expiry (marked `(expired)`, `revoked`,
-`setup until TIME` or `setup expired`), scopes, types, domains, IP prefixes, clients, the
+`token list` lists the tokens of the CA: name, token type, expiry (marked `(expired)`, `revoked`,
+`setup until TIME` or `setup expired`), scopes, cert types, domains, IP prefixes, clients, the
 number of certificates issued and the OIDC user it was made for. `-` marks what a token without
 `sign` does not have, and a token not made by the [OIDC sign-in](oidc.md).
 
 `token describe NAME` prints the attributes of the token `NAME` of the CA, one per line: its
 status (valid until, expired, revoked, or waiting for its setup code), when it was issued, its
-scopes, for a token of the OIDC sign-in its OIDC user and issuer, with `sign` its types, domains
+scopes, its token type, the issuer and audience of its JWT when it has them, the subject when it
+is not the name, and its claims, for a token of the OIDC sign-in its OIDC user and
+issuer, with `sign` its cert types, domains
 and IP addresses, the clients it is used from, for a setup
 code the clients the code is usable from and the validity of the token after the exchange, and
 the serial numbers of the certificates issued with it.
 
 `token describe --token-file FILE`, or `--stdin` for a token on the standard input, describes a
-token itself, as its holder has it. Its JWT holds only its name, its scopes and its times, which
-are shown, with a note that the signature is not checked. With `--ca-dir` as well, the signature
+token itself, as its holder has it. Its JWT holds only its name, its scopes, its times, and its
+issuer, audience and subject, which are shown, with a note that the signature is not checked. With `--ca-dir` as well, the signature
 is checked against that CA, and the rest is read from its `tokens-db.json`; a token renewed,
 revoked or removed there is shown as refused.
 
@@ -108,7 +119,8 @@ Name:          deploy
 Status:        valid until 2026-11-03 09:07:28 UTC
 Issued:        2026-11-03 08:07:28 UTC
 Scopes:        sign
-Types:         server
+Token type:    api
+Cert types:    server
 Domains:       example.com
 IP addresses:  -
 Used from:     192.168.1.0/24
@@ -137,7 +149,7 @@ also removes tokens that have been expired or revoked for longer than that, for 
 start and every 5 minutes.
 
 ```sh
-simple-ca token create --ca-dir /tmp/ca/servers --valid 8h --type server --domain example.com deploy
+simple-ca token create --ca-dir /tmp/ca/servers --valid 8h --cert-type server --domain example.com deploy
 simple-ca token create --ca-dir /tmp/ca/servers --valid 720h --domain '*' --ip 10.0.0.0/8 lab
 simple-ca token create --ca-dir /tmp/ca/servers --valid 720h --host 192.168.1.4 --domain '*' builder
 simple-ca token create --ca-dir /tmp/ca/servers --localhost --network 192.168.1.0/24 dev
@@ -154,11 +166,11 @@ certificates for clients in 192.168.1.0/24. `admin` is a root CA token that open
 certificate pages for every CA.
 
 ```text
-NAME     EXPIRES                  SCOPES  TYPES   DOMAINS      IPS         CLIENTS         CERTS  OIDC USER
-builder  2026-12-01 13:43:41 UTC  sign    server  *            -           192.168.1.4     0      -
-deploy   2026-11-01 21:43:41 UTC  sign    server  example.com  -           any             1      -
-dev      2026-11-01 14:43:41 UTC  sign    server  localhost    127.0.0.1   192.168.1.0/24  0      -
-lab      2026-12-01 13:43:41 UTC  sign    server  *            10.0.0.0/8  any             0      -
+NAME     TOKEN TYPE  EXPIRES                  SCOPES  CERT TYPES  DOMAINS      IPS         CLIENTS         CERTS  OIDC USER
+builder  api         2026-12-01 13:43:41 UTC  sign    server      *            -           192.168.1.4     0      -
+deploy   api         2026-11-01 21:43:41 UTC  sign    server      example.com  -           any             1      -
+dev      api         2026-11-01 14:43:41 UTC  sign    server      localhost    127.0.0.1   192.168.1.0/24  0      -
+lab      api         2026-12-01 13:43:41 UTC  sign    server      *            10.0.0.0/8  any             0      -
 ```
 
 The commands and `serve` change `tokens-db.json` under a lock: the file `tokens-db.json.lock`
@@ -186,17 +198,20 @@ own CA. The page shows one CA at a time, chosen in the CA selector, starting wit
 root CA. On it you can:
 
 - list the tokens, as `token list` does, and find them with the search and the filters. The search
-  shows the tokens holding every word of it, in any letter case, in their name, OIDC user,
-  status, scopes, types, domains, IP addresses, clients or certificate serials. The filters
-  are:
+  shows the tokens holding every word of it, in any letter case, in their name, OIDC user, token
+  type, audience, subject, status, scopes, cert types, domains, IP addresses, clients or certificate
+  serials. The Token type column shows the audience below the type, and the issuer, subject and
+  claims when the pointer rests on it. The filters are:
   - **Status**: active, waiting for a setup code, expired or revoked, one or more, showing the
     tokens of any status chosen;
   - **Scope**: sign, tokens, certs or audit, one or more, showing the tokens having every scope
     chosen, by name or by `*`;
+  - **Token type**: one or more token types;
   - **Made by**: the OIDC sign-in or another way.
 
   A count tells how many are shown. The search and the filters are kept in the address, as `?q=`,
-  `?status=`, `?scope=` and `?kind=`, several values separated by commas, so a reload or a link
+  `?status=`, `?scope=`, `?token_type=` and `?kind=`, several values separated by commas, so a
+  reload or a link
   keeps them;
 - renew a token, as `token renew` does, confirming first, for the validity of "Valid for", the
   one it had by default, with a setup code in place of its JWT when "One-time setup code" is
@@ -205,7 +220,9 @@ root CA. On it you can:
   confirming first;
 - create a token with the options of `token create`, in a dialog filled with the `tokens`
   defaults of [simple-ca.json](configuration.md), or a setup code of it with "One-time setup
-  code", its validity, 15 minutes by default, and the networks it is exchanged from.
+  code", its validity, 15 minutes by default, and the networks it is exchanged from. The Token
+  type chooser picks the token type; the Audience field shows the audience of the type, which a
+  value typed replaces, or that the type needs one; Claims takes one `name=value` a line.
 
 A new or renewed token, or the setup code of a new one, is shown once, in a dialog with a Copy
 button, and is gone from the page when the dialog closes. A token waiting for its setup code is
@@ -254,9 +271,9 @@ API takes no defaults, unlike `token create` and `token renew`: a create gives `
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json`, with only the scopes of them the token can give, or `sign` without any, and `otc_valid`, always 15 minutes |
-| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `issued`, `expires`, the expiry of its setup code when it is `pending`, `valid`, the validity `token renew` keeps, empty for a revoked token, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, `certs`, the serials of the certificates issued with it, and `oidc`, the `issuer`, `subject` and `user` of the OIDC user it was made for, or null |
-| `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
+| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `token_types`, each with `name`, `audience`, `needs_audience`, true when a token of the type needs an audience given, and `max_valid`, empty without a limit; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json`, with `token_type`, `api` without it, only the scopes of them the token can give, or `sign` without any, and `otc_valid`, always 15 minutes |
+| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `token_type`, `issuer`, `audience` and `subject`, empty when the JWT has none or its subject is the name, `claims`, null without them, `issued`, `expires`, the expiry of its setup code when it is `pending`, `valid`, the validity `token renew` keeps, empty for a revoked token, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, `certs`, the serials of the certificates issued with it, and `oidc`, the `issuer`, `subject` and `user` of the OIDC user it was made for, or null |
+| `POST /tokens/api/tokens` | `ca`, `name`, `token_type`, `api` when empty, `audience`, `claims`, an object of strings, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/renew` | `ca`, `name`, `valid`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `name` and `token`, the new JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/revoke` | `ca`, `name` | `name` |
 | `POST /tokens/api/tokens/purge` | `ca`, and `name` for one token | `removed`, the count |

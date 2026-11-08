@@ -69,6 +69,9 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/token-setup` | the exchange of a [setup code](signing-api.md#setup-code-exchange) for its token | `text/html` |
 | `/api/token-setup` | the exchange of a setup code, `POST` | `application/json` |
 | `/token-describe` | the attributes of a token pasted into it, see [Describe a token](signing-api.md#describe-a-token) | `text/html` |
+| `/.well-known/openid-configuration` | the OpenID Connect discovery document of the tokens of the root CA, `404 Not Found` without an issuer, see [Workload identity federation](workload-identity.md) | `application/json` |
+| `/jwks.json` | the JSON Web Key Set verifying the tokens of the root CA, `404 Not Found` without an issuer | `application/json` |
+| `/NAME/.well-known/openid-configuration`, `/NAME/jwks.json` | the same of the issuing CA `NAME` | `application/json` |
 | `/api/oidc` | the settings of the [OIDC sign-in](oidc.md), `404 Not Found` when it is off, `502 Bad Gateway` when the discovery document of the provider cannot be read | `application/json` |
 | `/api/oidc-token` | the exchange of an ID token for the token of its user, `POST` | `application/json` |
 | `/oidc-callback` | the page the OIDC provider sends the browser back to, its redirect URI | `text/html` |

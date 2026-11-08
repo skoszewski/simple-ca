@@ -41,7 +41,7 @@ DerivedData/
 /trust/windows/.idea/
 *.csproj.user
 *.suo
-/build/
+/bin/
 /dist/
 /tmp/
 /ca/

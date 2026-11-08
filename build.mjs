@@ -3,7 +3,7 @@
 // Builds, tests and checks simple-ca.
 // Usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
 //
-// The executables are written to build/, which clean removes. The build action writes simple-ca,
+// The executables are written to bin/, which clean removes. The build action writes simple-ca,
 // request-cert, the Go client of the signing API in cmd/request-cert, token-setup, which exchanges
 // a setup code, in cmd/token-setup, and on Linux simple-ca-trust of cmd/simple-ca-trust. The
 // platform defaults to the host's. Naming one builds for it instead, writing
@@ -125,11 +125,11 @@ const changelogVersion = readFileSync(join(root, "CHANGELOG.md"), "utf8").match(
 const tagged = spawnSync("git", ["tag", "--list", `v${changelogVersion}`], { cwd: root, encoding: "utf8" });
 const candidate = changelogVersion !== "" && tagged.status === 0 && tagged.stdout.trim() === "" ?
   `v${changelogVersion}-rc` : "";
-const buildDir = join(root, "build");
+const binDir = join(root, "bin");
 const goBuild = (output, pkg) => {
-  mkdirSync(buildDir, { recursive: true });
+  mkdirSync(binDir, { recursive: true });
   run("go", ["build", ...(candidate ? ["-ldflags", `-X main.buildVersion=${candidate}`] : []), "-o",
-    join(buildDir, output), pkg], { env });
+    join(binDir, output), pkg], { env });
 };
 
 if (!["build", "trust", "test", "check", "clean", "assets", "docker"].includes(action) ||
@@ -204,8 +204,8 @@ switch (action) {
       run("swift", ["build", "-c", "release", "--package-path", macos, ...arch]);
       const bin = run("swift", ["build", "-c", "release", "--package-path", macos, ...arch, "--show-bin-path"],
         { capture: true }).trim();
-      mkdirSync(buildDir, { recursive: true });
-      copyFileSync(join(bin, "simple-ca-trust"), join(buildDir, name));
+      mkdirSync(binDir, { recursive: true });
+      copyFileSync(join(bin, "simple-ca-trust"), join(binDir, name));
     } else if (goos === "windows") {
       // The project file is written for each build, self-contained or running on the installed
       // .NET runtime.
@@ -228,10 +228,10 @@ switch (action) {
 
 </Project>
 `);
-      const out = join(buildDir, `trust-windows-${goarch}`);
+      const out = join(binDir, `trust-windows-${goarch}`);
       run("dotnet", ["publish", project, "-c", "Release",
         "-r", `win-${{ amd64: "x64", arm64: "arm64" }[goarch] ?? goarch}`, "-o", out]);
-      copyFileSync(join(out, "simple-ca-trust.exe"), join(buildDir, `${name}.exe`));
+      copyFileSync(join(out, "simple-ca-trust.exe"), join(binDir, `${name}.exe`));
     } else if (goos === "darwin") {
       console.error("note: simple-ca-trust for darwin is built on darwin only; skipped");
     } else {
@@ -267,7 +267,7 @@ switch (action) {
     break;
   }
   case "clean":
-    rmSync(buildDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
     rmSync(`${root}/dist`, { recursive: true, force: true });
     for (const dir of ["trust/macos/.build", "trust/windows/bin", "trust/windows/obj", "trust/windows/simple-ca-trust.csproj"]) {
       rmSync(join(root, dir), { recursive: true, force: true });

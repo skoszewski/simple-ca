@@ -22,8 +22,9 @@ simple-ca cert show    CERT_FILE
 
 simple-ca crl create   [--ca-dir DIR] [--days N] [--all]
 
-simple-ca token create [--ca-dir DIR] [--valid DURATION] [--scope SCOPE ...] [--type TYPE ...]
-                       [--domain DOMAIN ...] [--ip ADDRESS ...] [--localhost]
+simple-ca token create [--ca-dir DIR] [--valid DURATION] [--scope SCOPE ...]
+                       [--token-type TYPE] [--audience AUDIENCE] [--claim NAME=VALUE ...]
+                       [--cert-type TYPE ...] [--domain DOMAIN ...] [--ip ADDRESS ...] [--localhost]
                        [--host ADDRESS ...] [--network PREFIXES ...]
                        [--otc [--otc-valid DURATION] [--otc-network PREFIXES ...]] NAME
 simple-ca token list   [--ca-dir DIR]
@@ -33,6 +34,7 @@ simple-ca token renew  [--ca-dir DIR] [--valid DURATION]
                        [--otc [--otc-valid DURATION] [--otc-network PREFIXES ...]] NAME
 simple-ca token revoke [--ca-dir DIR] NAME
 simple-ca token purge  [--ca-dir DIR] [NAME]
+simple-ca token jwks   [--ca-dir DIR]
 
 simple-ca audit list   [--ca-dir DIR] [--event EVENT] [--ca NAME] [--actor ACTOR]
                        [--since TIME] [--until TIME]

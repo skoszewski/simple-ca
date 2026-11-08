@@ -123,6 +123,7 @@ var commands = []command{
 		{name: "revoke", summary: "Revoke a token of a CA.", run: runTokenRevoke},
 		{name: "renew", summary: "Renew a token of a CA, expired or not.", run: runTokenRenew},
 		{name: "purge", summary: "Remove the expired and revoked tokens of a CA.", run: runTokenPurge},
+		{name: "jwks", summary: "Print the JSON Web Key Set verifying the tokens of a CA.", run: runTokenJWKS},
 	}},
 	{name: "audit", summary: "Read the audit log of a root CA and its issuing CAs.", sub: []command{
 		{name: "list", summary: "Print the records of the audit log, filtered.", run: runAuditList},
@@ -150,11 +151,12 @@ func printUsage(w io.Writer, g *command) {
 	fmt.Fprintf(w, "\nRun \"simple-ca %s COMMAND -h\" for the options of a command.\n", g.name)
 }
 
-// hiddenFlags are the former names of options, accepted as aliases and left out of the usage.
-var hiddenFlags = map[string]bool{"ca-publish-base-url": true}
+// hiddenFlags are the former names of options, accepted as aliases and left out of the usage, by
+// subcommand, those of every subcommand under "".
+var hiddenFlags = map[string][]string{"": {"ca-publish-base-url"}, "token create": {"type"}}
 
 // newFlagSet returns the flag set of the subcommand name, whose usage names its arguments and
-// summary, and its options without hiddenFlags.
+// summary, and its options without its hiddenFlags.
 func newFlagSet(name, arguments, summary string) *flag.FlagSet {
 	fs := flag.NewFlagSet("simple-ca "+name, flag.ContinueOnError)
 	fs.Usage = func() {
@@ -163,7 +165,7 @@ func newFlagSet(name, arguments, summary string) *flag.FlagSet {
 		shown := flag.NewFlagSet(fs.Name(), flag.ContinueOnError)
 		shown.SetOutput(fs.Output())
 		fs.VisitAll(func(f *flag.Flag) {
-			if !hiddenFlags[f.Name] {
+			if !slices.Contains(hiddenFlags[""], f.Name) && !slices.Contains(hiddenFlags[name], f.Name) {
 				shown.Var(f.Value, f.Name, f.Usage)
 				shown.Lookup(f.Name).DefValue = f.DefValue
 			}

@@ -1,0 +1,11 @@
+# The test build of Dockerfile.test needs the Go module, the sources and tests of every package,
+# the embedded assets and page templates, the help and the guides.
+*
+!go.mod
+!go.sum
+!*.go
+!cmd
+!assets
+!templates
+!help
+!docs/*.md

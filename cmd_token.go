@@ -54,21 +54,41 @@ func runTokenCreate(args []string) error {
 			"pages; the token is valid for --valid from then on.\n\n"+
 			"Options not given default to the tokens section of simple-ca.json, then to the defaults\n"+
 			"below. --host and --network together replace hosts and networks. The defaults of --type,\n"+
-			"--domain, --ip and --localhost apply only with the scope sign.")
+			"--cert-type, --domain, --ip and --localhost apply only with the scope sign.\n\n"+
+			"--token-type shapes the JWT for a party that verifies it with the keys of token jwks, such\n"+
+			"as Google or Microsoft Entra workload identity federation: api (simple-ca alone), google\n"+
+			"or azure, or a type of token_types in simple-ca.json. A type with an audience gives the\n"+
+			"JWT the issuer of tokens.issuer or ca_publish_base_url. --claim adds claims to the JWT.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := fs.Duration("valid", time.Hour, "validity `period` of the token, such as 30m, 8h or 720h")
 	localhost := fs.Bool("localhost", false, "allow the name localhost and the IP address 127.0.0.1")
+	var kind tokenKind
+	fs.StringVar(&kind.Type, "token-type", "", "token `type`: api, google, azure or a type of simple-ca.json (default: api)")
+	fs.StringVar(&kind.Audience, "audience", "", "`audience` of the JWT, in place of that of the token type")
+	fs.Func("claim", "`name=value` claim of the JWT, a string; may be specified multiple times", func(s string) error {
+		name, value, ok := strings.Cut(s, "=")
+		if !ok {
+			return fmt.Errorf("'%s' is not a claim such as env=prod", s)
+		}
+		if kind.Claims == nil {
+			kind.Claims = map[string]string{}
+		}
+		kind.Claims[name] = value
+		return nil
+	})
 	var scopes, certTypes, domains, ips, clients []string
 	fs.Func("scope", "`scope` of the token: sign, tokens, certs, audit, or * for all; may be specified multiple times\n"+
 		"(default: sign)", func(s string) error {
 		scopes = append(scopes, s)
 		return nil
 	})
-	fs.Func("type", "certificate `type` the token allows, or * for any; may be specified multiple times\n"+
-		"(default: server)", func(s string) error {
+	certType := func(s string) error {
 		certTypes = append(certTypes, s)
 		return nil
-	})
+	}
+	fs.Func("cert-type", "certificate `type` the token allows, or * for any; may be specified multiple times\n"+
+		"(default: server)", certType)
+	fs.Func("type", "former name of --cert-type", certType)
 	fs.Func("domain", "`domain` the token allows, with its subdomains, or * for any name; may be specified\n"+
 		"multiple times", func(s string) error {
 		domains = append(domains, s)
@@ -104,6 +124,9 @@ func runTokenCreate(args []string) error {
 			return fmt.Errorf("tokens.valid of %s: '%s' is not a duration such as 8h", cfg.path, defaults.Valid)
 		}
 	}
+	if !given["token-type"] {
+		kind.Type = defaults.TokenType
+	}
 	if !given["scope"] {
 		scopes = slices.Clone(defaults.Scopes)
 	}
@@ -111,7 +134,7 @@ func runTokenCreate(args []string) error {
 		scopes = []string{"sign"}
 	}
 	if allows(scopes, "sign") {
-		if !given["type"] {
+		if !given["type"] && !given["cert-type"] {
 			certTypes = slices.Clone(defaults.Types)
 		}
 		if !given["domain"] {
@@ -135,12 +158,13 @@ func runTokenCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	token, err := addToken(dir, rest[0], *valid, scopes, certTypes, domains, ips, clients, setupValid, setupClients)
+	token, err := addToken(dir, rest[0], kind, *valid, scopes, certTypes, domains, ips, clients, setupValid, setupClients)
 	if err != nil {
 		return err
 	}
-	audit(dir, "token.create", "name", rest[0], "scopes", strings.Join(scopes, ","), "setup_code", setupValid > 0,
-		"via", "cli", "actor", cliActor())
+	record := append([]any{"name", rest[0], "scopes", strings.Join(scopes, ","), "setup_code", setupValid > 0},
+		tokenKindAudit(dir, rest[0])...)
+	audit(dir, "token.create", append(record, "via", "cli", "actor", cliActor())...)
 	fmt.Println(token)
 	return nil
 }
@@ -255,9 +279,7 @@ func runTokenDescribe(args []string) error {
 		case err != nil:
 			return errors.New("the token is not a JWT of simple-ca token create")
 		}
-		name, limits = c.Subject, false
-		tok = &apiToken{ID: c.ID, Scopes: strings.Fields(c.Scope), Issued: time.Unix(c.IssuedAt, 0),
-			Expires: time.Unix(c.ExpiresAt, 0)}
+		name, tok, limits = c.name(), c.token(), false
 		if caCert == nil {
 			notes = append(notes, [2]string{"Signature", "not checked; --ca-dir of its CA checks it and shows its limits"})
 		} else if db, err := loadTokens(dir); err != nil {
@@ -350,7 +372,30 @@ func runTokenRenew(args []string) error {
 	if err != nil {
 		return err
 	}
-	audit(dir, "token.renew", "name", rest[0], "setup_code", setupValid > 0, "via", "cli", "actor", cliActor())
+	record := append([]any{"name", rest[0], "setup_code", setupValid > 0}, tokenKindAudit(dir, rest[0])...)
+	audit(dir, "token.renew", append(record, "via", "cli", "actor", cliActor())...)
 	fmt.Println(token)
+	return nil
+}
+
+// runTokenJWKS runs token jwks.
+func runTokenJWKS(args []string) error {
+	fs := newFlagSet("token jwks", "",
+		"Print the JSON Web Key Set of the CA in --ca-dir, the public key verifying its tokens, as\n"+
+			"gcloud iam workload-identity-pools providers create-oidc --jwk-json-path reads it.\n"+
+			"serve also publishes it at jwks.json of the issuer of the tokens.")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
+	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
+		return err
+	}
+	dir := resolveCADir(*caDir)
+	if !fileExists(filepath.Join(dir, "ca_cert.pem")) {
+		return fmt.Errorf("CA certificate not found in %s. Please point --ca-dir to a CA directory", dir)
+	}
+	b, err := caJWKS(dir)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
 	return nil
 }

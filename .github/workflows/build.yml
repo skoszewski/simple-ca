@@ -80,32 +80,32 @@ jobs:
             exe=".exe"
           fi
           version="${TAG#v}"
-          mkdir -p build/pack dist
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/pack/simple-ca$exe" .
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/pack/request-cert$exe" ./cmd/request-cert
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "build/pack/token-setup$exe" ./cmd/token-setup
+          mkdir -p bin/pack dist
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/simple-ca$exe" .
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-cert$exe" ./cmd/request-cert
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/token-setup$exe" ./cmd/token-setup
           # simple-ca-trust is the Go program on Linux, the Swift one on macOS, the .NET one on Windows.
           case "$GOOS" in
             linux)
-              go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o build/pack/simple-ca-trust ./cmd/simple-ca-trust
+              go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o bin/pack/simple-ca-trust ./cmd/simple-ca-trust
               ;;
             darwin)
               printf '/// The version simple-ca-trust prints; a release build replaces this file.\nlet version = "%s"\n' "$TAG" \
                 > trust/macos/Sources/simple-ca-trust/Version.swift
               node build.mjs trust "darwin/$GOARCH"
-              cp "build/simple-ca-trust-darwin-$GOARCH" build/pack/simple-ca-trust
+              cp "bin/simple-ca-trust-darwin-$GOARCH" bin/pack/simple-ca-trust
               ;;
             windows)
               node build.mjs trust "windows/$GOARCH"
-              cp "build/simple-ca-trust-windows-$GOARCH.exe" build/pack/simple-ca-trust.exe
+              cp "bin/simple-ca-trust-windows-$GOARCH.exe" bin/pack/simple-ca-trust.exe
               ;;
           esac
           if [ "$GOOS" = "windows" ]; then
             archive="simple-ca-$version-$GOOS-$GOARCH.zip"
-            (cd build/pack && zip -9 "../../dist/$archive" *)
+            (cd bin/pack && zip -9 "../../dist/$archive" *)
           else
             archive="simple-ca-$version-$GOOS-$GOARCH.tar.gz"
-            (cd build/pack && tar -czf "../../dist/$archive" *)
+            (cd bin/pack && tar -czf "../../dist/$archive" *)
           fi
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7

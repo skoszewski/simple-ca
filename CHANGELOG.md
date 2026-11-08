@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.12.0
+
+feat: token types give a token the JWT that Google and Microsoft Entra workload identity federation exchange, with the JWKS from token jwks and serve.
+
+- `token create --token-type` picks the token type: `api`, the default, `google`, with the
+  audience given by `--audience` and a validity of at most 24 hours, or `azure`, with the audience
+  `api://AzureADTokenExchange`. `token_types` of `simple-ca.json` redefines them or adds types,
+  with an audience, a subject template of `{name}` and `{ca}`, a longest validity and claims.
+- `--audience` replaces the audience of the type, and `--claim NAME=VALUE` adds claims to the JWT.
+- A token with an audience carries the issuer `tokens.issuer` of `simple-ca.json`, or
+  `ca_publish_base_url`, followed by `/NAME` for an issuing CA. `tokens.token_type` sets the
+  default type, also for the profiles of the OIDC sign-in.
+- Every JWT names the CA key in its header with `kid`, the RFC 7638 thumbprint. A JWT whose
+  subject is not the token name carries the name in `simple_ca_token`, and simple-ca accepts it.
+- `token jwks` prints the JSON Web Key Set of a CA, for `gcloud ... --jwk-json-path`. `serve`
+  publishes `/.well-known/openid-configuration` and `/jwks.json` of the root CA, and of each
+  issuing CA below `/NAME/`, when the CA has an issuer.
+- `token create --cert-type` replaces `--type`, which stays accepted. `token list` heads the
+  certificate types of a token `CERT TYPES`, and `token describe`, the token page and its
+  signed-in dialog label them `Cert types`.
+- `token list`, `token describe`, the token page and its signed-in dialog show the token type,
+  issuer, audience, subject and claims; the token page creates typed tokens and filters by token type. The
+  `token.create` and `token.renew` audit records name the token type and audience.
+- The new guide [Workload identity federation](docs/workload-identity.md) sets up Google Cloud
+  and Microsoft Entra.
+- `./build.mjs` writes the executables to `bin/` in place of `build/`, and `clean` removes
+  `bin/`.
+
 ## 1.11.5
 
 fix: the certificate page offers a PKCS#12 file with a random password to download, also after Create a certificate.

@@ -411,6 +411,17 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		tokenSetupPage(w, r, rootDir)
 	})
 
+	// The OpenID Connect discovery document and the keys of the tokens of the root CA, and of each
+	// issuing CA below /CA.
+	for path, discovery := range map[string]bool{".well-known/openid-configuration": true, "jwks.json": false} {
+		mux.HandleFunc("GET /"+path, func(w http.ResponseWriter, r *http.Request) {
+			serveTokenIssuer(w, r, rootDir, "", discovery)
+		})
+		mux.HandleFunc("GET /{ca}/"+path, func(w http.ResponseWriter, r *http.Request) {
+			serveTokenIssuer(w, r, rootDir, r.PathValue("ca"), discovery)
+		})
+	}
+
 	// The page describing a token of any of the CAs, as token describe does.
 	for _, method := range []string{"GET", "POST"} {
 		mux.HandleFunc(method+" /token-describe", func(w http.ResponseWriter, r *http.Request) {

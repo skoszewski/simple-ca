@@ -27,6 +27,13 @@
           <input name="name" required placeholder="web-deploy" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
         <label class="space-y-1"><span class="block font-medium">Valid for</span>
           <input name="valid" required placeholder="1h, 8h, 720h" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <div class="space-y-1"><span id="create-token-type-label" class="block font-medium">Token type</span>
+          <div id="create-token-type"></div>
+        </div>
+        <label class="space-y-1"><span class="block font-medium">Audience</span>
+          <input name="audience" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+        <label class="space-y-1 sm:col-span-2"><span class="block font-medium">Claims, one name=value a line</span>
+          <textarea name="claims" rows="2" placeholder="env=prod" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></textarea></label>
         <div class="space-y-1"><span id="create-scopes-label" class="block font-medium">Scopes</span>
           <div id="create-scopes"></div>
         </div>

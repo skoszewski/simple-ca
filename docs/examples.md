@@ -106,8 +106,8 @@ request-cert "$CA_URL" www.example.com
 ```
 
 The commands run from the repository root. `./build.mjs` builds the Go program as
-`build/request-cert` beside `build/simple-ca`, `request-cert.exe` on Windows, and
-`./build.mjs build <goos>/<goarch>` as `build/request-cert-<goos>-<goarch>` (see
+`bin/request-cert` beside `bin/simple-ca`, `request-cert.exe` on Windows, and
+`./build.mjs build <goos>/<goarch>` as `bin/request-cert-<goos>-<goarch>` (see
 [Development](development.md)). The release archives of
 `simple-ca` hold it too. With Go installed, it is also installed on its own:
 
@@ -138,7 +138,7 @@ Both leave out a path of the URL, so the URL of a CA such as
 printing it; the file must not exist yet, which is checked before the code is used. `--version`
 prints its version.
 
-`./build.mjs` builds it as `build/token-setup` beside `build/simple-ca`, and the release archives
+`./build.mjs` builds it as `bin/token-setup` beside `bin/simple-ca`, and the release archives
 and the container image hold it too. With Go installed, it is also installed on its own:
 
 ```sh

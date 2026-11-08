@@ -46,8 +46,8 @@ form. A record never holds a token, a setup code, an ID token, a key or a passwo
 | `cert.revoke` | `serial`, `reason` |
 | `cert.pfx` | `file`, the certificate the bundle was made of; also when the certificate page makes a file to download |
 | `crl.write` | `number` |
-| `token.create` | `name`, `scopes`, `setup_code` |
-| `token.renew` | `name`, `setup_code` |
+| `token.create` | `name`, `scopes`, `setup_code`; `token_type` and `audience` for a token type other than `api` |
+| `token.renew` | `name`, `setup_code`; `token_type` and `audience` for a token type other than `api` |
 | `token.revoke` | `name` |
 | `token.purge` | `name`, or `count` for a removal of all expired and revoked tokens |
 | `token.setup` | `name`, the token a setup code was exchanged for |

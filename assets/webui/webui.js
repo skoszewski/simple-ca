@@ -147,12 +147,14 @@ async function load() {
   const u = info.user_token;
   const joined = (values, none) => (values || []).join(", ") || none;
   const attributes = [["Name", u.name], ["Status", "valid until " + time(u.expires)], ["Issued", time(u.issued)],
-    ["Scopes", joined(u.scopes, "-")]];
+    ["Scopes", joined(u.scopes, "-")], ["Token type", u.token_type],
+    ...[["Issuer", u.issuer], ["Audience", u.audience], ["Subject", u.subject]].filter(([, value]) => value),
+    ...Object.entries(u.claims || {}).sort().map(([name, value]) => ["Claim " + name, value])];
   if (u.oidc) {
     attributes.push(["OIDC user", u.oidc.user], ["OIDC issuer", u.oidc.issuer]);
   }
   if (u.scopes.some((scope) => scope === "sign" || scope === "*")) {
-    attributes.push(["Types", joined(u.types, "-")], ["Domains", joined(u.domains, "-")],
+    attributes.push(["Cert types", joined(u.types, "-")], ["Domains", joined(u.domains, "-")],
       ["IP addresses", joined((u.ips || []).map(address), "-")]);
   }
   attributes.push(["Used from", joined((u.clients || []).map(address), "any client")],

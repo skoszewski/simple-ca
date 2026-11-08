@@ -141,7 +141,7 @@ func TestTokens(t *testing.T) {
 	// A revoked token is kept without its JWT ID, expired when it was revoked, holding its name
 	// until it is purged.
 	out.Reset()
-	if err := listTokens(&out, caDir); err != nil || !strings.Contains(out.String(), "deploy  revoked  ") {
+	if err := listTokens(&out, caDir); err != nil || !strings.Contains(out.String(), "deploy  api         revoked  ") {
 		t.Fatalf("token list output:\n%s\n%v, want the revoked token marked revoked, without a time", out.String(), err)
 	}
 	if db, err := loadTokens(caDir); err != nil || db.Tokens["deploy"] == nil || db.Tokens["deploy"].ID != "" ||
@@ -695,10 +695,10 @@ func TestSetupCode(t *testing.T) {
 	issuingDir := filepath.Join(caDir, "issuing-ca")
 
 	// A token with a setup code is pending: it has no JWT, refuses renewal, and lists its code.
-	if _, err := addToken(issuingDir, "bad", time.Hour, nil, nil, []string{"example.com"}, nil, nil, 0, []string{"10.0.0.0/8"}); err == nil {
+	if _, err := addToken(issuingDir, "bad", tokenKind{}, time.Hour, nil, nil, []string{"example.com"}, nil, nil, 0, []string{"10.0.0.0/8"}); err == nil {
 		t.Fatal("addToken with --otc-network without --otc succeeded, want an error")
 	}
-	code, err := addToken(issuingDir, "remote", 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, nil)
+	code, err := addToken(issuingDir, "remote", tokenKind{}, 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, nil)
 	if err != nil {
 		t.Fatalf("addToken --otc: %v", err)
 	}
@@ -755,14 +755,14 @@ func TestSetupCode(t *testing.T) {
 
 	// A code is refused from a client outside its networks and once it has expired, and a pending
 	// token is no JWT of the signing API.
-	far, err := addToken(caDir, "far", time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, []string{"10.0.0.0/8"})
+	far, err := addToken(caDir, "far", tokenKind{}, time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, []string{"10.0.0.0/8"})
 	if err != nil {
 		t.Fatalf("addToken --otc-network: %v", err)
 	}
 	if status, _ := exchange(far); status != http.StatusForbidden {
 		t.Errorf("exchanging from outside --otc-network: %d, want 403", status)
 	}
-	late, err := addToken(caDir, "late", time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil)
+	late, err := addToken(caDir, "late", tokenKind{}, time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil)
 	if err != nil {
 		t.Fatalf("addToken --otc-valid 1s: %v", err)
 	}
@@ -779,7 +779,7 @@ func TestSetupCode(t *testing.T) {
 	}
 
 	// A token whose code has expired is renewed with a new code, keeping its own validity.
-	if _, err := addToken(caDir, "again", 3*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil); err != nil {
+	if _, err := addToken(caDir, "again", tokenKind{}, 3*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil); err != nil {
 		t.Fatalf("addToken --otc-valid 1s: %v", err)
 	}
 	time.Sleep(1100 * time.Millisecond)
@@ -826,7 +826,7 @@ func TestSetupCode(t *testing.T) {
 		}
 		return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
 	}
-	once, err := addToken(issuingDir, "once", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil, time.Hour, nil)
+	once, err := addToken(issuingDir, "once", tokenKind{}, time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil, time.Hour, nil)
 	if err != nil {
 		t.Fatalf("addToken --otc: %v", err)
 	}
@@ -850,7 +850,7 @@ func TestSetupCode(t *testing.T) {
 	}
 
 	// The setup code page exchanges a code once.
-	page, err := addToken(caDir, "page", time.Hour, []string{"tokens"}, nil, nil, nil, nil, time.Hour, nil)
+	page, err := addToken(caDir, "page", tokenKind{}, time.Hour, []string{"tokens"}, nil, nil, nil, nil, time.Hour, nil)
 	if err != nil {
 		t.Fatalf("addToken --otc: %v", err)
 	}
@@ -871,7 +871,7 @@ func TestSetupCode(t *testing.T) {
 
 	// A token is described with its limits from tokens-db.json, and a JWT read without its CA
 	// with what it holds alone.
-	pendingCode, err := addToken(caDir, "pending", 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour,
+	pendingCode, err := addToken(caDir, "pending", tokenKind{}, 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour,
 		[]string{"10.0.0.0/8"})
 	if err != nil || pendingCode == "" {
 		t.Fatalf("addToken --otc: %v", err)
@@ -1152,7 +1152,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 	// codes of that CA alone; the signing API and the pages take no code.
 	codes := map[string]string{}
 	for _, id := range cas[1:] {
-		code, err := addToken(filepath.Join(rootDir, id), "remote", time.Hour, nil, []string{"server"}, []string{"example.com"},
+		code, err := addToken(filepath.Join(rootDir, id), "remote", tokenKind{}, time.Hour, nil, []string{"server"}, []string{"example.com"},
 			nil, nil, time.Hour, nil)
 		if err != nil {
 			t.Fatalf("addToken --otc in %s: %v", id, err)

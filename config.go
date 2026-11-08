@@ -72,11 +72,24 @@ type serveConfig struct {
 	RequestLog     bool     `json:"request_log,omitempty"`
 }
 
+// tokenTypeConfig is a token type of simple-ca.json: the built-in type a new type starts from,
+// and the audience, the subject template, the longest validity and the claims of its JWTs; a field
+// left out keeps the value of the built-in type.
+type tokenTypeConfig struct {
+	Base     string            `json:"base,omitempty"`
+	Audience string            `json:"audience,omitempty"`
+	Subject  string            `json:"subject,omitempty"`
+	MaxValid string            `json:"max_valid,omitempty"`
+	Claims   map[string]string `json:"claims,omitempty"`
+}
+
 // tokensConfig holds the defaults of token create, each replaced by the option of the same name:
-// the validity, a duration such as 8h, the scopes, the certificate types, the domains, the IP
-// addresses, and the client addresses and prefixes; and how long serve keeps an expired token, a
-// duration, kept until token purge without it.
+// the token type, the validity, a duration such as 8h, the scopes, the certificate types, the
+// domains, the IP addresses, and the client addresses and prefixes; the issuer of the JWTs; and how
+// long serve keeps an expired token, a duration, kept until token purge without it.
 type tokensConfig struct {
+	TokenType   string   `json:"token_type,omitempty"`
+	Issuer      string   `json:"issuer,omitempty"`
 	Valid       string   `json:"valid,omitempty"`
 	Scopes      []string `json:"scopes,omitempty"`
 	Types       []string `json:"types,omitempty"`
@@ -228,6 +241,8 @@ func loadOIDCUsers(rootDir string) (*oidcUsers, error) {
 			return nil, fmt.Errorf("profiles[%d] of %s: the profile '%s' is given twice", i, users.path, p.Name)
 		case p.Token.KeepExpired != "":
 			return nil, fmt.Errorf("profile %s of %s: keep_expired belongs to the tokens section of simple-ca.json", p.Name, users.path)
+		case p.Token.Issuer != "":
+			return nil, fmt.Errorf("profile %s of %s: issuer belongs to the tokens section of simple-ca.json", p.Name, users.path)
 		}
 		names = append(names, p.Name)
 	}
@@ -319,14 +334,15 @@ func (t themeConfig) css(path string) (template.CSS, error) {
 // issuing CAs.
 type config struct {
 	path             string
-	CAPublishBaseURL string                `json:"ca_publish_base_url,omitempty"`
-	Days             daysConfig            `json:"days,omitzero"`
-	Types            map[string]typeConfig `json:"types,omitempty"`
-	ACME             acmeConfig            `json:"acme,omitzero"`
-	Serve            serveConfig           `json:"serve,omitzero"`
-	Tokens           tokensConfig          `json:"tokens,omitzero"`
-	OIDC             oidcConfig            `json:"oidc,omitzero"`
-	Audit            auditConfig           `json:"audit,omitzero"`
+	CAPublishBaseURL string                     `json:"ca_publish_base_url,omitempty"`
+	Days             daysConfig                 `json:"days,omitzero"`
+	Types            map[string]typeConfig      `json:"types,omitempty"`
+	TokenTypes       map[string]tokenTypeConfig `json:"token_types,omitempty"`
+	ACME             acmeConfig                 `json:"acme,omitzero"`
+	Serve            serveConfig                `json:"serve,omitzero"`
+	Tokens           tokensConfig               `json:"tokens,omitzero"`
+	OIDC             oidcConfig                 `json:"oidc,omitzero"`
+	Audit            auditConfig                `json:"audit,omitzero"`
 }
 
 // loadConfig reads simple-ca.json of caDir, refusing unknown settings, or returns an empty config

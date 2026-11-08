@@ -58,7 +58,17 @@ writes it, and it can be written or edited by hand. A setting not described here
     "valid": "8h",
     "domains": ["lab.example.org"],
     "networks": ["192.168.1.0/24"],
-    "keep_expired": "720h"
+    "keep_expired": "720h",
+    "issuer": "https://pki.example.com"
+  },
+  "token_types": {
+    "gcp-deploy": {
+      "base": "google",
+      "audience": "https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca",
+      "subject": "simple-ca:{ca}:{name}",
+      "max_valid": "8h",
+      "claims": {"env": "lab"}
+    }
   },
   "oidc": {
     "provider": "keycloak",
@@ -87,13 +97,29 @@ writes it, and it can be written or edited by hand. A setting not described here
     replaces them;
   - `request_log` - `true` logs each request, `false` by default; `serve --request-log` sets it.
 - `tokens` - the defaults of [token create](signing-api.md#token-create-list-renew-revoke-and-purge);
-  the option of the same name overrides each: `valid`, a duration such as `8h`, `scopes`,
-  `types`, `domains`, `ips`, `hosts`, and `networks`, a list of prefixes. `--host` and
-  `--network` together replace both `hosts` and `networks`. `types`, `domains` and `ips` apply
-  only to tokens with the scope `sign`; `--localhost` has no default. `scopes` and `types` may be
-  `["*"]`, every scope or every type. `keep_expired`, a duration such as `720h`, is how long
-  `serve` keeps an expired or revoked token before removing it; without it, such tokens stay until
-  `token purge` removes them.
+  the option of the same name overrides each: `token_type`, `valid`, a duration such as `8h`,
+  `scopes`, `types`, the default of `--cert-type`, `domains`, `ips`, `hosts`, and `networks`, a
+  list of prefixes. `--host` and `--network` together replace both `hosts` and `networks`.
+  `types`, `domains` and `ips` apply only to tokens with the scope `sign`; `--localhost` has no
+  default. `scopes` and `types` may be `["*"]`, every scope or every type. `keep_expired`, a
+  duration such as `720h`, is how long `serve` keeps an expired or revoked token before removing
+  it; without it, such tokens stay until `token purge` removes them. `issuer` is the `iss` claim
+  of the tokens with an audience, for the root CA, and followed by `/NAME` for the issuing CA
+  `NAME`; `ca_publish_base_url` without it. See
+  [Workload identity federation](workload-identity.md).
+- `token_types` - token types for `token create --token-type`, by kebab-case name. A type named
+  `api`, `google` or `azure` redefines the built-in type, and any other name defines a new type,
+  starting from the built-in type `base` names, `api` without it. Each type has:
+  - `base` - the built-in type a new type starts from;
+  - `audience` - the `aud` claim of its tokens;
+  - `subject` - the `sub` claim, a template of `{name}`, the token name, and `{ca}`, the issuing
+    CA, empty for the root CA;
+  - `max_valid` - the longest validity of its tokens, a duration such as `24h`, at most that of
+    its base;
+  - `claims` - claims its tokens carry, names in snake_case and values as strings.
+
+  A field left out keeps its value of the built-in type. See
+  [Workload identity federation](workload-identity.md#token-types).
 - `types` - certificate types for `cert create --type` and `cert sign --type`, by **kebab-case**
   name: words of lower-case letters and digits joined by hyphens, such as `web-server`. A type
   named `server`, `user` or `none` redefines the built-in type, and any other name defines a new

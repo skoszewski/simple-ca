@@ -35,6 +35,10 @@ async function showCA() {
     return element("tr", {},
       cell(t.oidc ? element("span", {}, t.name, element("span", { className: "block font-sans text-xs text-muted",
         textContent: "OIDC user " + t.oidc.user })) : t.name, "font-mono whitespace-nowrap"),
+      cell(element("span", { title: [t.issuer && "Issuer " + t.issuer, t.subject && "Subject " + t.subject,
+        ...Object.entries(t.claims || {}).map(([name, value]) => `Claim ${name}=${value}`)].filter(Boolean).join("\n") },
+      t.token_type, t.audience ? element("span", { className: "block text-xs text-muted break-all",
+        textContent: t.audience }) : null)),
       cell(expiry, "whitespace-nowrap"),
       cell(t.scopes.join(", ")),
       cell((t.types || []).join(", ") || "-"),
@@ -54,14 +58,16 @@ async function showCA() {
     heading(ca),
     tokens.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No tokens." }) :
       searchable({ items: tokens, row, noun: "tokens",
-        headings: ["Name", "Expires", "Scopes", "Types", "Names in certificates", "IP addresses in certificates", "Used from", "Certs", ""],
-        text: (t) => [t.name, t.oidc ? t.oidc.user : "", tokenStatus(t), ...t.scopes, ...(t.types || []), ...(t.domains || []),
+        headings: ["Name", "Token type", "Expires", "Scopes", "Cert types", "Names in certificates", "IP addresses in certificates", "Used from", "Certs", ""],
+        text: (t) => [t.name, t.oidc ? t.oidc.user : "", t.token_type, t.audience, t.subject, tokenStatus(t), ...t.scopes, ...(t.types || []), ...(t.domains || []),
           ...(t.ips || []).map(address), ...(t.clients || []).map(address), ...t.certs],
         filters: [
           { name: "status", label: "Status", multiple: true, match: (t, values) => values.includes(tokenStatus(t)),
             choices: [["", "all"], ["active", "active"], ["pending", "waiting for a setup code"], ["expired", "expired"], ["revoked", "revoked"]] },
           { name: "scope", label: "Scope", multiple: true, match: (t, values) => values.every((scope) => allowsScope(t.scopes, scope)),
             choices: [["", "all"], ...["sign", "tokens", "certs", "audit"].map((s) => [s, s])] },
+          { name: "token_type", label: "Token type", multiple: true, match: (t, values) => values.includes(t.token_type),
+            choices: [["", "all"], ...info.token_types.map((type) => [type.name, type.name])] },
           { name: "kind", label: "Made by", match: (t, [value]) => (value === "oidc") === Boolean(t.oidc),
             choices: [["", "all"], ["oidc", "OIDC sign-in"], ["other", "other"]] },
         ] }),
@@ -144,6 +150,11 @@ function openCreate() {
   fields.otc.checked = false;
   fields.otc_valid.value = info.defaults.otc_valid;
   fields.otc_networks.value = "";
+  fields.audience.value = "";
+  fields.claims.value = "";
+  $("create-token-type").replaceChildren(picker({ name: "token_type", labelledBy: "create-token-type-label",
+    choices: info.token_types.map((t) => [t.name, t.name]), value: info.defaults.token_type, onchange: audienceField }));
+  audienceField();
   const choices = (values) => values.map((v) => [v, v === "*" ? "* (all)" : v]);
   $("create-scopes").replaceChildren(picker({ name: "scopes", labelledBy: "create-scopes-label", multiple: true, only: "*",
     choices: choices(info.scopes), value: info.defaults.scopes.filter((s) => info.scopes.includes(s)),
@@ -157,6 +168,28 @@ function openCreate() {
 
 // chosen returns the values of the multiple picker named name of the form creating a token.
 const chosen = (name) => $("create-form").elements[name].value.split(",").filter((v) => v !== "");
+
+// audienceField tells in the audience field the audience of the token type chosen, which an
+// audience given replaces, or that the type needs one.
+function audienceField() {
+  const field = $("create-form").elements.audience;
+  const type = info.token_types.find((t) => t.name === $("create-form").elements.token_type.value);
+  field.required = Boolean(type && type.needs_audience);
+  field.placeholder = !type ? "" : type.needs_audience ? "required by the token type" : type.audience || "none";
+}
+
+// claims returns the claims of the lines name=value of text, or throws for a line without =.
+function claims(text) {
+  const result = {};
+  for (const line of text.split("\n").map((l) => l.trim()).filter((l) => l !== "")) {
+    const at = line.indexOf("=");
+    if (at < 1) {
+      throw new Error(`claims: '${line}' is not a claim such as env=prod`);
+    }
+    result[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+  }
+  return result;
+}
 
 // signFields turns the fields of the scope sign on with that scope or *, and off without them; the
 // fields of the setup code show with its box.
@@ -179,7 +212,8 @@ $("create-form").addEventListener("submit", async (event) => {
   const otc = fields.otc.checked;
   try {
     const answer = await api("POST", "/api/tokens", {
-      ca: caID, name: fields.name.value.trim(), valid: fields.valid.value, scopes: chosen("scopes"),
+      ca: caID, name: fields.name.value.trim(), token_type: fields.token_type.value, audience: fields.audience.value.trim(),
+      claims: claims(fields.claims.value), valid: fields.valid.value, scopes: chosen("scopes"),
       types: sign ? chosen("types") : [], domains: sign ? list(fields.domains.value) : [],
       ips: sign ? list(fields.ips.value) : [], clients: list(fields.clients.value), localhost: sign && fields.localhost.checked,
       otc, otc_valid: otc ? fields.otc_valid.value : "", otc_networks: otc ? list(fields.otc_networks.value) : [],
