@@ -17,6 +17,7 @@ COPY assets ./assets
 COPY templates ./templates
 COPY help ./help
 COPY docs/*.md ./docs/
+COPY docs/workload-identity/*.md ./docs/workload-identity/
 # The browser files of serve-markdown's page for /help/ and /docs/, from the release go.mod names.
 RUN tag="$(go list -m -f '{{.Version}}' github.com/skoszewski/serve-markdown/v3)" \
     && find assets/markdown -mindepth 1 ! -name .gitkeep -delete \

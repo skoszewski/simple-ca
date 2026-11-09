@@ -180,8 +180,8 @@ the verifier.
 
 ## Google Cloud
 
-`examples/federation/google.md` walks through the whole setup for one machine, from the issuer to
-the Google access token.
+[Google Cloud workload identity federation](workload-identity/google.md) walks through the whole
+setup for one machine, from the issuer to the Google access token.
 
 Google verifies the JWT with keys uploaded to the provider, so `serve` need not be reachable from
 Google. The provider's issuer is the issuer of the CA, and its audience the default one, which
@@ -236,8 +236,8 @@ keys, at most 8, when the CA key changes.
 
 ## Microsoft Entra
 
-`examples/federation/entra.md` walks through the whole setup for one machine, from the issuer to
-the access token of Entra ID.
+[Microsoft Entra ID workload identity federation](workload-identity/entra.md) walks through the
+whole setup for one machine, from the issuer to the access token of Entra ID.
 
 Microsoft Entra has no upload of keys: it fetches them from the discovery document of the issuer,
 over public HTTPS, with a certificate Microsoft trusts, which a certificate of the CA itself is

@@ -9,13 +9,12 @@ menu:
       - Signing API: docs/signing-api.md
       - OIDC sign-in: docs/oidc.md
       - Workload identity federation: docs/workload-identity.md
+      - Google Cloud workload identity federation: docs/workload-identity/google.md
+      - Microsoft Entra ID workload identity federation: docs/workload-identity/entra.md
       - Audit log: docs/audit.md
       - Signing API clients: docs/examples.md
       - systemd: docs/systemd.md
       - Docker: docs/docker.md
       - Simple CA Mini: docs/simple-ca-mini.md
       - Development: docs/development.md
-  - Examples:
-      - Google Cloud workload identity federation: examples/federation/google.md
-      - Microsoft Entra ID workload identity federation: examples/federation/entra.md
   - Changelog: CHANGELOG.md

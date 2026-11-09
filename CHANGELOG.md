@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.12.4
+
+fix: the Google Cloud and Microsoft Entra ID walkthroughs of workload identity federation are guides in docs/workload-identity/, shown by serve --docs.
+
+- The walkthroughs move from `examples/federation/` to `docs/workload-identity/google.md` and
+  `docs/workload-identity/entra.md`. They are in the executable, and `serve --docs` lists them
+  after Workload identity federation, which links them.
+- `.serveignore` hides `examples/` again, and `bin/` in place of `build/`.
+
 ## 1.12.3
 
 fix: examples/federation/entra.md sets up Microsoft Entra ID workload identity federation for one machine, as google.md does for Google Cloud, which request-jwt serves without the Node.js script.

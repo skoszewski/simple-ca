@@ -1,9 +1,11 @@
-# Google Cloud workload identity federation
+---
+title: Google Cloud workload identity federation
+---
 
 A machine authenticates with Google Cloud with JWTs that simple-ca issues, without a stored
 Google key. It holds a token of simple-ca with the scope `federate`, asks `serve` for a JWT
 whenever it needs one, and exchanges the JWT with Google's Security Token Service for a Google
-access token. [Workload identity federation](../../docs/workload-identity.md) describes the
+access token. [Workload identity federation](../workload-identity.md) describes the
 settings and the requests in full.
 
 The steps below use the root CA in `/etc/simple-ca` and its issuing CA `gcp-wif`, made for the

@@ -9,3 +9,4 @@
 !templates
 !help
 !docs/*.md
+!docs/workload-identity/*.md

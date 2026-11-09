@@ -1,10 +1,12 @@
-# Microsoft Entra ID workload identity federation
+---
+title: Microsoft Entra ID workload identity federation
+---
 
 A machine authenticates with Microsoft Entra ID, and through it with Azure, with JWTs that
 simple-ca issues, without a stored client secret or certificate. It holds an api token of
 simple-ca with the scope `federate`, asks `serve` for a JWT whenever it needs one, and sends the
 JWT to Entra ID as the client assertion of an application, which answers with an access token.
-[Workload identity federation](../../docs/workload-identity.md) describes the settings and the
+[Workload identity federation](../workload-identity.md) describes the settings and the
 requests in full.
 
 The steps below use the root CA in `/etc/simple-ca` and its issuing CA `entra-wif`, made for the
