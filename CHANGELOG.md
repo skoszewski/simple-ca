@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.15.2
+
+fix: the Gitea workflow builds the Debian package for amd64 and attaches it to a Gitea release of the tag, and release.mjs --push publishes on GitHub, Gitea or both.
+
+- `release.mjs --push` takes where to publish: `github`, the remote `origin`, `gitea`, the remote
+  `gitea`, or `all`, both. It pushes `dev`, `main` and the tag in one atomic push to each remote
+  that does not have the tag yet, and a tag made by an earlier `--push` is pushed as it is, so
+  `--push gitea` can follow `--push github`. An entry is refused as published when its tag is on
+  every remote named. A bare `--push` is refused with the usage.
+
+- The new `.gitea/workflows/build.yml` runs for a pushed tag `vX.Y.Z` or `vX.Y.Z-PRE`, not for
+  `vX.Y.Z-N`, on the Gitea copy of the repository. It checks the formatting and runs `go vet`,
+  and refuses a tag that is not semver, not on `main`, or not the version of the newest
+  `CHANGELOG.md` entry.
+- It builds `simple-ca_X.Y.Z-1_amd64.deb` with `./build.mjs deb` and a `docker-container` builder
+  of buildx, creates the Gitea release of the tag with the tag's message as notes, a prerelease
+  for `-PRE`, and attaches the package.
+
 ## 1.15.1
 
 fix: the release workflow builds the Debian package for amd64 and arm64 and adds both to the release.

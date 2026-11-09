@@ -1,0 +1,103 @@
+# Publishes a Gitea release with the Debian package for a pushed tag vX.Y.Z or vX.Y.Z-PRE; a tag
+# vX.Y.Z-N is not built.
+#
+# - check: gofmt and go vet.
+# - deb: refuses a tag that is not semver, not on main, or not the newest CHANGELOG.md entry; builds
+#   the Debian package of ./build.mjs deb for amd64, simple-ca_X.Y.Z-1_amd64.deb, creates the
+#   release with the tag's message as notes, a prerelease for -PRE, and attaches the package.
+
+name: build
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+      - "!v[0-9]+.[0-9]+.[0-9]+-[0-9]+"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # Fails when a Go file is not gofmt clean.
+      - name: Formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf 'these files are not gofmt clean:\n%s\n' "$unformatted" >&2
+            exit 1
+          fi
+      # Runs go vet on every package.
+      - name: Vet
+        run: go vet ./...
+
+  deb:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      # The whole history with its tags, so build.mjs finds the tag of the newest entry.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # Fails for a tag that is not semver with a leading v.
+      - name: Semver tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          number='(0|[1-9][0-9]*)'
+          identifier='(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)'
+          semver="^v$number\.$number\.$number(-$identifier(\.$identifier)*)?$"
+          if ! [[ "$TAG" =~ $semver ]]; then
+            echo "'$TAG' is not a semver tag with a leading v" >&2
+            exit 1
+          fi
+      # Fails for a tag whose commit is not on main.
+      - name: Tag on main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "'$TAG' is not on main" >&2
+            exit 1
+          fi
+      # Fails for a tag that is not the version of the newest CHANGELOG.md entry.
+      - name: Tag of the newest CHANGELOG.md entry
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          newest="$(awk '/^## / { print $2; exit }' CHANGELOG.md)"
+          if [ "v$newest" != "$TAG" ]; then
+            echo "'$TAG' is not the version of the newest CHANGELOG.md entry, '$newest'" >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      # A docker-container builder, which writes the package with --output type=local.
+      - uses: docker/setup-buildx-action@v4
+      # Builds the package in Docker for amd64.
+      - name: Debian package
+        run: node build.mjs deb
+      # Creates the release, a prerelease for a tag with a -PRE part, and attaches the package.
+      - name: Release
+        env:
+          TOKEN: ${{ github.token }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=false
+          if [[ "$TAG" == *-* ]]; then
+            prerelease=true
+          fi
+          notes="$(git tag -l --format='%(contents)' "$TAG")"
+          body="$(jq -n --arg tag "$TAG" --arg notes "$notes" --argjson pre "$prerelease" \
+            '{tag_name: $tag, name: $tag, body: $notes, prerelease: $pre}')"
+          id="$(curl -fsS -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+            -d "$body" "$API/releases" | jq -r .id)"
+          package="$(cd dist && ls simple-ca_*_amd64.deb)"
+          curl -fsS -X POST -H "Authorization: token $TOKEN" -F "attachment=@dist/$package" \
+            "$API/releases/$id/assets?name=$package"

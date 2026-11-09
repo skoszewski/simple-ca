@@ -92,27 +92,31 @@ the last release.
 everything with the entry's summary line as the message. Releases made this way stay on the
 machine; each next one needs a new entry, with a new version.
 
-`./release.mjs --push` publishes the newest entry:
+`./release.mjs --push WHERE` publishes the newest entry on GitHub, the remote `origin`, with
+`github`, on Gitea, the remote `gitea`, with `gitea`, or on both with `all`:
 
 1. commits everything with the entry's summary line as the message, when the entry is not
    released yet;
-2. makes the annotated tag `vx.y.z` on `dev`; its message, which the workflow publishes as the
-   release notes, is the entry followed by the entries released since the last tagged one, each
-   under its own heading;
+2. makes the annotated tag `vx.y.z` on `dev`, unless an earlier `--push` made it; its message,
+   which the workflows publish as the release notes, is the entry followed by the entries released
+   since the last tagged one, each under its own heading;
 3. fast-forwards `main` to `dev`;
-4. pushes `dev`, `main` and the tag in one atomic push; the tag builds and publishes the release.
+4. pushes `dev`, `main` and the tag in one atomic push to each remote that does not have the tag
+   yet; the tag builds and publishes the release there, with the workflow of
+   `.github/workflows/` on GitHub and that of `.gitea/workflows/` on Gitea.
 
 ```sh
 ./release.mjs                  # release the newest CHANGELOG.md entry, but push nothing
-./release.mjs --push           # publish the newest CHANGELOG.md entry
-./release.mjs -n               # print the commands instead of running them
+./release.mjs --push all       # publish the newest CHANGELOG.md entry on GitHub and Gitea
+./release.mjs --push gitea     # publish it on Gitea, also after an earlier --push github
+./release.mjs -n --push all    # print the commands instead of running them
 ```
 
 It runs on `dev` only. It refuses to commit changes for a released entry, and to publish an entry
-whose tag is on GitHub; the next change needs a new entry. A tag made but not pushed is refused
-too, with the command that pushes it. Only a tag is built: pushing `dev` or `main` runs no
-workflow. An entry `x.y.z-N`, `N` from 2, is a later release of the same code with changes to the
-documentation or the packaging alone: `./release.mjs --push` fast-forwards `main` to `dev` and
-pushes both without a tag, so nothing is built and no GitHub release is made, and the entry goes
-into the release notes of the next tagged release. The workflow also skips a tag `vx.y.z-N` made
-by hand.
+whose tag is on every remote named; the next change needs a new entry. A tag pushed to one remote
+is pushed as it is to the other by a later `--push`. Only a tag is built: pushing `dev` or `main`
+runs no workflow. An entry `x.y.z-N`, `N` from 2, is a later release of the same code with changes
+to the documentation or the packaging alone: `./release.mjs --push` fast-forwards `main` to `dev`
+and pushes both without a tag to the remotes named, so nothing is built and no release is made,
+and the entry goes into the release notes of the next tagged release. The workflows also skip a
+tag `vx.y.z-N` made by hand.

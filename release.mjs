@@ -2,8 +2,8 @@
 
 // Releases the newest CHANGELOG.md entry: commits everything on dev with the entry's summary line,
 // and with --push tags dev vX.Y.Z with the entries since the last tag as the release notes, moves
-// main to it, and pushes dev, main and the tag together. A release X.Y.Z-N of the documentation or
-// the packaging alone is pushed without a tag.
+// main to it, and pushes dev, main and the tag together to GitHub, to Gitea, or to both. A release
+// X.Y.Z-N of the documentation or the packaging alone is pushed without a tag.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,28 +13,36 @@ import { parseArgs } from 'node:util';
 
 const CHANGELOG = `${import.meta.dirname}/CHANGELOG.md`;
 
-const usage = `Usage: release.mjs [-h|--help] [-n|--dry-run] [--push]
+const usage = `Usage: release.mjs [-h|--help] [-n|--dry-run] [--push all|github|gitea]
 
   -n, --dry-run  print the commands instead of running them
-  --push         also tag the release and push dev, main and the tag
+  --push WHERE   also tag the release and push dev, main and the tag to the remote origin
+                 (github), to the remote gitea (gitea), or to both (all)
 
 Without --push, the changes are committed with the summary line of the newest CHANGELOG.md entry,
 the line between blank lines right after its "## x.y.z" heading; that commit marks the entry as
 released, and the next change needs a new entry. With --push, the newest entry is committed when it
 is not yet, dev is tagged v and the version of the heading, x.y.z or a semver prerelease such as
-x.y.z-rc.1, main is moved to it, and dev, main and the tag are pushed in one atomic push; the tag
-builds the release. The tag's message, and so the GitHub release notes, are the entries since the
-last tagged one. A version x.y.z-N, N a number, is a release of the documentation or the packaging
-alone: --push moves main to dev and pushes them without a tag, so nothing is built, and the entry
-goes into the notes of the next tagged release.`;
+x.y.z-rc.1, main is moved to it, and dev, main and the tag are pushed in one atomic push to each
+remote named; the tag builds the release there. A tag made by an earlier --push is pushed to the
+remotes that do not have it yet, so --push gitea can follow --push github. The tag's message, and
+so the release notes, are the entries since the last tagged one. A version x.y.z-N, N a number, is
+a release of the documentation or the packaging alone: --push moves main to dev and pushes them
+without a tag, so nothing is built, and the entry goes into the notes of the next tagged release.`;
 
-const { values } = parseArgs({
-  options: {
-    'dry-run': { type: 'boolean', short: 'n', default: false },
-    push: { type: 'boolean', default: false },
-    help: { type: 'boolean', short: 'h', default: false },
-  },
-});
+let values;
+try {
+  ({ values } = parseArgs({
+    options: {
+      'dry-run': { type: 'boolean', short: 'n', default: false },
+      push: { type: 'string' },
+      help: { type: 'boolean', short: 'h', default: false },
+    },
+  }));
+} catch (error) {
+  console.error(`release: ${error.message}\n\n${usage}`);
+  process.exit(2);
+}
 
 if (values.help) {
   console.log(usage);
@@ -45,6 +53,14 @@ function fail(message) {
   console.error(`release: ${message}`);
   process.exit(1);
 }
+
+// The remotes of each --push target; without --push, a release counts as published on both.
+const targets = { all: ['origin', 'gitea'], github: ['origin'], gitea: ['gitea'] };
+if (values.push !== undefined && !Object.hasOwn(targets, values.push)) {
+  console.error(usage);
+  process.exit(2);
+}
+const remotes = targets[values.push ?? 'all'];
 
 // Runs a command in the repository, or prints it on a dry run; stops with its exit status when it fails.
 function run(command, ...args) {
@@ -89,41 +105,46 @@ if (!summary) fail(`put a summary line between blank lines right after the newes
 
 if (read('git', 'branch', '--show-current') !== 'dev') fail('a release is made from dev');
 const localTags = new Set(read('git', 'tag', '--list').split('\n'));
-const remoteTags = new Set(read('git', 'ls-remote', '--tags', 'origin').split('\n')
-  .map((ref) => ref.split('refs/tags/')[1]?.replace(/\^\{\}$/, '')).filter(Boolean));
-if (remoteTags.has(tag)) fail(`${tag} is published; add a new CHANGELOG.md entry first`);
+const remoteTags = new Map(remotes.map((remote) => [remote, new Set(read('git', 'ls-remote', '--tags', remote).split('\n')
+  .map((ref) => ref.split('refs/tags/')[1]?.replace(/\^\{\}$/, '')).filter(Boolean))]));
+// The remotes the tag is still to be pushed to; it is published once every one has it.
+const pending = remotes.filter((remote) => !remoteTags.get(remote).has(tag));
+if (pending.length === 0) fail(`${tag} is published on ${remotes.join(' and ')}; add a new CHANGELOG.md entry first`);
 
 // The release commit of an entry is a commit on dev whose message is the entry's summary line.
 const hasCommits = spawnSync('git', ['rev-parse', '-q', '--verify', 'HEAD'], { cwd: import.meta.dirname }).status === 0;
 const committed = hasCommits && read('git', 'log', '--format=%s', 'dev').split('\n').includes(summary);
 const dirty = read('git', 'status', '--porcelain') !== '';
 if (committed && dirty) fail(`${version} is released; add a new CHANGELOG.md entry for the changes`);
-if (committed && !values.push) fail(`${version} is released; add a new CHANGELOG.md entry, or publish it with --push`);
+if (committed && values.push === undefined) fail(`${version} is released; add a new CHANGELOG.md entry, or publish it with --push`);
 if (!committed && !dirty) fail(`nothing to commit for ${version}`);
 if (!committed) {
   run('git', 'add', '-A');
   run('git', 'commit', '-m', summary);
 }
-if (!values.push) process.exit(0);
+if (values.push === undefined) process.exit(0);
 if (untagged) {
   run('git', 'fetch', '.', 'dev:main');
-  run('git', 'push', '--atomic', 'origin', 'dev', 'main');
+  for (const remote of remotes) run('git', 'push', '--atomic', remote, 'dev', 'main');
   process.exit(0);
 }
 
-// The notes, the tag's message kept with its Markdown headings, are the body of the newest entry
-// followed by the entries released since the last tagged one, each under its own heading.
-const last = entries.findIndex((entry, i) => i > 0 && (localTags.has(`v${entry.version}`) || remoteTags.has(`v${entry.version}`)));
-const notes = [entries[0].body, ...entries.slice(1, last === -1 ? undefined : last).map((entry) => `## ${entry.version}\n\n${entry.body}`)]
-  .join('\n\n') + '\n';
-if (localTags.has(tag)) fail(`tag ${tag} exists but is not published; push it with git push --atomic origin dev main ${tag}`);
-const notesDir = mkdtempSync(join(tmpdir(), 'release-'));
-const notesFile = join(notesDir, 'notes.md');
-writeFileSync(notesFile, notes);
-try {
-  run('git', 'tag', '-a', tag, '--cleanup=whitespace', '-F', notesFile);
-} finally {
-  rmSync(notesDir, { recursive: true, force: true });
+// The tag is made once; a tag of an earlier --push is pushed as it is to the remotes lacking it.
+if (!localTags.has(tag)) {
+  // The notes, the tag's message kept with its Markdown headings, are the body of the newest entry
+  // followed by the entries released since the last tagged one, each under its own heading.
+  const isTagged = (version) => localTags.has(`v${version}`) || remotes.some((remote) => remoteTags.get(remote).has(`v${version}`));
+  const last = entries.findIndex((entry, i) => i > 0 && isTagged(entry.version));
+  const notes = [entries[0].body, ...entries.slice(1, last === -1 ? undefined : last).map((entry) => `## ${entry.version}\n\n${entry.body}`)]
+    .join('\n\n') + '\n';
+  const notesDir = mkdtempSync(join(tmpdir(), 'release-'));
+  const notesFile = join(notesDir, 'notes.md');
+  writeFileSync(notesFile, notes);
+  try {
+    run('git', 'tag', '-a', tag, '--cleanup=whitespace', '-F', notesFile);
+  } finally {
+    rmSync(notesDir, { recursive: true, force: true });
+  }
 }
 run('git', 'fetch', '.', 'dev:main');
-run('git', 'push', '--atomic', 'origin', 'dev', 'main', tag);
+for (const remote of pending) run('git', 'push', '--atomic', remote, 'dev', 'main', tag);
