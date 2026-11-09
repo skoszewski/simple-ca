@@ -32,20 +32,21 @@ async function showCA() {
     const expiry = t.revoked ? badge("revoked")
       : element("span", {}, time(t.expires), " ", t.expired ? badge("expired") : null,
         t.pending && !t.expired ? badge("setup code") : null);
+    const name = element("button", { type: "button", textContent: t.name, title: "Show the token as JSON",
+      onclick: () => showJSON(t), className: "underline decoration-muted decoration-dotted underline-offset-4 hover:text-link" });
     return element("tr", {},
-      cell(t.oidc ? element("span", {}, t.name, element("span", { className: "block font-sans text-xs text-muted",
-        textContent: "OIDC user " + t.oidc.user })) : t.name, "font-mono whitespace-nowrap"),
-      cell(element("span", { title: [t.issuer && "Issuer " + t.issuer, t.subject && "Subject " + t.subject,
-        ...Object.entries(t.claims || {}).map(([name, value]) => `Claim ${name}=${value}`)].filter(Boolean).join("\n") },
-      t.token_type, t.audience ? element("span", { className: "block text-xs text-muted break-all",
-        textContent: t.audience }) : null)),
+      cell(t.oidc ? element("span", {}, name, element("span", { className: "block font-sans text-xs text-muted",
+        textContent: "OIDC user " + t.oidc.user })) : name, "font-mono whitespace-nowrap"),
       cell(expiry, "whitespace-nowrap"),
       cell(t.scopes.join(", ")),
       cell((t.types || []).join(", ") || "-"),
       cell((t.domains || []).join(", ") || "-"),
       cell((t.ips || []).map(address).join(", ") || "-"),
       cell((t.clients || []).map(address).join(", ") || "any"),
-      cell(String(t.certs.length)),
+      cell(!t.federate ? "-" : element("button", { type: "button", textContent: typeLabel(t.federate.type),
+        title: "Show the federation", onclick: () => showFederation(t),
+        className: "underline decoration-muted decoration-dotted underline-offset-4 hover:text-link" })),
+      cell(allowsScope(t.scopes, "sign") ? String(t.certs.length) : "-"),
       element("td", { className: "py-1.5 text-right" }, !managed ? null : element("div", { className: "flex justify-end gap-2" },
         t.pending && !t.expired ? null : button("Renew", () => renew(t, ended)),
         ended
@@ -58,16 +59,18 @@ async function showCA() {
     heading(ca),
     tokens.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No tokens." }) :
       searchable({ items: tokens, row, noun: "tokens",
-        headings: ["Name", "Token type", "Expires", "Scopes", "Cert types", "Names in certificates", "IP addresses in certificates", "Used from", "Certs", ""],
-        text: (t) => [t.name, t.oidc ? t.oidc.user : "", t.token_type, t.audience, t.subject, tokenStatus(t), ...t.scopes, ...(t.types || []), ...(t.domains || []),
-          ...(t.ips || []).map(address), ...(t.clients || []).map(address), ...t.certs],
+        headings: ["Name", "Expires", "Scopes", "Cert types", "Names in certificates", "IP addresses in certificates", "Used from", "Federates", "Certs", ""],
+        text: (t) => [t.name, t.oidc ? t.oidc.user : "", tokenStatus(t), ...t.scopes, ...(t.types || []), ...(t.domains || []),
+          ...(t.ips || []).map(address), ...(t.clients || []).map(address), ...t.certs,
+          ...(t.federate ? [t.federate.type, t.federate.audience || audienceOf(t.federate.type)] : [])],
         filters: [
           { name: "status", label: "Status", multiple: true, match: (t, values) => values.includes(tokenStatus(t)),
             choices: [["", "all"], ["active", "active"], ["pending", "waiting for a setup code"], ["expired", "expired"], ["revoked", "revoked"]] },
           { name: "scope", label: "Scope", multiple: true, match: (t, values) => values.every((scope) => allowsScope(t.scopes, scope)),
-            choices: [["", "all"], ...["sign", "tokens", "certs", "audit"].map((s) => [s, s])] },
-          { name: "token_type", label: "Token type", multiple: true, match: (t, values) => values.includes(t.token_type),
-            choices: [["", "all"], ...info.token_types.map((type) => [type.name, type.name])] },
+            choices: [["", "all"], ...["sign", "tokens", "certs", "audit", "federate"].map((s) => [s, s])] },
+          { name: "federates", label: "Federates", multiple: true,
+            match: (t, values) => values.includes(t.federate ? t.federate.type : "none"),
+            choices: [["", "all"], ...info.token_types.map((type) => [type.name, typeLabel(type.name)]), ["none", "none"]] },
           { name: "kind", label: "Made by", match: (t, [value]) => (value === "oidc") === Boolean(t.oidc),
             choices: [["", "all"], ["oidc", "OIDC sign-in"], ["other", "other"]] },
         ] }),
@@ -152,9 +155,8 @@ function openCreate() {
   fields.otc_networks.value = "";
   fields.audience.value = "";
   fields.claims.value = "";
-  $("create-token-type").replaceChildren(picker({ name: "token_type", labelledBy: "create-token-type-label",
-    choices: info.token_types.map((t) => [t.name, t.name]), value: info.defaults.token_type, onchange: audienceField }));
-  audienceField();
+  $("create-federate").replaceChildren();
+  federateChoices = "";
   const choices = (values) => values.map((v) => [v, v === "*" ? "* (all)" : v]);
   $("create-scopes").replaceChildren(picker({ name: "scopes", labelledBy: "create-scopes-label", multiple: true, only: "*",
     choices: choices(info.scopes), value: info.defaults.scopes.filter((s) => info.scopes.includes(s)),
@@ -169,14 +171,35 @@ function openCreate() {
 // chosen returns the values of the multiple picker named name of the form creating a token.
 const chosen = (name) => $("create-form").elements[name].value.split(",").filter((v) => v !== "");
 
-// audienceField tells in the audience field the audience of the token type chosen, which an
-// audience given replaces, or that the type needs one.
-function audienceField() {
-  const field = $("create-form").elements.audience;
-  const type = info.token_types.find((t) => t.name === $("create-form").elements.token_type.value);
-  field.required = Boolean(type && type.needs_audience);
-  field.placeholder = !type ? "" : type.needs_audience ? "required by the token type" : type.audience || "none";
+// showJSON shows the token t as GET /api/tokens answers with it, in its dialog.
+function showJSON(t) {
+  $("json-title").textContent = "Token " + t.name;
+  $("json-text").textContent = JSON.stringify(t, null, 2);
+  $("json-dialog").showModal();
 }
+
+// showFederation shows the token type, the audience and the claims of the JWTs of the token t,
+// with the scope federate, in their dialog.
+function showFederation(t) {
+  const f = t.federate;
+  const attributes = [["Token type", typeLabel(f.type)], ["Audience", f.audience || audienceOf(f.type) || "-"],
+    ...Object.entries(f.claims || {}).sort().map(([name, value]) => ["Claim " + name, value])];
+  $("federate-title").textContent = "Federation of " + t.name;
+  $("federate-attributes").replaceChildren(...attributes.flatMap(([label, value]) => [
+    element("dt", { className: "font-medium text-muted", textContent: label }),
+    element("dd", { className: "font-mono text-xs break-all sm:pt-0.5", textContent: value })]));
+  $("federate-dialog").showModal();
+}
+
+// typeLabel returns the token type named name followed by the built-in type it is based on, as
+// gcp-wif (google), or the name alone for a built-in type or a type without a base.
+function typeLabel(name) {
+  const type = info.token_types.find((t) => t.name === name);
+  return type && type.base && type.base !== name ? `${name} (${type.base})` : name;
+}
+
+// audienceOf returns the audience of the token type named name, empty for none.
+const audienceOf = (name) => (info.token_types.find((t) => t.name === name) || {}).audience || "";
 
 // claims returns the claims of the lines name=value of text, or throws for a line without =.
 function claims(text) {
@@ -191,17 +214,41 @@ function claims(text) {
   return result;
 }
 
-// signFields turns the fields of the scope sign on with that scope or *, and off without them; the
-// fields of the setup code show with its box.
+// showGroup shows the fieldset id of the form creating a token, its fields sent, with show, and
+// hides it, its fields left out, without.
+function showGroup(id, show) {
+  $(id).disabled = !show;
+  $(id).classList.toggle("contents", show);
+  $(id).classList.toggle("hidden", !show);
+}
+
+// federateChoices are the choices of the token type picker drawn, as JSON, empty before one is.
+let federateChoices = "";
+
+// signFields shows the fields of the scopes sign and federate with that scope or *, and hides them
+// without; the token type may be none, for a token that grants the scope federate and gets no
+// JWTs, and the audience and the claims show once a type is chosen, the audience telling that of
+// the type or that the type needs one. The fields of the setup code show with its box.
 function signFields() {
-  const otc = $("create-form").elements.otc.checked;
-  $("otc-fields").disabled = !otc;
-  $("otc-fields").classList.toggle("contents", otc);
-  $("otc-fields").classList.toggle("hidden", !otc);
-  const sign = chosen("scopes").some((scope) => allowsScope([scope], "sign"));
-  $("sign-fields").disabled = !sign;
-  $("create-types").inert = !sign;
-  $("create-types").classList.toggle("opacity-50", !sign);
+  const fields = $("create-form").elements;
+  const scopes = chosen("scopes");
+  showGroup("otc-fields", fields.otc.checked);
+  showGroup("sign-fields", scopes.some((scope) => allowsScope([scope], "sign")));
+  const federate = scopes.some((scope) => allowsScope([scope], "federate"));
+  showGroup("federate-fields", federate);
+  const choices = [["", "none"], ...info.token_types.map((t) => [t.name, typeLabel(t.name)])];
+  if (federate && JSON.stringify(choices) !== federateChoices) {
+    const current = fields.federate ? fields.federate.value : "";
+    federateChoices = JSON.stringify(choices);
+    $("create-federate").replaceChildren(picker({ name: "federate", labelledBy: "create-federate-label", choices,
+      value: choices.some(([v]) => v === current) ? current : choices[0][0], onchange: signFields }));
+  }
+  const type = federate && fields.federate ? info.token_types.find((t) => t.name === fields.federate.value) : null;
+  $("federate-audience").classList.toggle("hidden", !type);
+  $("federate-claims").classList.toggle("hidden", !type);
+  fields.audience.disabled = fields.claims.disabled = !type;
+  fields.audience.required = Boolean(type && type.needs_audience);
+  fields.audience.placeholder = !type ? "" : type.needs_audience ? "required by the token type" : type.audience || "none";
 }
 $("create-form").elements.otc.addEventListener("change", signFields);
 $("create-cancel").addEventListener("click", () => $("create-dialog").close());
@@ -209,11 +256,12 @@ $("create-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const fields = event.target.elements;
   const sign = !$("sign-fields").disabled;
+  const federate = !$("federate-fields").disabled && fields.federate && fields.federate.value !== "";
   const otc = fields.otc.checked;
   try {
     const answer = await api("POST", "/api/tokens", {
-      ca: caID, name: fields.name.value.trim(), token_type: fields.token_type.value, audience: fields.audience.value.trim(),
-      claims: claims(fields.claims.value), valid: fields.valid.value, scopes: chosen("scopes"),
+      ca: caID, name: fields.name.value.trim(), valid: fields.valid.value, scopes: chosen("scopes"),
+      federate: federate ? { type: fields.federate.value, audience: fields.audience.value.trim(), claims: claims(fields.claims.value) } : null,
       types: sign ? chosen("types") : [], domains: sign ? list(fields.domains.value) : [],
       ips: sign ? list(fields.ips.value) : [], clients: list(fields.clients.value), localhost: sign && fields.localhost.checked,
       otc, otc_valid: otc ? fields.otc_valid.value : "", otc_networks: otc ? list(fields.otc_networks.value) : [],

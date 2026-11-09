@@ -74,11 +74,11 @@ func TestCommands(t *testing.T) {
 
 func TestKebabCaseNames(t *testing.T) {
 	caDir := t.TempDir()
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	for _, name := range []string{"Servers", "lab_servers", "lab--servers", "-lab", "lab-", "lab.servers"} {
-		if err := makeCA(caDir, "Bad CA", 3650, name, ""); err == nil || !strings.Contains(err.Error(), "kebab-case") {
+		if err := makeCA(caDir, "Bad CA", 3650, name, "", "rsa"); err == nil || !strings.Contains(err.Error(), "kebab-case") {
 			t.Fatalf("makeCA --issuing-ca %q: %v, want a kebab-case error", name, err)
 		}
 		if _, err := makeToken(caDir, name, time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil); err == nil ||
@@ -86,7 +86,7 @@ func TestKebabCaseNames(t *testing.T) {
 			t.Fatalf("makeToken %q: %v, want a kebab-case error", name, err)
 		}
 	}
-	if err := makeCA(caDir, "Lab Servers CA", 3650, "lab-servers2", ""); err != nil {
+	if err := makeCA(caDir, "Lab Servers CA", 3650, "lab-servers2", "", "rsa"); err != nil {
 		t.Fatalf("makeCA --issuing-ca lab-servers2: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "lab-servers2")
@@ -96,7 +96,7 @@ func TestKebabCaseNames(t *testing.T) {
 		[]byte(`{"types": {"web-server": {"key_usage": ["digitalSignature"], "ext_key_usage": ["serverAuth"]}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := makeCert("web.example.com", nil, issuingDir, "", "web-server", 30, nil, nil); err != nil {
+	if _, err := makeCert("web.example.com", nil, issuingDir, "", "web-server", 30, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert --type web-server: %v", err)
 	}
 	conf, err := writeOpenSSLConf(issuingDir)

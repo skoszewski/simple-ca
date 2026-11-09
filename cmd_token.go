@@ -44,8 +44,9 @@ func runTokenCreate(args []string) error {
 		"Create the token NAME of the CA in --ca-dir, and print it.\n\n"+
 			"The token is a JWT signed with the CA key and valid for that CA only. Scopes: sign (the\n"+
 			"signing API and the signing form of serve), tokens (the /tokens/ page of serve --webui),\n"+
-			"certs (its /certificates/ page), audit (its /audit/ page). A root CA token opens the pages\n"+
-			"for every CA; an issuing CA token opens only its own CA.\n\n"+
+			"certs (its /certificates/ page), audit (its /audit/ page), federate (JWTs of a token type\n"+
+			"from /api/federation-token of serve). A root CA token opens the pages for every CA; an\n"+
+			"issuing CA token opens only its own CA.\n\n"+
 			"With the scope sign, the token allows the --type certificate types, the --domain domains\n"+
 			"and their subdomains, and the --ip addresses; at least one --domain, --ip or --localhost\n"+
 			"is required. With --host or --network, the token is accepted only from those clients.\n\n"+
@@ -55,30 +56,22 @@ func runTokenCreate(args []string) error {
 			"Options not given default to the tokens section of simple-ca.json, then to the defaults\n"+
 			"below. --host and --network together replace hosts and networks. The defaults of --type,\n"+
 			"--cert-type, --domain, --ip and --localhost apply only with the scope sign.\n\n"+
-			"--token-type shapes the JWT for a party that verifies it with the keys of token jwks, such\n"+
-			"as Google or Microsoft Entra workload identity federation: api (simple-ca alone), google\n"+
-			"or azure, or a type of token_types in simple-ca.json. A type with an audience gives the\n"+
-			"JWT the issuer of tokens.issuer or ca_publish_base_url. --claim adds claims to the JWT.")
+			"With the scope federate, the token gets JWTs of the --federate-type token type, such as\n"+
+			"google or azure, for workload identity federation, with the --audience and the --claim\n"+
+			"claims; the request sets nothing else. Without --federate-type, it gets no JWTs, and grants\n"+
+			"the scope federate on the /tokens/ page.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := fs.Duration("valid", time.Hour, "validity `period` of the token, such as 30m, 8h or 720h")
 	localhost := fs.Bool("localhost", false, "allow the name localhost and the IP address 127.0.0.1")
-	var kind tokenKind
-	fs.StringVar(&kind.Type, "token-type", "", "token `type`: api, google, azure or a type of simple-ca.json (default: api)")
-	fs.StringVar(&kind.Audience, "audience", "", "`audience` of the JWT, in place of that of the token type")
-	fs.Func("claim", "`name=value` claim of the JWT, a string; may be specified multiple times", func(s string) error {
-		name, value, ok := strings.Cut(s, "=")
-		if !ok {
-			return fmt.Errorf("'%s' is not a claim such as env=prod", s)
-		}
-		if kind.Claims == nil {
-			kind.Claims = map[string]string{}
-		}
-		kind.Claims[name] = value
-		return nil
-	})
+	var fed tokenFederate
+	fs.StringVar(&fed.Type, "federate-type", "", "token `type` of the JWTs of the scope federate: google, azure or a type of\n"+
+		"federation.types of simple-ca.json")
+	fs.StringVar(&fed.Audience, "audience", "", "`audience` of the JWTs of the scope federate, in place of that of the token type")
+	fs.Func("claim", "`name=value` claim of the JWTs of the scope federate, a string; may be specified\n"+
+		"multiple times", claimFlag(&fed.Claims))
 	var scopes, certTypes, domains, ips, clients []string
-	fs.Func("scope", "`scope` of the token: sign, tokens, certs, audit, or * for all; may be specified multiple times\n"+
-		"(default: sign)", func(s string) error {
+	fs.Func("scope", "`scope` of the token: sign, tokens, certs, audit, federate, or * for all; may be specified\n"+
+		"multiple times (default: sign)", func(s string) error {
 		scopes = append(scopes, s)
 		return nil
 	})
@@ -124,9 +117,6 @@ func runTokenCreate(args []string) error {
 			return fmt.Errorf("tokens.valid of %s: '%s' is not a duration such as 8h", cfg.path, defaults.Valid)
 		}
 	}
-	if !given["token-type"] {
-		kind.Type = defaults.TokenType
-	}
 	if !given["scope"] {
 		scopes = slices.Clone(defaults.Scopes)
 	}
@@ -158,14 +148,96 @@ func runTokenCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	token, err := addToken(dir, rest[0], kind, *valid, scopes, certTypes, domains, ips, clients, setupValid, setupClients)
+	// The settings of the scope federate are given together with --federate-type.
+	var federate *tokenFederate
+	switch {
+	case given["federate-type"]:
+		federate = &fed
+	case given["audience"] || given["claim"]:
+		return errors.New("--audience and --claim need --federate-type")
+	}
+	token, err := addToken(dir, rest[0], federate, *valid, scopes, certTypes, domains, ips, clients, setupValid, setupClients)
 	if err != nil {
 		return err
 	}
 	record := append([]any{"name", rest[0], "scopes", strings.Join(scopes, ","), "setup_code", setupValid > 0},
-		tokenKindAudit(dir, rest[0])...)
+		federateAudit(federate)...)
 	audit(dir, "token.create", append(record, "via", "cli", "actor", cliActor())...)
 	fmt.Println(token)
+	return nil
+}
+
+// claimFlag returns the function of a flag adding a claim name=value to claims.
+func claimFlag(claims *map[string]string) func(string) error {
+	return func(s string) error {
+		name, value, ok := strings.Cut(s, "=")
+		if !ok {
+			return fmt.Errorf("'%s' is not a claim such as env=prod", s)
+		}
+		if *claims == nil {
+			*claims = map[string]string{}
+		}
+		(*claims)[name] = value
+		return nil
+	}
+}
+
+// runTokenIssue runs token issue.
+func runTokenIssue(args []string) error {
+	fs := newFlagSet("token issue", "NAME",
+		"Print a JWT of the --token-type token type for NAME, signed with the key of the CA in\n"+
+			"--ca-dir, for a party that verifies it with the keys of token jwks, such as Google or\n"+
+			"Microsoft Entra workload identity federation. The JWT is not stored, and simple-ca does\n"+
+			"not accept it; a token with the scope federate gets such JWTs from serve itself.\n\n"+
+			"NAME fills {name} of the subject template of the type. The JWT has the issuer of\n"+
+			"federation.issuer or ca_publish_base_url of simple-ca.json, the audience of the type or\n"+
+			"--audience, and the claims of the type and --claim.")
+	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
+	var fed tokenFederate
+	fs.StringVar(&fed.Type, "token-type", "", "token `type`: google, azure or a type of federation.types of simple-ca.json")
+	fs.StringVar(&fed.Audience, "audience", "", "`audience` of the JWT, in place of that of the token type")
+	fs.Func("claim", "`name=value` claim of the JWT, a string; may be specified multiple times", claimFlag(&fed.Claims))
+	valid := fs.Duration("valid", 0, "validity `period` of the JWT, at most the max_valid of the type (default: the\n"+
+		"valid of the type)")
+	rest, _, err := parseArgs(fs, args, 1, 1)
+	if err != nil {
+		return err
+	}
+	name := rest[0]
+	switch {
+	case fed.Type == "":
+		return errors.New("--token-type is required; token create makes the tokens of simple-ca")
+	case !kebabCaseRE.MatchString(name):
+		return fmt.Errorf("name '%s' is not a kebab-case name, such as web-deploy", name)
+	}
+	dir := resolveCADir(*caDir)
+	caKeyPath := filepath.Join(dir, "ca_key.pem")
+	if !fileExists(filepath.Join(dir, "ca_cert.pem")) || !fileExists(caKeyPath) {
+		return fmt.Errorf("CA certificate and key not found in %s. Please point --ca-dir to a CA directory", dir)
+	}
+	cfg, err := loadRootConfig(dir)
+	if err != nil {
+		return err
+	}
+	_, caID, err := locateCA(dir)
+	if err != nil {
+		return err
+	}
+	federation, err := fed.resolve(cfg, caID, name)
+	if err != nil {
+		return err
+	}
+	caKey, err := loadKey(caKeyPath)
+	if err != nil {
+		return err
+	}
+	jwt, id, _, err := issueJWT(caKey, federation, *valid, time.Time{})
+	if err != nil {
+		return err
+	}
+	audit(dir, "token.issue", "name", name, "token_type", federation.typeName, "audience", federation.audience,
+		"subject", federation.subject, "jti", id, "via", "cli", "actor", cliActor())
+	fmt.Println(jwt)
 	return nil
 }
 
@@ -279,7 +351,7 @@ func runTokenDescribe(args []string) error {
 		case err != nil:
 			return errors.New("the token is not a JWT of simple-ca token create")
 		}
-		name, tok, limits = c.name(), c.token(), false
+		name, tok, limits = c.Subject, c.token(), false
 		if caCert == nil {
 			notes = append(notes, [2]string{"Signature", "not checked; --ca-dir of its CA checks it and shows its limits"})
 		} else if db, err := loadTokens(dir); err != nil {
@@ -372,8 +444,7 @@ func runTokenRenew(args []string) error {
 	if err != nil {
 		return err
 	}
-	record := append([]any{"name", rest[0], "setup_code", setupValid > 0}, tokenKindAudit(dir, rest[0])...)
-	audit(dir, "token.renew", append(record, "via", "cli", "actor", cliActor())...)
+	audit(dir, "token.renew", "name", rest[0], "setup_code", setupValid > 0, "via", "cli", "actor", cliActor())
 	fmt.Println(token)
 	return nil
 }

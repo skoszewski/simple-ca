@@ -64,7 +64,7 @@ func TestAuthGuard(t *testing.T) {
 	guard = newAuthGuard()
 	t.Cleanup(func() { guard = shared })
 	rootDir := t.TempDir()
-	if err := makeCA(rootDir, "Root CA", 3650, "", ""); err != nil {
+	if err := makeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	admin, err := makeToken(rootDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)

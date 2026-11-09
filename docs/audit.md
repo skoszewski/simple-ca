@@ -6,7 +6,8 @@ simple-ca records what changes a CA and who changed it in an audit log:
 
 - every certificate issued or revoked, and every PFX bundle exported;
 - every CRL written and CA created;
-- every token created, renewed, revoked, removed or handed out;
+- every token created, renewed, revoked, removed or handed out, and every JWT of a token type
+  issued;
 - every credential `serve` refuses.
 
 The commands and `serve` write it alike, and `serve` also copies each record to the systemd
@@ -41,13 +42,14 @@ form. A record never holds a token, a setup code, an ID token, a key or a passwo
 
 | Event | Keys |
 |---|---|
-| `ca.create` | `subject`, `days` |
+| `ca.create` | `subject`, `days`, `key_type`, `rsa` or `ec` |
 | `cert.issue` | `serial`, `subject`, `type`; `setup_code` for the signing API and form |
 | `cert.revoke` | `serial`, `reason` |
 | `cert.pfx` | `file`, the certificate the bundle was made of; also when the certificate page makes a file to download |
 | `crl.write` | `number` |
-| `token.create` | `name`, `scopes`, `setup_code`; `token_type` and `audience` for a token type other than `api` |
-| `token.renew` | `name`, `setup_code`; `token_type` and `audience` for a token type other than `api` |
+| `token.create` | `name`, `scopes`, `setup_code`; `federate` and `audience`, empty for that of the type, for a token with the scope `federate` |
+| `token.renew` | `name`, `setup_code` |
+| `token.issue` | `name`, the token of `/api/federation-token`, or the name of `token issue`, `token_type`, `audience`, `subject`, `jti`: a JWT of a token type, which is not stored; its claims are not written |
 | `token.revoke` | `name` |
 | `token.purge` | `name`, or `count` for a removal of all expired and revoked tokens |
 | `token.setup` | `name`, the token a setup code was exchanged for |

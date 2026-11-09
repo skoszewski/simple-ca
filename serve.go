@@ -175,9 +175,9 @@ func pageTheme(caDir string) template.CSS {
 // issuing CA.
 type indexCA struct {
 	subjectView
-	Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME, API, ID string
-	ExpiresSoon                                                                      bool
-	Fingerprint                                                                      []string
+	Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME, API, SignForm, ID string
+	ExpiresSoon                                                                                bool
+	Fingerprint                                                                                []string
 }
 
 // newServeMux returns the handler serving an index page at /, the files of servedFiles of the
@@ -253,6 +253,9 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			}
 			if fileExists(filepath.Join(dir, tokensFile)) && fileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.API = origin + ca.Path + "api/sign"
+			}
+			if fileExists(filepath.Join(dir, "ca_key.pem")) {
+				ca.SignForm = origin + ca.Path + "sign"
 			}
 			if b, err := os.ReadFile(filepath.Join(dir, "crl.pem")); err == nil {
 				ca.CRL = "unreadable"
@@ -434,6 +437,20 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	mux.HandleFunc("GET /api/oidc", oidc.apiSettings)
 	mux.HandleFunc("POST /api/oidc-token", oidc.apiToken)
 	mux.HandleFunc("GET "+oidcCallbackPath, oidc.callbackPage)
+
+	// The JWTs of the token types for the tokens of the root CA at /api/federation-token and of each
+	// issuing CA at /CA/api/federation-token.
+	mux.HandleFunc("POST /api/federation-token", func(w http.ResponseWriter, r *http.Request) {
+		apiFederationToken(w, r, rootDir)
+	})
+	mux.HandleFunc("POST /{ca}/api/federation-token", func(w http.ResponseWriter, r *http.Request) {
+		ca := r.PathValue("ca")
+		if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+			http.NotFound(w, r)
+			return
+		}
+		apiFederationToken(w, r, filepath.Join(rootDir, ca))
+	})
 
 	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign.
 	mux.HandleFunc("POST /api/sign", func(w http.ResponseWriter, r *http.Request) {

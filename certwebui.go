@@ -140,7 +140,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.URL.Path {
 	case "/api/certs":
-		cert, err := makeCert(strings.TrimSpace(req.Subject), req.SANs, dir, "", req.Type, req.Days, req.EKU, req.KU)
+		cert, err := makeCert(strings.TrimSpace(req.Subject), req.SANs, dir, "", req.Type, req.Days, req.EKU, req.KU, "")
 		switch {
 		case errors.Is(err, errCertExists):
 			webuiFail(w, http.StatusConflict, err.Error())

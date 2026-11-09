@@ -26,10 +26,10 @@ func TestAudit(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	rootDir := t.TempDir()
-	if err := makeCA(rootDir, "Root CA", 3650, "", ""); err != nil {
+	if err := makeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(rootDir, "Servers CA", 3650, "servers", ""); err != nil {
+	if err := makeCA(rootDir, "Servers CA", 3650, "servers", "", "rsa"); err != nil {
 		t.Fatalf("makeCA servers: %v", err)
 	}
 	serversDir := filepath.Join(rootDir, "servers")

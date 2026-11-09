@@ -27,13 +27,13 @@ func TestACME(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(`{"days": {"cert": 400}, "acme": {"domains": ["localhost"]}}`), 0o644); err != nil {
 		t.Fatalf("write %s: %v", configFile, err)
 	}
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Servers CA", 3650, "servers", ""); err != nil {
+	if err := makeCA(caDir, "Servers CA", 3650, "servers", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if _, err := makeCert("localhost", nil, caDir, tlsDir, "server", 30, nil, nil); err != nil {
+	if _, err := makeCert("localhost", nil, caDir, tlsDir, "server", 30, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

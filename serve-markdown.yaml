@@ -15,4 +15,6 @@ menu:
       - Docker: docs/docker.md
       - Simple CA Mini: docs/simple-ca-mini.md
       - Development: docs/development.md
+  - Examples:
+      - Google Cloud workload identity federation: examples/federation/google.md
   - Changelog: CHANGELOG.md

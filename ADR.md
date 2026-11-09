@@ -55,30 +55,55 @@ The token page grants `sign` and the scopes of its own token, and manages only t
 scopes it grants, so a user of the page cannot widen their own access, as a token with `tokens`
 alone could otherwise make itself one with `certs`.
 
-## Token types shape the JWT for other verifiers, as certificate types shape a certificate
+## JWTs of token types are issued to api tokens with the scope federate, never stored
 
-A token for Google or Microsoft Entra workload identity federation is a token of
-`tokens-db.json` like any other, made by the same commands and pages, with an issuer, an audience,
-a subject and claims in its JWT. Built-in token types, `api`, `google` and `azure`, carry what
-each verifier requires, and `token_types` of `simple-ca.json` redefines them or adds types from
-them, as `types` does for certificates, so an operator names a target once instead of repeating
-its audience and claims on every token.
+`tokens-db.json` holds the tokens of simple-ca alone, the api tokens. A JWT for Google or
+Microsoft Entra workload identity federation is a short-lived credential of another verifier: it
+is signed when it is asked for, recorded in the audit log, and not stored, so the file does not
+grow with every JWT and simple-ca never has to accept one. simple-ca refuses a JWT with an issuer
+or an audience, which its own tokens never have, as the same CA key signs both.
+
+A workload gets its JWTs unattended with an api token with the scope `federate`, made for one
+token type with its audience and claims. The identity of the requester decides what the JWT
+holds; the request sets nothing, so a stolen token gets no other subject, audience or claims than
+its operator gave it, and revoking the token stops new JWTs at once. This is the model of the
+scope `sign`, whose token carries the certificate types and names it may sign. `federate` is a
+scope like the others: a token with it and no token type gets no JWTs, and grants the scope on the
+token page, as a token of an OIDC profile with `federate` does for the person who creates the
+tokens of the machines. `token issue` prints one JWT on the CA host, for the cases without a
+token.
+
+Built-in token types, `google` and `azure`, carry what each verifier requires, and
+`federation.types` of `simple-ca.json` redefines them or adds types from them, as `types` does
+for certificates, so an operator names a target once. The issuer and the token types are one
+section, `federation`, apart from the `tokens` defaults of `token create`, as both concern the
+JWTs of other verifiers alone; the name avoids `oidc`, the sign-in where simple-ca is the client. The type is read when a JWT is issued, so a change of
+`simple-ca.json` applies to the next JWT. The longest validity of a type is at most that of its
+base, such as the 24 hours of Google, and its validity bounds a JWT that outlives the revocation
+of its token.
 
 The CA key signs these JWTs, as it signs every token, and its public key is published as a JWK;
 the key is public already in the CA certificate. The `kid` is the RFC 7638 thumbprint of the key,
 so it is computed, never stored, and changes only with the key. Tokens issued before the `kid`
 verify still, as simple-ca reads only `alg` of the header.
 
-The subject of a type may differ from the token name, which simple-ca looks tokens up by, so such
-a JWT also carries the name in `simple_ca_token`. The issuer, audience, subject and claims are
-resolved when the token is made and kept in `tokens-db.json`, so a renewal signs what the
-verifier was set up for, whatever `simple-ca.json` says by then. The verifiers never ask
-simple-ca about a token, so revocation does not reach them; the longest validity of a type, at
-most that of its base, such as the 24 hours of Google, bounds a token withdrawn too late.
+`token create --cert-type` names the certificate types a token allows, so it reads apart from
+`--federate-type`; `--type`, its former name, stays accepted and is hidden from the usage of
+`token create` alone, as `cert create --type` keeps it.
 
-`token create --cert-type` names the certificate types a token allows, so `--token-type` and
-`--cert-type` read apart; `--type`, its former name, stays accepted and is hidden from the usage
-of `token create` alone, as `cert create --type` keeps it.
+## The key of a CA is RSA or EC P-256, and its algorithms follow the key
+
+`ca create --key-type` gives a CA an RSA 4096 or an ECDSA P-256 key, chosen for each CA, so an
+issuing CA may differ from its root. The key decides every signature of the CA: certificates and
+CRLs are signed as Go's `crypto/x509` signs with that key, and the tokens and the JWTs of token
+types are RS256 or ES256, with no setting of their own that could disagree with the key. P-256
+alone is offered because ES256 is the one EC algorithm Google STS accepts, and Microsoft Entra
+documents RS256 alone, so both kinds of CA serve a verifier.
+
+`cert create` makes a key of the type of its CA unless `--key-type` says otherwise, so an EC
+CA gives EC certificates without a flag. An ECDSA key cannot encipher keys (RFC 5480), so the
+certificate of any EC key leaves out `keyEncipherment`, whatever its type or `--ku` names,
+also for requests signed by the API, the form and ACME.
 
 ## The token and certificate pages are part of serve
 

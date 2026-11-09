@@ -38,6 +38,7 @@ func runCACreate(args []string) error {
 	baseURL := fs.String("ca-url", "", "base `URL` for AIA and CRL distribution point extensions")
 	fs.StringVar(baseURL, "ca-publish-base-url", "", "former name of --ca-url")
 	caDir := fs.String("ca-dir", "", "`directory` of the root CA")
+	keyType := fs.String("key-type", "rsa", "`type` of the CA key: rsa (RSA 4096, RS256 tokens) or ec (ECDSA P-256, ES256 tokens)")
 	writeConf := fs.Bool("write-conf", false, "also write openssl.cnf for the openssl ca command to the CA directory")
 	rest, given, err := parseArgs(fs, args, 1, 1)
 	if err != nil {
@@ -51,14 +52,14 @@ func runCACreate(args []string) error {
 	if !given["days"] && cfg.Days.CA > 0 {
 		*days = cfg.Days.CA
 	}
-	if err := makeCA(dir, rest[0], *days, *issuingCA, *baseURL); err != nil {
+	if err := makeCA(dir, rest[0], *days, *issuingCA, *baseURL, *keyType); err != nil {
 		return err
 	}
 	target := dir
 	if *issuingCA != "" {
 		target = filepath.Join(dir, *issuingCA)
 	}
-	audit(target, "ca.create", "subject", rest[0], "days", *days, "via", "cli", "actor", cliActor())
+	audit(target, "ca.create", "subject", rest[0], "days", *days, "key_type", *keyType, "via", "cli", "actor", cliActor())
 	if !*writeConf {
 		return nil
 	}

@@ -25,7 +25,6 @@ package main
 import (
 	"cmp"
 	"crypto"
-	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -326,7 +325,7 @@ func (u *oidcUsers) profileFor(user string, groups, roles []string) *oidcProfile
 
 // prepare returns the token name of the profile from prepareToken, with the tokens defaults of cfg,
 // and the key of its CA.
-func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiToken, *rsa.PrivateKey, error) {
+func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiToken, crypto.Signer, error) {
 	if p.CA != "" && !slices.Contains(caIDs(rootDir), p.CA) {
 		return nil, nil, fmt.Errorf("'%s' is not an issuing CA of %s", p.CA, rootDir)
 	}
@@ -365,8 +364,7 @@ func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiTok
 	if len(clients) == 0 {
 		clients = append(slices.Clone(defaults.Hosts), defaults.Networks...)
 	}
-	kind := tokenKind{Type: cmp.Or(t.TokenType, defaults.TokenType)}
-	return prepareToken(filepath.Join(rootDir, p.CA), name, kind, valid, scopes, types, domains, ips, clients)
+	return prepareToken(filepath.Join(rootDir, p.CA), name, nil, valid, scopes, types, domains, ips, clients)
 }
 
 // checkOIDC validates the oidc section of cfg and the profiles of oidc-users.json of rootDir.

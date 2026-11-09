@@ -30,10 +30,10 @@ func TestOIDC(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	rootDir := t.TempDir()
-	if err := makeCA(rootDir, "Root CA", 3650, "", ""); err != nil {
+	if err := makeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(rootDir, "Clients CA", 3650, "clients", ""); err != nil {
+	if err := makeCA(rootDir, "Clients CA", 3650, "clients", "", "rsa"); err != nil {
 		t.Fatalf("makeCA clients: %v", err)
 	}
 

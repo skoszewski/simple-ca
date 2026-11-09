@@ -24,7 +24,6 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
@@ -73,11 +72,15 @@ func rebuildCABundle(caDir string) error {
 // ---- makeCA -----------------------------------------------------------------
 
 // makeCA creates the root CA in caDir, or with issuingCA, a kebab-case name, an issuing CA in
-// caDir/issuingCA signed by the root CA in caDir, with its database and an empty first CRL valid
-// for days.crl of simple-ca.json, 30 days without it, and skips a CA that exists.
-func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
+// caDir/issuingCA signed by the root CA in caDir, with a key of keyType, rsa or ec, its database
+// and an empty first CRL valid for days.crl of simple-ca.json, 30 days without it, and skips a CA
+// that exists.
+func makeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) error {
 	if days < 1 {
 		return errors.New("--days must be a positive integer")
+	}
+	if !slices.Contains(keyTypes, keyType) {
+		return fmt.Errorf("--key-type '%s' must be rsa or ec", keyType)
 	}
 	if !dirExists(caDir) {
 		return fmt.Errorf("CA directory %s does not exist", caDir)
@@ -129,7 +132,7 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 					"Please create the root CA first", caName)
 		}
 		fmt.Printf("Generating root CA certificate '%s' and key...\n", caName)
-		key, err := rsa.GenerateKey(rand.Reader, 4096)
+		key, err := newKey(keyType)
 		if err != nil {
 			return err
 		}
@@ -148,7 +151,7 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 			MaxPathLen:            1,
 			KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		}
-		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
 		if err != nil {
 			return err
 		}
@@ -193,7 +196,7 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 		if err != nil {
 			return err
 		}
-		key, err := rsa.GenerateKey(rand.Reader, 4096)
+		key, err := newKey(keyType)
 		if err != nil {
 			return err
 		}
@@ -217,7 +220,7 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL string) error {
 			tmpl.IssuingCertificateURL = []string{baseURL + "/ca_cert.crt"}
 			tmpl.CRLDistributionPoints = []string{baseURL + "/crl.pem"}
 		}
-		der, err := x509.CreateCertificate(rand.Reader, tmpl, rootCert, &key.PublicKey, rootKey)
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, rootCert, key.Public(), rootKey)
 		if err != nil {
 			return err
 		}

@@ -24,6 +24,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -180,6 +181,15 @@ func csrSAN(csr *x509.CertificateRequest) *pkix.Extension {
 
 // ---- issueLeaf --------------------------------------------------------------
 
+// leafKeyUsage returns the key usages ku of a certificate for the public key pub, without
+// keyEncipherment for an ECDSA key, which cannot encipher keys (RFC 5480).
+func leafKeyUsage(ku x509.KeyUsage, pub any) x509.KeyUsage {
+	if _, ok := pub.(*ecdsa.PublicKey); ok {
+		return ku &^ x509.KeyUsageKeyEncipherment
+	}
+	return ku
+}
+
 // issueLeaf signs a certificate of the type certType for the public key pub with the CA in caDir,
 // valid for days from now, and returns it without recording it in index.txt. The subject and the
 // extensions of tmpl are kept; the key usages and extended key usages are those of the type with
@@ -230,7 +240,7 @@ func issueLeaf(caDir, certType string, days int, ekus, kus []string, tmpl *x509.
 	tmpl.NotBefore = now
 	tmpl.NotAfter = now.AddDate(0, 0, days)
 	tmpl.BasicConstraintsValid = true
-	tmpl.KeyUsage = keyUsage
+	tmpl.KeyUsage = leafKeyUsage(keyUsage, pub)
 	tmpl.ExtKeyUsage = extKeyUsages
 	tmpl.UnknownExtKeyUsage = extKeyUsageOIDs
 	if cfg.CAPublishBaseURL != "" {

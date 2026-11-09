@@ -14,14 +14,14 @@ import (
 func TestUserCert(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 
-	if _, err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing-ca"), "", "user", 365, nil, nil); err != nil {
+	if _, err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing-ca"), "", "user", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert user: %v", err)
 	}
 	certPath := filepath.Join(caDir, "issuing-ca", "Alice_Example_cert.pem")
@@ -38,10 +38,10 @@ func TestCertDirOverride(t *testing.T) {
 	caDir := t.TempDir()
 	certDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if _, err := makeCert("test", []string{"test.example.com"}, caDir, certDir, "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("test", []string{"test.example.com"}, caDir, certDir, "server", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(certDir, "test_cert.pem")
@@ -54,11 +54,11 @@ func TestCertDirOverride(t *testing.T) {
 func TestServerSANs(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	if _, err := makeCert("web.example.com", []string{"web", "www.example.com", "192.0.2.1", "2001:db8::1", "1.3.6.1.4.1.99999.1"},
-		caDir, "", "server", 365, nil, nil); err != nil {
+		caDir, "", "server", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "web_cert.pem")
@@ -99,7 +99,7 @@ func TestServerSANs(t *testing.T) {
 		{"host.example.com", []string{"fe80::1%en0"}},
 		{"host.example.com", []string{"under_score.example.com"}},
 	} {
-		if _, err := makeCert(c.cn, c.sans, caDir, "", "server", 365, nil, nil); err == nil {
+		if _, err := makeCert(c.cn, c.sans, caDir, "", "server", 365, nil, nil, ""); err == nil {
 			t.Fatalf("expected an error for CN %q and SANs %v", c.cn, c.sans)
 		}
 	}
@@ -108,7 +108,7 @@ func TestServerSANs(t *testing.T) {
 func TestUserSubjects(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	for _, c := range []struct {
@@ -127,7 +127,7 @@ func TestUserSubjects(t *testing.T) {
 			"/CN=../Frank Example/emailAddress=frank@example.com", []string{"frank@example.com"}, ""},
 		{[]string{"g.example@example.com"}, "g_example", "/emailAddress=g.example@example.com", []string{"g.example@example.com"}, ""},
 	} {
-		if _, err := makeCert(c.args[0], c.args[1:], caDir, "", "user", 365, nil, nil); err != nil {
+		if _, err := makeCert(c.args[0], c.args[1:], caDir, "", "user", 365, nil, nil, ""); err != nil {
 			t.Fatalf("makeCert %v: %v", c.args, err)
 		}
 		certPath := filepath.Join(caDir, c.file+"_cert.pem")
@@ -162,7 +162,7 @@ func TestUserSubjects(t *testing.T) {
 		{"Eve", "eve@example.com", "192.0.2.1"},
 		{"..."},
 	} {
-		if _, err := makeCert(args[0], args[1:], caDir, "", "user", 365, nil, nil); err == nil {
+		if _, err := makeCert(args[0], args[1:], caDir, "", "user", 365, nil, nil, ""); err == nil {
 			t.Fatalf("expected an error for %v", args)
 		}
 	}
@@ -171,10 +171,10 @@ func TestUserSubjects(t *testing.T) {
 func TestInvalidIPSAN(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if _, err := makeCert("test", []string{"999.1.1.1"}, caDir, "", "server", 365, nil, nil); err == nil {
+	if _, err := makeCert("test", []string{"999.1.1.1"}, caDir, "", "server", 365, nil, nil, ""); err == nil {
 		t.Fatal("expected error for invalid IPv4 SAN")
 	}
 }
@@ -182,14 +182,14 @@ func TestInvalidIPSAN(t *testing.T) {
 func TestListAndInfo(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	for _, name := range []string{"alice", "bob"} {
-		if _, err := makeCert(name, nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+		if _, err := makeCert(name, nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil, ""); err != nil {
 			t.Fatalf("makeCert %s: %v", name, err)
 		}
 	}
@@ -248,13 +248,13 @@ func TestListAndInfo(t *testing.T) {
 func TestShowCert(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", "http://pki.example.com"); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "http://pki.example.com", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if _, err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing-ca"), "", "user", 365, nil, nil); err != nil {
+	if _, err := makeCert("Alice Example", []string{"alice@example.com"}, filepath.Join(caDir, "issuing-ca"), "", "user", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "issuing-ca", "Alice_Example_cert.pem")
@@ -304,11 +304,11 @@ func TestShowCert(t *testing.T) {
 func TestEKU(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	if _, err := makeCert("device01.example.com", nil, caDir, "", "server", 365,
-		[]string{"clientAuth", "1.3.6.1.4.1.99999.10"}, nil); err != nil {
+		[]string{"clientAuth", "1.3.6.1.4.1.99999.10"}, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "device01_cert.pem")
@@ -330,7 +330,7 @@ func TestEKU(t *testing.T) {
 		}
 	}
 
-	if _, err := makeCert("Signer", nil, caDir, "", "user", 365, []string{"TIMESTAMPING", "codeSigning"}, nil); err != nil {
+	if _, err := makeCert("Signer", nil, caDir, "", "user", 365, []string{"TIMESTAMPING", "codeSigning"}, nil, ""); err != nil {
 		t.Fatalf("makeCert user: %v", err)
 	}
 	signer, err := loadCert(filepath.Join(caDir, "Signer_cert.pem"))
@@ -343,7 +343,7 @@ func TestEKU(t *testing.T) {
 	}
 
 	for _, eku := range []string{"deviceAuth", "3.1.2", "1.3.6.1.4.1.99999.x"} {
-		if _, err := makeCert("bad.example.com", nil, caDir, "", "server", 365, []string{eku}, nil); err == nil {
+		if _, err := makeCert("bad.example.com", nil, caDir, "", "server", 365, []string{eku}, nil, ""); err == nil {
 			t.Fatalf("expected an error for EKU %q", eku)
 		}
 	}
@@ -352,7 +352,7 @@ func TestEKU(t *testing.T) {
 func TestKeyUsageAndNone(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	for _, c := range []struct {
@@ -368,7 +368,7 @@ func TestKeyUsageAndNone(t *testing.T) {
 			x509.KeyUsageDigitalSignature | x509.KeyUsageContentCommitment | x509.KeyUsageKeyEncipherment,
 			[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageEmailProtection, x509.ExtKeyUsageCodeSigning}},
 	} {
-		if _, err := makeCert(c.cn, nil, caDir, "", c.certType, 365, c.ekus, c.kus); err != nil {
+		if _, err := makeCert(c.cn, nil, caDir, "", c.certType, 365, c.ekus, c.kus, ""); err != nil {
 			t.Fatalf("makeCert %s: %v", c.cn, err)
 		}
 		name, _, _ := strings.Cut(strings.ReplaceAll(c.cn, " ", "_"), ".")
@@ -407,7 +407,7 @@ func TestKeyUsageAndNone(t *testing.T) {
 		{"none", []string{"admin@example.com"}, nil},
 		{"device", nil, nil},
 	} {
-		if _, err := makeCert("bad.example.com", c.sans, caDir, "", c.certType, 365, nil, c.kus); err == nil {
+		if _, err := makeCert("bad.example.com", c.sans, caDir, "", c.certType, 365, nil, c.kus, ""); err == nil {
 			t.Fatalf("expected an error for type %s, SANs %v and key usages %v", c.certType, c.sans, c.kus)
 		}
 	}

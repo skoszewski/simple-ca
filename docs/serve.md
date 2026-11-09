@@ -69,6 +69,8 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/token-setup` | the exchange of a [setup code](signing-api.md#setup-code-exchange) for its token | `text/html` |
 | `/api/token-setup` | the exchange of a setup code, `POST` | `application/json` |
 | `/token-describe` | the attributes of a token pasted into it, see [Describe a token](signing-api.md#describe-a-token) | `text/html` |
+| `/api/federation-token` | a JWT of the token type of a token of the root CA with the scope `federate`, `POST`, see [Federation tokens](signing-api.md#federation-tokens) | `application/json` |
+| `/NAME/api/federation-token` | the same for a token of the issuing CA `NAME` | `application/json` |
 | `/.well-known/openid-configuration` | the OpenID Connect discovery document of the tokens of the root CA, `404 Not Found` without an issuer, see [Workload identity federation](workload-identity.md) | `application/json` |
 | `/jwks.json` | the JSON Web Key Set verifying the tokens of the root CA, `404 Not Found` without an issuer | `application/json` |
 | `/NAME/.well-known/openid-configuration`, `/NAME/jwks.json` | the same of the issuing CA `NAME` | `application/json` |
@@ -83,7 +85,9 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 The index page lists the root CA and all its issuing CAs, also when `--ca-dir` is an issuing CA,
 each with its name, the CN of its subject, or the whole subject without one, whose popup lists
 the attributes of the subject, its role, Root CA or Subordinate CA, and its expiry, with the days
-left, marked when fewer than 30 are left, and a link to its signing form when it signs requests.
+left, marked when fewer than 30 are left, and in the Sign Form Link column the URL of its
+[signing form](signing-api.md#signing-form) when its key is on the server, `-` without it; the
+copy button after the URL copies it to the clipboard.
 The Info button of a CA opens a dialog of its subject, issuer, serial number, validity period, key
 and SHA-256 fingerprint, its current CRL, with
 its number, the count of revoked certificates and its next update, marked when overdue, the URLs

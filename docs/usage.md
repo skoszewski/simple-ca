@@ -7,12 +7,13 @@ The commands of `simple-ca` for CAs, certificates and CRLs. The token commands a
 write in [directory-layout.md](directory-layout.md).
 
 ```sh
-simple-ca ca create    [--ca-dir DIR] [--days N] [--ca-url URL]
+simple-ca ca create    [--ca-dir DIR] [--days N] [--ca-url URL] [--key-type rsa|ec]
                        [--issuing-ca NAME] [--write-conf] CA_NAME
 simple-ca ca show      [--ca-dir DIR]
 
 simple-ca cert create  [--ca-dir DIR] [--cert-dir DIR] [--days N] [--type server|user|none]
-                       [--ku USAGES] [--eku USAGE ...] CN|EMAIL [EMAIL|CN] [SAN ...]
+                       [--key-type rsa|ec] [--ku USAGES] [--eku USAGE ...]
+                       CN|EMAIL [EMAIL|CN] [SAN ...]
 simple-ca cert sign    [--ca-dir DIR] [--cert-dir DIR] [--days N] [--type server|user|none]
                        [--ku USAGES] [--eku USAGE ...] [--force] CSR_FILE
 simple-ca cert pfx     [--ca-dir DIR] [--password PASS] CERT_PATH
@@ -23,8 +24,8 @@ simple-ca cert show    CERT_FILE
 simple-ca crl create   [--ca-dir DIR] [--days N] [--all]
 
 simple-ca token create [--ca-dir DIR] [--valid DURATION] [--scope SCOPE ...]
-                       [--token-type TYPE] [--audience AUDIENCE] [--claim NAME=VALUE ...]
                        [--cert-type TYPE ...] [--domain DOMAIN ...] [--ip ADDRESS ...] [--localhost]
+                       [--federate-type TYPE [--audience AUDIENCE] [--claim NAME=VALUE ...]]
                        [--host ADDRESS ...] [--network PREFIXES ...]
                        [--otc [--otc-valid DURATION] [--otc-network PREFIXES ...]] NAME
 simple-ca token list   [--ca-dir DIR]
@@ -34,6 +35,8 @@ simple-ca token renew  [--ca-dir DIR] [--valid DURATION]
                        [--otc [--otc-valid DURATION] [--otc-network PREFIXES ...]] NAME
 simple-ca token revoke [--ca-dir DIR] NAME
 simple-ca token purge  [--ca-dir DIR] [NAME]
+simple-ca token issue  [--ca-dir DIR] --token-type TYPE [--audience AUDIENCE]
+                       [--claim NAME=VALUE ...] [--valid DURATION] NAME
 simple-ca token jwks   [--ca-dir DIR]
 
 simple-ca audit list   [--ca-dir DIR] [--event EVENT] [--ca NAME] [--actor ACTOR]
@@ -67,6 +70,12 @@ lower-case letters and digits joined by hyphens, such as `servers` or `lab-serve
 `help`, `docs`, `tokens`, `certificates` or `audit`, the routes of the pages of
 [serve](serve.md). The CA directory must not hold an issuing CA. A CA that exists is left as it
 is. `--days` defaults to `days.ca` of `simple-ca.json`, 3650 without it.
+
+`--key-type` is the type of the CA key: `rsa`, RSA 4096, by default, or `ec`, ECDSA P-256. The CA
+key signs the certificates, the CRLs and the tokens of the CA, with `sha256WithRSAEncryption` and
+RS256 for an RSA key, and `ecdsa-with-SHA256` and ES256 for an EC key. Each CA has its own: an
+issuing CA with an EC key under a root CA with an RSA key is signed with the RSA key of the root,
+and the reverse.
 
 A new CA starts with an empty CRL, number 1, valid for `days.crl` of `simple-ca.json`, 30 days
 without it, so the CRL Distribution Point URL of its certificates has a CRL to serve from the
@@ -147,6 +156,11 @@ that directory, or to `--cert-dir`, named as described under
 A certificate whose certificate and key files both exist is an error, and they are left as they
 are; a certificate file without its key is written again. `--days` defaults to `days.cert` of
 `simple-ca.json`, 365 without it.
+
+`--key-type` is the type of the key of the certificate, `rsa`, RSA 4096, or `ec`, ECDSA P-256; it
+defaults to the type of the key of the CA. An EC key cannot encipher keys, so its certificate
+leaves `keyEncipherment` out of its key usages, also when the type or `--ku` names it; the same
+holds for an EC key of a request signed by `cert sign`, the signing API, the signing form or ACME.
 
 `--ku USAGES` adds key usages to those of the type, as a comma-separated list, and `--eku USAGE`
 adds an extended key usage; both may be specified multiple times, and a usage the type already

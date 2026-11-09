@@ -13,11 +13,11 @@ import (
 func TestMakeCRLAll(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	for _, name := range []string{"servers", "users"} {
-		if err := makeCA(caDir, name+" CA", 3650, name, ""); err != nil {
+		if err := makeCA(caDir, name+" CA", 3650, name, "", "rsa"); err != nil {
 			t.Fatalf("makeCA %s: %v", name, err)
 		}
 	}
@@ -68,14 +68,14 @@ func TestRevocationReason(t *testing.T) {
 func TestRevokeAndCRL(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	for _, name := range []string{"alice", "bob"} {
-		if _, err := makeCert(name, nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+		if _, err := makeCert(name, nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil, ""); err != nil {
 			t.Fatalf("makeCert %s: %v", name, err)
 		}
 	}

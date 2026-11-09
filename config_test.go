@@ -14,7 +14,7 @@ import (
 func TestConfigTypes(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(`{"types": {`+
@@ -40,7 +40,7 @@ func TestConfigTypes(t *testing.T) {
 		{"server", []string{"web.example.com"}, "web", x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 			[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, 0},
 	} {
-		if _, err := makeCert(c.args[0], c.args[1:], caDir, "", c.certType, 365, nil, nil); err != nil {
+		if _, err := makeCert(c.args[0], c.args[1:], caDir, "", c.certType, 365, nil, nil, ""); err != nil {
 			t.Fatalf("makeCert %s: %v", c.certType, err)
 		}
 		cert, err := loadCert(filepath.Join(caDir, c.file+"_cert.pem"))
@@ -51,7 +51,7 @@ func TestConfigTypes(t *testing.T) {
 			t.Fatalf("%s: key usage %b, EKUs %v, other EKUs %v", c.certType, cert.KeyUsage, cert.ExtKeyUsage, cert.UnknownExtKeyUsage)
 		}
 	}
-	if _, err := makeCert("x.example.com", nil, caDir, "", "printer", 365, nil, nil); err == nil ||
+	if _, err := makeCert("x.example.com", nil, caDir, "", "printer", 365, nil, nil, ""); err == nil ||
 		!strings.Contains(err.Error(), "device, none, person, server, user") {
 		t.Fatalf("expected an unknown type error naming the types, got %v", err)
 	}
@@ -85,7 +85,7 @@ func TestConfigTypes(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(types), 0o644); err != nil {
 			t.Fatalf("write %s: %v", configFile, err)
 		}
-		if _, err := makeCert("y.example.com", nil, caDir, "", "server", 365, nil, nil); err == nil {
+		if _, err := makeCert("y.example.com", nil, caDir, "", "server", 365, nil, nil, ""); err == nil {
 			t.Fatalf("expected an error for\n%s", types)
 		}
 	}

@@ -48,6 +48,7 @@
                 <th class="py-1 pr-3 font-medium">CA</th>
                 <th class="py-1 pr-3 font-medium">Role</th>
                 <th class="py-1 pr-3 font-medium">Valid until</th>
+                <th class="py-1 pr-3 font-medium">Sign Form Link</th>
                 <th class="py-1"></th>
               </tr>
             </thead>
@@ -61,11 +62,13 @@
                 <td class="py-2 pr-3 whitespace-nowrap">{{.NotAfter}}
                   <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium {{if eq .Expiry "expired"}}bg-bad text-bad-ink{{else if .ExpiresSoon}}bg-warn text-warn-ink{{else}}bg-good text-good-ink{{end}}">{{.Expiry}}</span>
                 </td>
+                <td class="py-2 pr-3 font-mono text-xs break-all">
+                  {{- if .SignForm}}<span class="inline-flex items-center gap-1.5"><a class="text-link hover:underline" href="{{.Path}}sign">{{.SignForm}}</a>
+                  <button type="button" data-copy="{{.SignForm}}" title="Copy the link" aria-label="Copy the link" class="shrink-0 rounded p-1 text-muted hover:bg-subtle hover:text-ink"></button></span>
+                  {{- else}}<span class="text-muted">-</span>{{end -}}
+                </td>
                 <td class="py-2 text-right">
                   <div class="flex justify-end gap-2">
-                    {{- if .API}}
-                    <a class="rounded-lg bg-action px-2.5 py-1 text-xs font-medium whitespace-nowrap text-action-ink hover:bg-action-hover" href="{{.Path}}sign">Sign a request</a>
-                    {{- end}}
                     <button type="button" data-info="info-{{$i}}" class="rounded-lg border border-field-line px-2.5 py-1 text-xs font-medium hover:bg-subtle">Info</button>
                   </div>
                 </td>

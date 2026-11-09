@@ -15,7 +15,7 @@ import (
 func TestStandaloneCA(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) {
@@ -26,7 +26,7 @@ func TestStandaloneCA(t *testing.T) {
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(caDir, "ca_cert.pem"))
 
-	if _, err := makeCert("test", []string{"test.example.com", "127.0.0.1"}, caDir, "", "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("test", []string{"test.example.com", "127.0.0.1"}, caDir, "", "server", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "test_cert.pem")
@@ -39,12 +39,12 @@ func TestStandaloneCA(t *testing.T) {
 func TestTwoLevelCA(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test Root CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test Root CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA root: %v", err)
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(caDir, "ca_cert.pem"))
 
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	issuingCert := filepath.Join(caDir, "issuing-ca", "ca_cert.pem")
@@ -53,7 +53,7 @@ func TestTwoLevelCA(t *testing.T) {
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), issuingCert)
 
-	if _, err := makeCert("test", []string{"test.example.com", "127.0.0.1"}, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("test", []string{"test.example.com", "127.0.0.1"}, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "issuing-ca", "test_cert.pem")
@@ -81,10 +81,10 @@ func TestTwoLevelCA(t *testing.T) {
 func TestRootExists(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA second run: %v", err)
 	}
 }
@@ -93,7 +93,7 @@ func TestPublishURLs(t *testing.T) {
 	caDir := t.TempDir()
 	base := "http://pki.example.com"
 
-	if err := makeCA(caDir, "Test CA", 3650, "", base); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", base, "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	cfg, err := loadConfig(caDir)
@@ -103,10 +103,10 @@ func TestPublishURLs(t *testing.T) {
 	if cfg.CAPublishBaseURL != base {
 		t.Fatalf("%s holds base URL %q, want %q", configFile, cfg.CAPublishBaseURL, base)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if _, err := makeCert("test", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("test", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 
@@ -133,10 +133,10 @@ func TestCADirRoles(t *testing.T) {
 	caDir := t.TempDir()
 	issuingDir := filepath.Join(caDir, "issuing-ca")
 
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	rootDir, name, err := locateCA(issuingDir)
@@ -146,7 +146,7 @@ func TestCADirRoles(t *testing.T) {
 	if _, name, err := locateCA(caDir); err != nil || name != "" {
 		t.Fatalf("locateCA(%s) names an issuing CA %q, %v", caDir, name, err)
 	}
-	if err := makeCA(issuingDir, "Nested CA", 3650, "nested", ""); err == nil {
+	if err := makeCA(issuingDir, "Nested CA", 3650, "nested", "", "rsa"); err == nil {
 		t.Fatal("expected ca create to refuse an issuing CA directory")
 	}
 
@@ -169,10 +169,10 @@ func TestInitialCRL(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(`{"days": {"crl": 7}}`), 0o644); err != nil {
 		t.Fatalf("write %s: %v", configFile, err)
 	}
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	for _, dir := range []string{caDir, filepath.Join(caDir, "issuing-ca")} {
@@ -202,7 +202,7 @@ func TestInitialCRL(t *testing.T) {
 			t.Fatalf("the first CRL of %s is valid for %v days, want days.crl, 7", dir, days)
 		}
 	}
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA second run: %v", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(caDir, crlNumberFile)); err != nil || strings.TrimSpace(string(b)) != "02" {

@@ -73,6 +73,20 @@ function picker({ name, id = "", labelledBy, choices, value, onchange = () => {}
         element("span", { className: "truncate", textContent: label })))));
   };
   show(value);
+  // A dialog clips what overflows it, so there the list is placed in the window, below the chooser,
+  // or above it where the room above is larger, and as tall as the room it has.
+  chooser.addEventListener("toggle", () => {
+    if (!chooser.open || !chooser.closest("dialog")) {
+      return;
+    }
+    const box = chooser.querySelector("summary").getBoundingClientRect();
+    const below = innerHeight - box.bottom - 12;
+    const above = box.top - 12;
+    const up = below < Math.min(list.scrollHeight, 320) && above > below;
+    Object.assign(list.style, { position: "fixed", left: `${box.left}px`, minWidth: `${box.width}px`, marginTop: "0",
+      top: up ? "" : `${box.bottom + 4}px`, bottom: up ? `${innerHeight - box.top + 4}px` : "",
+      maxHeight: `${Math.min(320, up ? above : below)}px` });
+  });
   return element("div", { className: "min-w-0" }, input, chooser);
 }
 
@@ -154,6 +168,15 @@ addEventListener("scroll", () => {
     popup.classList.add("hidden");
   }
 });
+
+// The list of a chooser of a dialog, placed in the window, closes once the dialog scrolls.
+addEventListener("scroll", (event) => {
+  for (const chooser of document.querySelectorAll("dialog details[data-picker][open]")) {
+    if (!chooser.contains(event.target)) {
+      chooser.open = false;
+    }
+  }
+}, true);
 
 // An open chooser closes on a click outside it, and on Escape, which leaves its dialog open.
 document.addEventListener("click", (event) => {

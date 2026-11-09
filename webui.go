@@ -108,42 +108,36 @@ type webuiCA struct {
 // simple-ca.json; the scopes are those of them the token of the request grants, and the validity
 // of a setup code is tokenSetupValid.
 type webuiDefaults struct {
-	TokenType string   `json:"token_type"`
-	Valid     string   `json:"valid"`
-	Scopes    []string `json:"scopes"`
-	Types     []string `json:"types"`
-	Domains   []string `json:"domains"`
-	IPs       []string `json:"ips"`
-	Clients   []string `json:"clients"`
-	OTCValid  string   `json:"otc_valid"`
+	Valid    string   `json:"valid"`
+	Scopes   []string `json:"scopes"`
+	Types    []string `json:"types"`
+	Domains  []string `json:"domains"`
+	IPs      []string `json:"ips"`
+	Clients  []string `json:"clients"`
+	OTCValid string   `json:"otc_valid"`
 }
 
 // webuiToken is a token of the API: its name, its issue time and its expiry, the expiry of its
 // setup code when it is pending, whether it was revoked or expired, whether it waits for its setup
 // code, its scopes, what it allows, the clients it is accepted from, the serials of the
-// certificates issued with it, the OIDC user it was made for, null for another token, and its
-// token type with the issuer, the audience, the subject, empty for its name, and the claims of its
-// JWT.
+// certificates issued with it, the OIDC user it was made for, null for another token, and the JWT
+// of a token type it gets with the scope federate, null without it.
 type webuiToken struct {
-	TokenType string            `json:"token_type"`
-	Issuer    string            `json:"issuer"`
-	Audience  string            `json:"audience"`
-	Subject   string            `json:"subject"`
-	Claims    map[string]string `json:"claims"`
-	Name      string            `json:"name"`
-	Issued    time.Time         `json:"issued"`
-	Expires   time.Time         `json:"expires"`
-	Valid     string            `json:"valid"`
-	Revoked   bool              `json:"revoked"`
-	Expired   bool              `json:"expired"`
-	Pending   bool              `json:"pending"`
-	Scopes    []string          `json:"scopes"`
-	Types     []string          `json:"types"`
-	Domains   []string          `json:"domains"`
-	IPs       []string          `json:"ips"`
-	Clients   []string          `json:"clients"`
-	Certs     []string          `json:"certs"`
-	OIDC      *tokenOIDC        `json:"oidc"`
+	Name     string         `json:"name"`
+	Issued   time.Time      `json:"issued"`
+	Expires  time.Time      `json:"expires"`
+	Valid    string         `json:"valid"`
+	Revoked  bool           `json:"revoked"`
+	Expired  bool           `json:"expired"`
+	Pending  bool           `json:"pending"`
+	Scopes   []string       `json:"scopes"`
+	Types    []string       `json:"types"`
+	Domains  []string       `json:"domains"`
+	IPs      []string       `json:"ips"`
+	Clients  []string       `json:"clients"`
+	Certs    []string       `json:"certs"`
+	OIDC     *tokenOIDC     `json:"oidc"`
+	Federate *tokenFederate `json:"federate"`
 }
 
 // newWebuiToken returns the token name of tokens-db.json, t, as the API answers with it, expired
@@ -160,32 +154,30 @@ func newWebuiToken(name string, t *apiToken, now time.Time) webuiToken {
 	case !t.revoked():
 		valid = durationText(t.Expires.Sub(t.Issued))
 	}
-	return webuiToken{TokenType: cmp.Or(t.TokenType, "api"), Issuer: t.Issuer, Audience: t.Audience, Subject: t.Subject,
-		Claims: t.Claims, Name: name, Issued: t.Issued, Expires: t.Expires, Valid: valid, Revoked: t.revoked(),
+	return webuiToken{Name: name, Issued: t.Issued, Expires: t.Expires, Valid: valid, Revoked: t.revoked(),
 		Expired: !now.Before(t.Expires), Pending: t.pending(), Scopes: t.scopes(), Types: t.Types, Domains: t.Domains,
-		IPs: t.IPs, Clients: t.Clients, Certs: append([]string{}, t.Certs...), OIDC: t.OIDC}
+		IPs: t.IPs, Clients: t.Clients, Certs: append([]string{}, t.Certs...), OIDC: t.OIDC, Federate: t.Federate}
 }
 
 // webuiRequest is the body of a request changing the tokens of the CA CA: the token Name, and,
-// to create it, its token type, audience and claims, its validity, its scopes, its certificate
-// types, domains, IP addresses and clients, and localhost, and, to create or renew it with a setup
-// code in place of its JWT, OTC, the validity of the code and the clients it is exchanged from.
+// to create it, its validity, its scopes, its certificate types, domains, IP addresses and
+// clients, localhost, and the JWT of a token type of the scope federate, and, to create or renew it
+// with a setup code in place of its JWT, OTC, the validity of the code and the clients it is
+// exchanged from.
 type webuiRequest struct {
-	CA          string            `json:"ca"`
-	Name        string            `json:"name"`
-	TokenType   string            `json:"token_type"`
-	Audience    string            `json:"audience"`
-	Claims      map[string]string `json:"claims"`
-	Valid       string            `json:"valid"`
-	Scopes      []string          `json:"scopes"`
-	Types       []string          `json:"types"`
-	Domains     []string          `json:"domains"`
-	IPs         []string          `json:"ips"`
-	Clients     []string          `json:"clients"`
-	Localhost   bool              `json:"localhost"`
-	OTC         bool              `json:"otc"`
-	OTCValid    string            `json:"otc_valid"`
-	OTCNetworks []string          `json:"otc_networks"`
+	CA          string         `json:"ca"`
+	Name        string         `json:"name"`
+	Federate    *tokenFederate `json:"federate"`
+	Valid       string         `json:"valid"`
+	Scopes      []string       `json:"scopes"`
+	Types       []string       `json:"types"`
+	Domains     []string       `json:"domains"`
+	IPs         []string       `json:"ips"`
+	Clients     []string       `json:"clients"`
+	Localhost   bool           `json:"localhost"`
+	OTC         bool           `json:"otc"`
+	OTCValid    string         `json:"otc_valid"`
+	OTCNetworks []string       `json:"otc_networks"`
 }
 
 // caDir returns the directory of the CA id, the root CA when id is empty, or false for an id
@@ -368,8 +360,8 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 
 	// The fields each request uses; the API takes no defaults, so those it needs are required.
 	fields := map[string][]string{
-		"/api/tokens": {"ca", "name", "token_type", "audience", "claims", "valid", "scopes", "types", "domains", "ips", "clients", "localhost", "otc",
-			"otc_valid", "otc_networks"},
+		"/api/tokens": {"ca", "name", "valid", "scopes", "types", "domains", "ips", "clients", "localhost", "federate",
+			"otc", "otc_valid", "otc_networks"},
 		"/api/tokens/renew":  {"ca", "name", "valid", "otc", "otc_valid", "otc_networks"},
 		"/api/tokens/revoke": {"ca", "name"},
 		"/api/tokens/purge":  {"ca", "name"},
@@ -435,14 +427,17 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 		if req.Localhost {
 			domains, ips = append(domains, "localhost"), append(ips, "127.0.0.1")
 		}
-		kind := tokenKind{Type: req.TokenType, Audience: strings.TrimSpace(req.Audience), Claims: req.Claims}
-		token, err := addToken(dir, req.Name, kind, valid, scopes, types, domains, ips, req.Clients, setupValid, req.OTCNetworks)
+		if req.Federate != nil {
+			req.Federate.Audience = strings.TrimSpace(req.Federate.Audience)
+		}
+		token, err := addToken(dir, req.Name, req.Federate, valid, scopes, types, domains, ips, req.Clients, setupValid,
+			req.OTCNetworks)
 		if err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		record := append([]any{"name", req.Name, "scopes", strings.Join(scopes, ","), "setup_code", req.OTC},
-			tokenKindAudit(dir, req.Name)...)
+			federateAudit(req.Federate)...)
 		audit(dir, "token.create", append(record, s.auditActor()...)...)
 		answer(http.StatusCreated, req.Name, token)
 	case "/api/tokens/renew":
@@ -451,8 +446,7 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		record := append([]any{"name", req.Name, "setup_code", req.OTC}, tokenKindAudit(dir, req.Name)...)
-		audit(dir, "token.renew", append(record, s.auditActor()...)...)
+		audit(dir, "token.renew", append([]any{"name", req.Name, "setup_code", req.OTC}, s.auditActor()...)...)
 		answer(http.StatusOK, req.Name, token)
 	case "/api/tokens/revoke":
 		if err := revokeToken(dir, req.Name); err != nil {
@@ -554,23 +548,23 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		if len(defaults.Scopes) == 0 {
 			defaults.Scopes = []string{"sign"}
 		}
-		// The token types, each with its audience and whether a token needs one given.
+		// The token types of the scope federate, each with its audience, whether a token needs one
+		// given, and the validity of its JWTs.
 		tokenTypes, err := cfg.tokenTypes()
 		if err != nil {
 			slog.Error("serve.error", "error", err.Error())
 			webuiFail(w, http.StatusInternalServerError, "could not read the token types")
 			return
 		}
-		var typeList []map[string]any
+		typeList := []map[string]any{}
 		for _, name := range slices.Sorted(maps.Keys(tokenTypes)) {
 			t, maxValid := tokenTypes[name], ""
 			if t.maxValid > 0 {
 				maxValid = durationText(t.maxValid)
 			}
-			typeList = append(typeList, map[string]any{"name": name, "audience": t.audience,
-				"needs_audience": t.needsAudience && t.audience == "", "max_valid": maxValid})
+			typeList = append(typeList, map[string]any{"name": name, "base": t.base, "audience": t.audience,
+				"needs_audience": t.needsAudience && t.audience == "", "valid": durationText(t.valid), "max_valid": maxValid})
 		}
-		defaults.TokenType = cmp.Or(cfg.Tokens.TokenType, "api")
 		answer["scopes"], answer["defaults"], answer["token_types"] = grantable, defaults, typeList
 	}
 	webuiReply(w, http.StatusOK, answer)

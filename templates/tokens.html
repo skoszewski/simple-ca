@@ -27,17 +27,13 @@
           <input name="name" required placeholder="web-deploy" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
         <label class="space-y-1"><span class="block font-medium">Valid for</span>
           <input name="valid" required placeholder="1h, 8h, 720h" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
-        <div class="space-y-1"><span id="create-token-type-label" class="block font-medium">Token type</span>
-          <div id="create-token-type"></div>
-        </div>
-        <label class="space-y-1"><span class="block font-medium">Audience</span>
-          <input name="audience" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
-        <label class="space-y-1 sm:col-span-2"><span class="block font-medium">Claims, one name=value a line</span>
-          <textarea name="claims" rows="2" placeholder="env=prod" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></textarea></label>
         <div class="space-y-1"><span id="create-scopes-label" class="block font-medium">Scopes</span>
           <div id="create-scopes"></div>
         </div>
+        <label class="space-y-1"><span class="block font-medium">Allowed clients</span>
+          <input name="clients" placeholder="192.168.1.4, 192.168.1.0/24" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
         <fieldset id="sign-fields" class="contents">
+          <h3 class="border-t border-line pt-3 font-semibold sm:col-span-2">Signing</h3>
           <label class="space-y-1"><span class="block font-medium">Allowed domains</span>
             <input name="domains" placeholder="example.com, lab.example.org" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
           <label class="space-y-1"><span class="block font-medium">Allowed IP addresses</span>
@@ -45,11 +41,19 @@
           <div class="space-y-1"><span id="create-types-label" class="block font-medium">Certificate types</span>
             <div id="create-types"></div>
           </div>
-          <label class="flex items-center gap-1.5"><input type="checkbox" name="localhost"> Allow localhost and 127.0.0.1</label>
+          <label class="flex items-center gap-1.5 sm:pt-6"><input type="checkbox" name="localhost"> Allow localhost and 127.0.0.1</label>
         </fieldset>
-        <label class="space-y-1"><span class="block font-medium">Allowed clients</span>
-          <input name="clients" placeholder="192.168.1.4, 192.168.1.0/24" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
-        <label class="flex items-center gap-1.5 sm:col-span-2"><input type="checkbox" name="otc"> One-time setup code</label>
+        <fieldset id="federate-fields" class="contents">
+          <h3 class="border-t border-line pt-3 font-semibold sm:col-span-2">Federation</h3>
+          <div class="space-y-1"><span id="create-federate-label" class="block font-medium">Token type</span>
+            <div id="create-federate"></div>
+          </div>
+          <label id="federate-audience" class="space-y-1"><span class="block font-medium">Audience</span>
+            <input name="audience" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
+          <label id="federate-claims" class="space-y-1 sm:col-span-2"><span class="block font-medium">Claims, one name=value a line</span>
+            <textarea name="claims" rows="2" placeholder="env=prod" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></textarea></label>
+        </fieldset>
+        <label class="flex items-center gap-1.5 border-t border-line pt-3 sm:col-span-2"><input type="checkbox" name="otc"> One-time setup code</label>
         <fieldset id="otc-fields" class="contents">
           <label class="space-y-1"><span class="block font-medium">Code valid for</span>
             <input name="otc_valid" placeholder="15m, 1h" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono"></label>
@@ -59,6 +63,26 @@
         <div class="flex justify-end gap-2 sm:col-span-2">
           <button id="create-cancel" type="button" class="rounded-lg border border-field-line px-4 py-2 font-medium hover:bg-subtle">Cancel</button>
           <button type="submit" class="rounded-lg bg-action px-4 py-2 font-semibold text-action-ink shadow-sm hover:bg-action-hover">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="json-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+      <form method="dialog" class="space-y-4 px-6 py-5">
+        <h2 id="json-title" class="text-lg font-semibold"></h2>
+        <pre id="json-text" class="max-h-[60vh] overflow-auto rounded-lg border border-line bg-field px-3 py-2 font-mono text-xs"></pre>
+        <div class="flex justify-end">
+          <button value="close" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="federate-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+      <form method="dialog" class="space-y-4 px-6 py-5">
+        <h2 id="federate-title" class="text-lg font-semibold"></h2>
+        <dl id="federate-attributes" class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm"></dl>
+        <div class="flex justify-end">
+          <button value="close" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Close</button>
         </div>
       </form>
     </dialog>

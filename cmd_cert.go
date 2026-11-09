@@ -47,6 +47,8 @@ func runCertCreate(args []string) error {
 	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, root or issuing CA")
 	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.json")
 	days := fs.Int("days", 365, "validity period in `days`")
+	keyType := fs.String("key-type", "", "`type` of the certificate key: rsa (RSA 4096) or ec (ECDSA P-256), without\n"+
+		"keyEncipherment (default: the type of the CA key)")
 	ekus, kus := usageFlags(fs)
 	rest, given, err := parseArgs(fs, args, 1, -1)
 	if err != nil {
@@ -60,7 +62,7 @@ func runCertCreate(args []string) error {
 	if !given["days"] && cfg.Days.Cert > 0 {
 		*days = cfg.Days.Cert
 	}
-	cert, err := makeCert(rest[0], rest[1:], dir, *certDir, *certType, *days, *ekus, *kus)
+	cert, err := makeCert(rest[0], rest[1:], dir, *certDir, *certType, *days, *ekus, *kus, *keyType)
 	if err != nil {
 		return err
 	}

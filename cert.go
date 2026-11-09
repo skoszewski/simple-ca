@@ -26,7 +26,6 @@ import (
 	"bytes"
 	"cmp"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -213,9 +212,16 @@ var errCertExists = errors.New("the certificate and its key exist already")
 // kus are added to the key usages of the type and ekus to its extended key usages, as parsed by
 // parseUsages. It returns the certificate issued, and an error wrapping errCertExists when the
 // certificate and its key exist.
-func makeCert(subjectName string, sans []string, caDir, certDir, certType string, days int, ekus, kus []string) (*x509.Certificate, error) {
+//
+// The key is of leafKeyType, rsa or ec, or of the key type of the CA key when it is empty; an
+// ECDSA key gets no keyEncipherment usage.
+func makeCert(subjectName string, sans []string, caDir, certDir, certType string, days int, ekus, kus []string,
+	leafKeyType string) (*x509.Certificate, error) {
 	if days < 1 {
 		return nil, errors.New("the validity in days must be a positive integer")
+	}
+	if leafKeyType != "" && !slices.Contains(keyTypes, leafKeyType) {
+		return nil, fmt.Errorf("--key-type '%s' must be rsa or ec", leafKeyType)
 	}
 	if !dirExists(caDir) {
 		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
@@ -365,10 +371,11 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 	if err != nil {
 		return nil, err
 	}
-	key, err := rsa.GenerateKey(rand.Reader, 4096)
+	key, err := newKey(cmp.Or(leafKeyType, keyType(caKey.Public())))
 	if err != nil {
 		return nil, err
 	}
+	keyUsage = leafKeyUsage(keyUsage, key.Public())
 	serial, err := randomSerial()
 	if err != nil {
 		return nil, err
@@ -396,7 +403,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 		tmpl.IssuingCertificateURL = []string{publishURL + "/ca_cert.crt"}
 		tmpl.CRLDistributionPoints = []string{publishURL + "/crl.pem"}
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, key.Public(), caKey)
 	if err != nil {
 		return nil, err
 	}

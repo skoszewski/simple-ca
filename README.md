@@ -18,7 +18,8 @@ requests.
 Download the archive for your platform from the
 [releases](https://github.com/skoszewski/simple-ca/releases) and put `simple-ca` on your `PATH`;
 the archive also holds `request-cert`, the Go client of the signing API, `token-setup`, which
-exchanges a setup code for its token, and `simple-ca-trust`, which adds the CAs to the trust store.
+exchanges a setup code for its token, `request-jwt`, which gets the JWTs of workload identity
+federation, and `simple-ca-trust`, which adds the CAs to the trust store.
 With Go installed:
 
 ```sh
@@ -53,12 +54,12 @@ The commands are in groups, `ca`, `cert`, `crl` and `token`, and `serve` is a co
 - [Signing API](docs/signing-api.md) - tokens, the `/api/sign` API and the signing form.
 - [OIDC sign-in](docs/oidc.md) - tokens for the users of a generic OIDC provider, Keycloak or
   Entra ID, given by `oidc-users.json`.
-- [Workload identity federation](docs/workload-identity.md) - token types whose JWTs Google and
-  Microsoft Entra exchange for their own credentials.
+- [Workload identity federation](docs/workload-identity.md) - JWTs of token types that Google and
+  Microsoft Entra exchange for their own credentials, issued to tokens with the scope `federate`.
 - [Audit log](docs/audit.md) - what changed a CA and who changed it, in `audit.log`, the systemd
   journal and container logs.
-- [Signing API clients](docs/examples.md) - the clients in `examples/`, `cmd/request-cert/` and
-  `cmd/token-setup/`, in Python, Node.js, Go and the shell.
+- [Signing API clients](docs/examples.md) - the clients in `examples/`, `cmd/request-cert/`,
+  `cmd/token-setup/` and `cmd/request-jwt/`, in Python, Node.js, Go and the shell.
 - [Trust stores](docs/trust.md) - `simple-ca-trust`, which adds the CAs to the trust store of
   Windows, macOS or Linux.
 - [systemd](docs/systemd.md) - units for `serve` and the daily CRLs.

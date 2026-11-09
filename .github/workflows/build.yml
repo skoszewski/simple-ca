@@ -1,8 +1,9 @@
 # Publishes a GitHub release for a pushed tag vX.Y.Z or vX.Y.Z-PRE; a tag vX.Y.Z-N is not built.
 #
 # - check: gofmt and go vet.
-# - build: for each platform, simple-ca, request-cert, token-setup and simple-ca-trust, versioned
-#   with the tag, in one archive, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz, .zip for Windows.
+# - build: for each platform, simple-ca, request-cert, token-setup, request-jwt and
+#   simple-ca-trust, versioned with the tag, in one archive, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz,
+#   .zip for Windows.
 # - release: refuses a tag that is not semver, not on main, or not the newest CHANGELOG.md entry;
 #   creates the release with the archives and the tag's message as notes, a prerelease for -PRE.
 
@@ -65,7 +66,7 @@ jobs:
       # Downloads the browser files of serve-markdown's page, which simple-ca embeds.
       - name: Page assets
         run: node build.mjs assets
-      # Builds the four programs for the platform and packs them into its archive.
+      # Builds the five programs for the platform and packs them into its archive.
       - name: Build
         id: build
         env:
@@ -84,6 +85,7 @@ jobs:
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/simple-ca$exe" .
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-cert$exe" ./cmd/request-cert
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/token-setup$exe" ./cmd/token-setup
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-jwt$exe" ./cmd/request-jwt
           # simple-ca-trust is the Go program on Linux, the Swift one on macOS, the .NET one on Windows.
           case "$GOOS" in
             linux)

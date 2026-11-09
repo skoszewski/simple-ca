@@ -1,5 +1,59 @@
 # Changelog
 
+## 1.12.1
+
+gap: tokens-db.json holds api tokens alone, a token with the new scope federate gets unstored JWTs from /api/federation-token, which request-jwt exchanges for Google and Entra ID access tokens, and a CA with an EC P-256 key signs ES256.
+
+- `request-jwt`, a new Go command in `cmd/request-jwt/` beside `request-cert` and `token-setup`,
+  in the release archives and the container image, gets a JWT from `/api/federation-token` with
+  an api token with the scope `federate`, and prints it, or with `provider` the Google access
+  token of its exchange at Security Token Service, or with `tenant_id` and `client_id` an Entra ID
+  access token of the client credentials flow. Its settings `ca_url`, `token`, `token_file`,
+  `provider`, `tenant_id`, `client_id` and `scope` come from `federation.json`, or the file of
+  `--config`, replaced by `SIMPLE_CA_*` environment variables, replaced by options.
+
+- A JWT of a token type, such as `google` or `azure`, is no longer a token of `tokens-db.json`.
+  It is issued when asked for, recorded as `token.issue` in the audit log, and never stored; it
+  has no `scope`, and simple-ca refuses a JWT with an issuer or an audience.
+- The scope `federate` and `token create --federate-type TYPE`, with `--audience` and `--claim`,
+  make an api token that gets new JWTs of that type at `POST /api/federation-token`, or
+  `/NAME/api/federation-token` of an issuing CA, with an empty body: the token decides the JWT.
+  The JWT is valid for the new `valid` of the type, `1h` by default, never after the token
+  expires. A token with the scope `federate` and no token type gets no JWTs, and grants the scope
+  on the token page, also a token of an OIDC profile with `federate`.
+- `token issue --token-type TYPE NAME` prints one unstored JWT on the CA host.
+- The issuer and the token types are the new `federation` section of `simple-ca.json`,
+  `federation.issuer` and `federation.types`, in place of `tokens.issuer` and `token_types`, which
+  are refused.
+- `token create --token-type`, `tokens.token_type` of `simple-ca.json`, the `api` token type, the
+  `simple_ca_token` claim and the `token_type` of the OIDC profiles are gone. Entries of 1.12.0
+  with a token type load without it.
+- `token list` and the token page show the token type of a token with the scope `federate` as
+  Federates, and the token page creates such tokens and filters by them. On the token page, the
+  token type opens a dialog of the token type, the audience and the claims, and a type based on a
+  built-in type shows it, as `gcp-wif (google)`. The name of a token opens a dialog of the token
+  as JSON. Its create dialog shows the name, the
+  validity, the scopes and the clients first, then the Signing and Federation groups only for
+  the scopes chosen, hidden otherwise.
+- The list of a chooser in a dialog of the pages is no longer cut off by the edge of the dialog:
+  it opens below the chooser, or above it where there is more room, and closes when the dialog
+  scrolls.
+- `token describe` and the signed-in dialog of the pages show the certificates of a token with
+  the scope `sign` alone, and `token list` and the token page show `-` in place of the count for
+  the others.
+- The index page has no Sign a request button; its Sign Form Link column gives the URL of the
+  signing form of each CA whose key is on the server, with a button copying it to the clipboard.
+- The guide [Workload identity federation](docs/workload-identity.md) describes the scope
+  `federate`, and the discovery document and the key set published as static files for Microsoft
+  Entra ID, which has no upload of keys, and `examples/federation/google.md` sets up Google Cloud for one machine, step by step.
+- `ca create --key-type ec` gives a CA an ECDSA P-256 key, `rsa` (RSA 4096) by default, chosen
+  for each CA. Its certificates and CRLs are signed `ecdsa-with-SHA256`, and its tokens and the
+  JWTs of its token types ES256; `token jwks` and `jwks.json` give its EC key, and the discovery
+  document names ES256. The `ca.create` audit record names the `key_type`.
+- `cert create --key-type rsa|ec` makes the key of the certificate, of the type of the CA key by
+  default. A certificate of an EC key, also of a request signed by `cert sign`, the signing API,
+  the signing form or ACME, has no `keyEncipherment` key usage.
+
 ## 1.12.0
 
 feat: token types give a token the JWT that Google and Microsoft Entra workload identity federation exchange, with the JWKS from token jwks and serve.

@@ -23,6 +23,9 @@
 package main
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -67,8 +70,30 @@ func writePEMFile(path, blockType string, der []byte, mode os.FileMode) error {
 	return pem.Encode(f, &pem.Block{Type: blockType, Bytes: der})
 }
 
+// keyTypes are the key types of --key-type: rsa, RSA 4096, and ec, ECDSA P-256.
+var keyTypes = []string{"rsa", "ec"}
+
+// newKey returns a new private key of keyType, rsa or ec.
+func newKey(keyType string) (crypto.Signer, error) {
+	switch keyType {
+	case "rsa":
+		return rsa.GenerateKey(rand.Reader, 4096)
+	case "ec":
+		return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	}
+	return nil, fmt.Errorf("key type '%s' must be rsa or ec", keyType)
+}
+
+// keyType returns the key type of the public key pub, rsa or ec.
+func keyType(pub crypto.PublicKey) string {
+	if _, ok := pub.(*ecdsa.PublicKey); ok {
+		return "ec"
+	}
+	return "rsa"
+}
+
 // writeKey writes key to path as an unencrypted PKCS#8 PEM file readable by the owner alone.
-func writeKey(key *rsa.PrivateKey, path string) error {
+func writeKey(key crypto.Signer, path string) error {
 	der, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return err
@@ -94,8 +119,9 @@ func loadCert(path string) (*x509.Certificate, error) {
 	return x509.ParseCertificate(block.Bytes)
 }
 
-// loadKey reads the first PEM block of path as a PKCS#8 or PKCS#1 RSA private key.
-func loadKey(path string) (*rsa.PrivateKey, error) {
+// loadKey reads the first PEM block of path as a private key: PKCS#8 RSA or ECDSA P-256, PKCS#1
+// RSA, or SEC1 ECDSA P-256.
+func loadKey(path string) (crypto.Signer, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -104,13 +130,24 @@ func loadKey(path string) (*rsa.PrivateKey, error) {
 	if block == nil {
 		return nil, fmt.Errorf("no PEM block in %s", path)
 	}
-	if k, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
-		if rsaKey, ok := k.(*rsa.PrivateKey); ok {
-			return rsaKey, nil
+	var key any
+	if key, err = x509.ParsePKCS8PrivateKey(block.Bytes); err != nil {
+		if key, err = x509.ParsePKCS1PrivateKey(block.Bytes); err != nil {
+			if key, err = x509.ParseECPrivateKey(block.Bytes); err != nil {
+				return nil, fmt.Errorf("no RSA or ECDSA private key in %s", path)
+			}
 		}
-		return nil, fmt.Errorf("not an RSA key in %s", path)
 	}
-	return x509.ParsePKCS1PrivateKey(block.Bytes)
+	switch k := key.(type) {
+	case *rsa.PrivateKey:
+		return k, nil
+	case *ecdsa.PrivateKey:
+		if k.Curve != elliptic.P256() {
+			return nil, fmt.Errorf("the ECDSA key in %s is not on the curve P-256", path)
+		}
+		return k, nil
+	}
+	return nil, fmt.Errorf("the key in %s is not an RSA or ECDSA P-256 key", path)
 }
 
 // serialHex formats a serial number the way `openssl x509 -serial` prints it.

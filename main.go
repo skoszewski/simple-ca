@@ -123,6 +123,7 @@ var commands = []command{
 		{name: "revoke", summary: "Revoke a token of a CA.", run: runTokenRevoke},
 		{name: "renew", summary: "Renew a token of a CA, expired or not.", run: runTokenRenew},
 		{name: "purge", summary: "Remove the expired and revoked tokens of a CA.", run: runTokenPurge},
+		{name: "issue", summary: "Print a JWT of a token type, not stored, for workload identity federation.", run: runTokenIssue},
 		{name: "jwks", summary: "Print the JSON Web Key Set verifying the tokens of a CA.", run: runTokenJWKS},
 	}},
 	{name: "audit", summary: "Read the audit log of a root CA and its issuing CAs.", sub: []command{

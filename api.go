@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"cmp"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -42,6 +43,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"math/big"
 	"mime"
 	"net/http"
 	"net/netip"
@@ -64,9 +66,10 @@ const (
 var tokensLockWait = 10 * time.Second
 
 // tokenScopes are the scopes a token may have: sign for the signing API and the signing form,
-// tokens for the token page of serve --webui, certs for its certificate page, and audit for its
-// audit page; the scope * is all of them.
-var tokenScopes = []string{"sign", "tokens", "certs", "audit"}
+// tokens for the token page of serve --webui, certs for its certificate page, audit for its audit
+// page, and federate for the JWTs of a token type at /api/federation-token; the scope * is all of
+// them.
+var tokenScopes = []string{"sign", "tokens", "certs", "audit", "federate"}
 
 // allows reports whether values, the scopes or the certificate types of a token, hold value or *,
 // which stands for every value.
@@ -85,28 +88,24 @@ func checkAll(what string, values []string) error {
 // apiToken is a token of a CA: its JWT ID, its scopes, the certificate types, the domains and the
 // IP address prefixes it allows with the scope sign, each "*" for any, the prefixes of the client
 // addresses it is used from, any without them, its validity, the serial numbers of the
-// certificates issued with it, the setup code it waits for, and the OIDC user it was made for; and
-// its token type, empty for api, with the issuer, the audience, the subject, empty for its name,
-// and the claims of its JWT. A token without a JWT ID and a setup code is revoked: it expired when
-// it was revoked, and is kept to be renewed until it is purged. A token with a setup code is
-// pending: it has no JWT until the code is exchanged, and expires with the code.
+// certificates issued with it, the setup code it waits for, the OIDC user it was made for, and the
+// JWT of a token type it gets with the scope federate. A token without a JWT ID and a setup code
+// is revoked: it expired when it was revoked, and is kept to be renewed until it is purged. A token
+// with a setup code is pending: it has no JWT until the code is exchanged, and expires with the
+// code.
 type apiToken struct {
-	ID        string            `json:"id,omitempty"`
-	TokenType string            `json:"token_type,omitempty"`
-	Issuer    string            `json:"issuer,omitempty"`
-	Audience  string            `json:"audience,omitempty"`
-	Subject   string            `json:"subject,omitempty"`
-	Claims    map[string]string `json:"claims,omitempty"`
-	Scopes    []string          `json:"scopes,omitempty"`
-	Types     []string          `json:"types,omitempty"`
-	Domains   []string          `json:"domains,omitempty"`
-	IPs       []string          `json:"ips,omitempty"`
-	Clients   []string          `json:"clients,omitempty"`
-	Issued    time.Time         `json:"issued"`
-	Expires   time.Time         `json:"expires"`
-	Certs     []string          `json:"certs,omitempty"`
-	Setup     *tokenSetup       `json:"setup,omitempty"`
-	OIDC      *tokenOIDC        `json:"oidc,omitempty"`
+	ID       string         `json:"id,omitempty"`
+	Scopes   []string       `json:"scopes,omitempty"`
+	Types    []string       `json:"types,omitempty"`
+	Domains  []string       `json:"domains,omitempty"`
+	IPs      []string       `json:"ips,omitempty"`
+	Clients  []string       `json:"clients,omitempty"`
+	Issued   time.Time      `json:"issued"`
+	Expires  time.Time      `json:"expires"`
+	Certs    []string       `json:"certs,omitempty"`
+	Setup    *tokenSetup    `json:"setup,omitempty"`
+	OIDC     *tokenOIDC     `json:"oidc,omitempty"`
+	Federate *tokenFederate `json:"federate,omitempty"`
 }
 
 // tokenOIDC is the OIDC user a token was made for: issuer, subject and user claim.
@@ -214,33 +213,23 @@ type tokensDB struct {
 	Tokens map[string]*apiToken `json:"tokens"`
 }
 
-// jwtClaims are the claims of a token simple-ca reads: its ID, its issuer, its subject, its
-// audience, its name when the subject is not its name, its scopes, separated by spaces, and when it
-// was issued and expires, in seconds since the epoch.
+// jwtClaims are the claims of a token: its ID, its name, its scopes, separated by spaces, and when
+// it was issued and expires, in seconds since the epoch; and the issuer and the audience of a JWT
+// of a token type, which a token never has.
 type jwtClaims struct {
-	ID        string `json:"jti"`
-	Issuer    string `json:"iss,omitempty"`
-	Subject   string `json:"sub"`
-	Audience  string `json:"aud,omitempty"`
-	Token     string `json:"simple_ca_token,omitempty"`
-	Scope     string `json:"scope,omitempty"`
-	IssuedAt  int64  `json:"iat"`
-	ExpiresAt int64  `json:"exp"`
-}
-
-// name returns the name of the token of the claims.
-func (c *jwtClaims) name() string {
-	return cmp.Or(c.Token, c.Subject)
+	ID        string          `json:"jti"`
+	Issuer    string          `json:"iss,omitempty"`
+	Subject   string          `json:"sub"`
+	Audience  json.RawMessage `json:"aud,omitempty"`
+	Scope     string          `json:"scope,omitempty"`
+	IssuedAt  int64           `json:"iat"`
+	ExpiresAt int64           `json:"exp"`
 }
 
 // token returns the token the claims hold, without what tokens-db.json alone holds.
 func (c *jwtClaims) token() *apiToken {
-	t := &apiToken{ID: c.ID, Issuer: c.Issuer, Audience: c.Audience, Scopes: strings.Fields(c.Scope),
-		Issued: time.Unix(c.IssuedAt, 0), Expires: time.Unix(c.ExpiresAt, 0)}
-	if c.Token != "" {
-		t.Subject = c.Subject
-	}
-	return t
+	return &apiToken{ID: c.ID, Scopes: strings.Fields(c.Scope), Issued: time.Unix(c.IssuedAt, 0),
+		Expires: time.Unix(c.ExpiresAt, 0)}
 }
 
 // loadTokens reads tokens-db.json of caDir, or returns an empty database when it does not exist.
@@ -350,10 +339,10 @@ func purgeToken(caDir, name string) error {
 	return db.save(caDir)
 }
 
-// makeToken adds the token name of the token type api to tokens-db.json of the CA in caDir and
-// returns its JWT, as addToken does without a setup code.
+// makeToken adds the token name to tokens-db.json of the CA in caDir and returns its JWT, as
+// addToken does without a setup code and the scope federate.
 func makeToken(caDir, name string, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (string, error) {
-	return addToken(caDir, name, tokenKind{}, valid, scopes, certTypes, domains, ips, clients, 0, nil)
+	return addToken(caDir, name, nil, valid, scopes, certTypes, domains, ips, clients, 0, nil)
 }
 
 // addToken adds the token name, valid for valid, with the scopes, sign without them, used from
@@ -363,15 +352,15 @@ func makeToken(caDir, name string, valid time.Duration, scopes, certTypes, domai
 // address "*" allows any; an IP address or a client address is an address or a prefix, kept as a
 // prefix, and no clients allow any client. With a setupValid, the token is pending instead: it
 // gets no JWT, and addToken returns a setup code, valid for setupValid and exchanged from the
-// client addresses setupClients, any without them, for the JWT. The token type, the audience and
-// the claims of kind shape its JWT.
-func addToken(caDir, name string, kind tokenKind, valid time.Duration, scopes, certTypes, domains, ips, clients []string,
+// client addresses setupClients, any without them, for the JWT. With the scope federate, fed is
+// the JWT of a token type the token gets, which belongs to that scope alone.
+func addToken(caDir, name string, fed *tokenFederate, valid time.Duration, scopes, certTypes, domains, ips, clients []string,
 	setupValid time.Duration, setupClients []string) (string, error) {
 	setup, code, err := newTokenSetup(valid, setupValid, setupClients)
 	if err != nil {
 		return "", err
 	}
-	tok, caKey, err := prepareToken(caDir, name, kind, valid, scopes, certTypes, domains, ips, clients)
+	tok, caKey, err := prepareToken(caDir, name, fed, valid, scopes, certTypes, domains, ips, clients)
 	if err != nil {
 		return "", err
 	}
@@ -401,9 +390,9 @@ func addToken(caDir, name string, kind tokenKind, valid time.Duration, scopes, c
 	return result, nil
 }
 
-// prepareToken validates and returns the token name of the CA in caDir, of the kind kind, unsaved,
-// and the CA key.
-func prepareToken(caDir, name string, kind tokenKind, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (*apiToken, *rsa.PrivateKey, error) {
+// prepareToken validates and returns the token name of the CA in caDir, with the JWT of a token
+// type fed of the scope federate, unsaved, and the CA key.
+func prepareToken(caDir, name string, fed *tokenFederate, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (*apiToken, crypto.Signer, error) {
 	if valid < time.Second {
 		return nil, nil, errors.New("the validity of a token must be at least 1s")
 	}
@@ -430,6 +419,11 @@ func prepareToken(caDir, name string, kind tokenKind, valid time.Duration, scope
 	case !allows(scopes, "sign"):
 	case len(domains) == 0 && len(ips) == 0:
 		return nil, nil, errors.New("a token with the scope sign needs a domain or an IP address")
+	}
+	// A token with the scope federate and no token type gets no JWTs; it grants the scope on the
+	// token page.
+	if !allows(scopes, "federate") && fed != nil {
+		return nil, nil, errors.New("a token type, an audience and claims need the scope federate")
 	}
 	var names []string
 	for _, d := range domains {
@@ -468,21 +462,18 @@ func prepareToken(caDir, name string, kind tokenKind, valid time.Duration, scope
 	if err != nil {
 		return nil, nil, err
 	}
-	tokenTypes, err := cfg.tokenTypes()
-	if err != nil {
-		return nil, nil, err
-	}
-	_, caID, err := locateCA(caDir)
-	if err != nil {
-		return nil, nil, err
+	if fed != nil {
+		_, caID, err := locateCA(caDir)
+		if err != nil {
+			return nil, nil, err
+		}
+		if _, err := fed.resolve(cfg, caID, name); err != nil {
+			return nil, nil, err
+		}
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	tok := &apiToken{ID: randomID(), Scopes: scopes, Types: certTypes, Domains: names, IPs: prefixes,
-		Clients: clientPrefixes, Issued: now, Expires: now.Add(valid)}
-	if err := kind.apply(tok, cfg, tokenTypes, caID, name, valid); err != nil {
-		return nil, nil, err
-	}
-	return tok, caKey, nil
+	return &apiToken{ID: randomID(), Scopes: scopes, Types: certTypes, Domains: names, IPs: prefixes,
+		Clients: clientPrefixes, Issued: now, Expires: now.Add(valid), Federate: fed}, caKey, nil
 }
 
 // active reports whether the token is neither revoked, pending nor expired at now.
@@ -497,7 +488,7 @@ func (t *apiToken) ownedBy(owner *tokenOIDC) bool {
 
 // oidcToken stores tok as the token name of caDir and returns its JWT and the token given; an
 // active token of the same user is replaced with replace, or returned with reuse.
-func oidcToken(caDir, name string, tok *apiToken, caKey *rsa.PrivateKey, replace, reuse bool) (string, *apiToken, error) {
+func oidcToken(caDir, name string, tok *apiToken, caKey crypto.Signer, replace, reuse bool) (string, *apiToken, error) {
 	unlock, err := lockTokens(caDir)
 	if err != nil {
 		return "", nil, err
@@ -525,49 +516,55 @@ func oidcToken(caDir, name string, tok *apiToken, caKey *rsa.PrivateKey, replace
 	return jwt, tok, db.save(caDir)
 }
 
-// signToken returns the JWT of the token name, its claims signed with caKey, its header naming the
-// key by its JWK thumbprint. The claims simple-ca writes come first, then those of the token.
-func signToken(caKey *rsa.PrivateKey, name string, tok *apiToken) (string, error) {
+// signToken returns the JWT of the token name, its claims signed with caKey.
+func signToken(caKey crypto.Signer, name string, tok *apiToken) (string, error) {
+	claims, err := json.Marshal(jwtClaims{ID: tok.ID, Subject: name, Scope: strings.Join(tok.Scopes, " "),
+		IssuedAt: tok.Issued.Unix(), ExpiresAt: tok.Expires.Unix()})
+	if err != nil {
+		return "", err
+	}
+	return signJWT(caKey, claims)
+}
+
+// signJWT returns the JWT of the JSON claims signed with caKey, RS256 for an RSA key and ES256 for
+// an ECDSA P-256 key, its header naming the key by its JWK thumbprint.
+func signJWT(caKey crypto.Signer, claims []byte) (string, error) {
 	header, err := json.Marshal(struct {
 		Alg string `json:"alg"`
 		Kid string `json:"kid"`
 		Typ string `json:"typ"`
-	}{"RS256", publicJWK(&caKey.PublicKey).Kid, "JWT"})
+	}{jwtAlg(caKey.Public()), publicJWK(caKey.Public()).Kid, "JWT"})
 	if err != nil {
 		return "", err
-	}
-	tokenName := ""
-	if tok.Subject != "" {
-		tokenName = name
-	}
-	claims, err := json.Marshal(struct {
-		ID        string `json:"jti"`
-		Issuer    string `json:"iss,omitempty"`
-		Subject   string `json:"sub"`
-		Audience  string `json:"aud,omitempty"`
-		Scope     string `json:"scope,omitempty"`
-		IssuedAt  int64  `json:"iat"`
-		ExpiresAt int64  `json:"exp"`
-		Token     string `json:"simple_ca_token,omitempty"`
-	}{tok.ID, tok.Issuer, cmp.Or(tok.Subject, name), tok.Audience, strings.Join(tok.Scopes, " "), tok.Issued.Unix(),
-		tok.Expires.Unix(), tokenName})
-	if err != nil {
-		return "", err
-	}
-	if len(tok.Claims) > 0 {
-		custom, err := json.Marshal(tok.Claims)
-		if err != nil {
-			return "", err
-		}
-		claims = append(append(claims[:len(claims)-1], ','), custom[1:]...)
 	}
 	signed := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims)
 	digest := sha256.Sum256([]byte(signed))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, caKey, crypto.SHA256, digest[:])
+	var sig []byte
+	switch k := caKey.(type) {
+	case *rsa.PrivateKey:
+		sig, err = rsa.SignPKCS1v15(rand.Reader, k, crypto.SHA256, digest[:])
+	case *ecdsa.PrivateKey:
+		// An ES256 signature is r and s of 32 bytes each, not ASN.1 (RFC 7518 3.4).
+		var r, s *big.Int
+		if r, s, err = ecdsa.Sign(rand.Reader, k, digest[:]); err == nil {
+			sig = append(r.FillBytes(make([]byte, 32)), s.FillBytes(make([]byte, 32))...)
+		}
+	default:
+		err = errors.New("the CA key is not an RSA or ECDSA P-256 key")
+	}
 	if err != nil {
 		return "", err
 	}
 	return signed + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+// jwtAlg returns the JWS algorithm of the JWTs the key of pub signs: ES256 for an ECDSA key,
+// RS256 for an RSA key.
+func jwtAlg(pub crypto.PublicKey) string {
+	if keyType(pub) == "ec" {
+		return "ES256"
+	}
+	return "RS256"
 }
 
 // renewToken renews the token name of the CA in caDir and returns its JWT, as reissueToken does
@@ -633,23 +630,9 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 			}
 		}
 	}
-	if old.TokenType != "" {
-		cfg, err := loadRootConfig(caDir)
-		if err != nil {
-			return "", err
-		}
-		tokenTypes, err := cfg.tokenTypes()
-		if err != nil {
-			return "", err
-		}
-		if err := old.checkValid(tokenTypes, valid); err != nil {
-			return "", fmt.Errorf("token '%s': %w", name, err)
-		}
-	}
 	now := time.Now().UTC().Truncate(time.Second)
-	tok := &apiToken{ID: randomID(), TokenType: old.TokenType, Issuer: old.Issuer, Audience: old.Audience,
-		Subject: old.Subject, Claims: old.Claims, Scopes: old.Scopes, Types: old.Types, Domains: old.Domains,
-		IPs: old.IPs, Clients: old.Clients, Issued: now, Expires: now.Add(valid), OIDC: old.OIDC}
+	tok := &apiToken{ID: randomID(), Scopes: old.Scopes, Types: old.Types, Domains: old.Domains, IPs: old.IPs,
+		Clients: old.Clients, Issued: now, Expires: now.Add(valid), OIDC: old.OIDC, Federate: old.Federate}
 	setup, result, err := newTokenSetup(valid, setupValid, setupClients)
 	if err != nil {
 		return "", err
@@ -677,7 +660,7 @@ func listTokens(w io.Writer, caDir string) error {
 	}
 	now := time.Now()
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tTOKEN TYPE\tEXPIRES\tSCOPES\tCERT TYPES\tDOMAINS\tIPS\tCLIENTS\tCERTS\tOIDC USER")
+	fmt.Fprintln(tw, "NAME\tEXPIRES\tSCOPES\tCERT TYPES\tDOMAINS\tIPS\tCLIENTS\tFEDERATES\tCERTS\tOIDC USER")
 	for _, name := range slices.Sorted(maps.Keys(db.Tokens)) {
 		t := db.Tokens[name]
 		expires := t.Expires.UTC().Format(displayTimeFormat)
@@ -695,11 +678,17 @@ func listTokens(w io.Writer, caDir string) error {
 		if t.OIDC != nil {
 			user = t.OIDC.User
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n", name, cmp.Or(t.TokenType, "api"), expires,
-			strings.Join(t.scopes(), ","),
+		federates, certs := "-", "-"
+		if t.Federate != nil {
+			federates = t.Federate.Type
+		}
+		if t.hasScope("sign") {
+			certs = fmt.Sprint(len(t.Certs))
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, expires, strings.Join(t.scopes(), ","),
 			cmp.Or(strings.Join(t.Types, ","), "-"), cmp.Or(strings.Join(t.Domains, ","), "-"),
 			cmp.Or(strings.Join(showPrefixes(t.IPs), ","), "-"), cmp.Or(strings.Join(showPrefixes(t.Clients), ","), "any"),
-			len(t.Certs), user)
+			federates, certs, user)
 	}
 	return tw.Flush()
 }
@@ -737,17 +726,6 @@ func describeToken(name string, t *apiToken, limits bool) [][2]string {
 	}
 	attributes := [][2]string{{"Name", name}, {"Status", status}, {"Issued", at(t.Issued)},
 		{"Scopes", list(t.scopes(), "-")}}
-	if limits {
-		attributes = append(attributes, [2]string{"Token type", cmp.Or(t.TokenType, "api")})
-	}
-	for _, a := range [][2]string{{"Issuer", t.Issuer}, {"Audience", t.Audience}, {"Subject", t.Subject}} {
-		if a[1] != "" {
-			attributes = append(attributes, a)
-		}
-	}
-	for _, claim := range slices.Sorted(maps.Keys(t.Claims)) {
-		attributes = append(attributes, [2]string{"Claim " + claim, t.Claims[claim]})
-	}
 	if t.OIDC != nil {
 		attributes = append(attributes, [2]string{"OIDC user", t.OIDC.User}, [2]string{"OIDC issuer", t.OIDC.Issuer})
 	}
@@ -758,6 +736,13 @@ func describeToken(name string, t *apiToken, limits bool) [][2]string {
 		attributes = append(attributes, [2]string{"Cert types", list(t.Types, "-")},
 			[2]string{"Domains", list(t.Domains, "-")}, [2]string{"IP addresses", list(showPrefixes(t.IPs), "-")})
 	}
+	if f := t.Federate; f != nil {
+		attributes = append(attributes, [2]string{"Federates", f.Type},
+			[2]string{"Audience", cmp.Or(f.Audience, "that of the token type")})
+		for _, claim := range slices.Sorted(maps.Keys(f.Claims)) {
+			attributes = append(attributes, [2]string{"Claim " + claim, f.Claims[claim]})
+		}
+	}
 	attributes = append(attributes, [2]string{"Used from", list(showPrefixes(t.Clients), "any client")})
 	if t.pending() {
 		valid := t.Setup.Valid
@@ -767,11 +752,15 @@ func describeToken(name string, t *apiToken, limits bool) [][2]string {
 		attributes = append(attributes, [2]string{"Code usable from", list(showPrefixes(t.Setup.Clients), "any client")},
 			[2]string{"Valid after the exchange", valid})
 	}
-	certs := fmt.Sprint(len(t.Certs))
-	if len(t.Certs) > 0 {
-		certs += ": " + strings.Join(t.Certs, ", ")
+	// Only a token with the scope sign issues certificates.
+	if t.hasScope("sign") {
+		certs := fmt.Sprint(len(t.Certs))
+		if len(t.Certs) > 0 {
+			certs += ": " + strings.Join(t.Certs, ", ")
+		}
+		attributes = append(attributes, [2]string{"Certificates", certs})
 	}
-	return append(attributes, [2]string{"Certificates", certs})
+	return attributes
 }
 
 // revokeToken revokes the token name of the CA in caDir by taking its JWT ID, or its setup code,
@@ -954,10 +943,10 @@ func tokenDescribePage(w http.ResponseWriter, r *http.Request, rootDir string) {
 					if id != "" {
 						page.CA = "issuing CA " + id
 					}
-					if entry := db.Tokens[c.name()]; entry != nil && entry.ID != "" && entry.ID == c.ID {
-						page.Attributes = describeToken(c.name(), entry, true)
+					if entry := db.Tokens[c.Subject]; entry != nil && entry.ID != "" && entry.ID == c.ID {
+						page.Attributes = describeToken(c.Subject, entry, true)
 					} else {
-						page.Attributes = describeToken(c.name(), c.token(), false)
+						page.Attributes = describeToken(c.Subject, c.token(), false)
 						page.Attributes[1][1] = "refused: the token was renewed, revoked or removed"
 					}
 					return nil
@@ -1091,8 +1080,8 @@ func otherCAToken(caDir, token string, err error) error {
 }
 
 // verifyJWT returns the claims of the JWT token signed with the key of caCert, and an error of
-// status 401 when the token is malformed or signed by another key; with no caCert, the signature
-// is not checked.
+// status 401 when the token is malformed, signed by another key, or a JWT of a token type, which
+// has an issuer; with no caCert, the signature is not checked.
 func verifyJWT(caCert *x509.Certificate, token string) (*jwtClaims, error) {
 	invalid := apiErr(http.StatusUnauthorized, "invalid token")
 	parts := strings.Split(token, ".")
@@ -1105,15 +1094,19 @@ func verifyJWT(caCert *x509.Certificate, token string) (*jwtClaims, error) {
 	if err1 != nil || err2 != nil || err3 != nil {
 		return nil, invalid
 	}
+	// The algorithm is that of the CA key, RS256 or ES256 when the CA is not known.
 	var h struct{ Alg string }
-	if json.Unmarshal(header, &h) != nil || h.Alg != "RS256" {
+	switch {
+	case json.Unmarshal(header, &h) != nil:
 		return nil, invalid
-	}
-	if caCert != nil && verifyJWS("RS256", caCert.PublicKey, []byte(parts[0]+"."+parts[1]), sig) != nil {
+	case caCert == nil && h.Alg != "RS256" && h.Alg != "ES256":
+		return nil, invalid
+	case caCert != nil && (h.Alg != jwtAlg(caCert.PublicKey) ||
+		verifyJWS(h.Alg, caCert.PublicKey, []byte(parts[0]+"."+parts[1]), sig) != nil):
 		return nil, invalid
 	}
 	var c jwtClaims
-	if json.Unmarshal(payload, &c) != nil {
+	if json.Unmarshal(payload, &c) != nil || c.Issuer != "" || len(c.Audience) > 0 {
 		return nil, invalid
 	}
 	return &c, nil
@@ -1123,7 +1116,7 @@ func verifyJWT(caCert *x509.Certificate, token string) (*jwtClaims, error) {
 // an error of status 401 when it is unknown, which a revoked token is, or expired.
 func lookupToken(db *tokensDB, c *jwtClaims) (string, *apiToken, error) {
 	now := time.Now()
-	t, ok := db.Tokens[c.name()]
+	t, ok := db.Tokens[c.Subject]
 	switch {
 	case ok && t.revoked():
 		return "", nil, apiErr(http.StatusUnauthorized, "the token has been revoked")
@@ -1132,7 +1125,7 @@ func lookupToken(db *tokensDB, c *jwtClaims) (string, *apiToken, error) {
 	case now.Unix() >= c.ExpiresAt || !now.Before(t.Expires):
 		return "", nil, apiErr(http.StatusUnauthorized, "the token has expired")
 	}
-	return c.name(), t, nil
+	return c.Subject, t, nil
 }
 
 // checkCSRNames checks the names of csr against the name rules names, "server" or "user", and the
@@ -1476,6 +1469,89 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 		chain += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw}))
 	}
 	json.NewEncoder(w).Encode(map[string]string{"serial": serialHex(cert.SerialNumber), "certificate": certPEM, "chain": chain})
+}
+
+// apiFederationToken serves a POST of /api/federation-token for the CA in caDir: for the bearer
+// token of the request, a token with the scope federate used from a client it allows, it returns a
+// new JWT of the token type of the token, unstored, valid for the validity of the type and never
+// after the token expires. The body is empty or {}: the token alone decides what the JWT holds.
+func apiFederationToken(w http.ResponseWriter, r *http.Request, caDir string) {
+	if !fileExists(filepath.Join(caDir, "ca_key.pem")) || !fileExists(filepath.Join(caDir, tokensFile)) {
+		http.NotFound(w, r)
+		return
+	}
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	client := clientAddr(r)
+	body, err := io.ReadAll(io.LimitReader(r.Body, acmeMaxBody))
+	var fields map[string]json.RawMessage
+	var answer map[string]any
+	switch {
+	case err != nil || (len(bytes.TrimSpace(body)) > 0 && (json.Unmarshal(body, &fields) != nil || len(fields) > 0)):
+		err = apiErr(http.StatusBadRequest, "invalid request: the body is empty or {}; the token decides the JWT")
+	case !ok:
+		err = apiErr(http.StatusUnauthorized, "a bearer token is required")
+		auditRefused(r, caDir, "a bearer token is required", client)
+	default:
+		err = guard.attempt(w, r, caDir, func() error {
+			caCert, err := loadCert(filepath.Join(caDir, "ca_cert.pem"))
+			if err != nil {
+				return err
+			}
+			db, err := loadTokens(caDir)
+			if err != nil {
+				return err
+			}
+			name, tok, err := checkToken(db, caCert, strings.TrimSpace(token))
+			switch {
+			case err != nil:
+				return otherCAToken(caDir, token, err)
+			case !tok.clientAllowed(client):
+				return apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
+			case !tok.hasScope("federate"):
+				return apiErr(http.StatusForbidden, "the token does not have the scope federate")
+			case tok.Federate == nil:
+				return apiErr(http.StatusForbidden, "the token has no token type of its JWTs")
+			}
+			cfg, err := loadRootConfig(caDir)
+			if err != nil {
+				return err
+			}
+			_, caID, err := locateCA(caDir)
+			if err != nil {
+				return err
+			}
+			fed, err := tok.Federate.resolve(cfg, caID, name)
+			if err != nil {
+				return apiErr(http.StatusBadRequest, "%v", err)
+			}
+			caKey, err := loadKey(filepath.Join(caDir, "ca_key.pem"))
+			if err != nil {
+				return err
+			}
+			jwt, id, expires, err := issueJWT(caKey, fed, 0, tok.Expires)
+			if err != nil {
+				return err
+			}
+			audit(caDir, "token.issue", "name", name, "token_type", fed.typeName, "audience", fed.audience,
+				"subject", fed.subject, "jti", id, "via", "api", "actor", name, "client", client.String())
+			answer = map[string]any{"token": jwt, "token_type": fed.typeName, "audience": fed.audience,
+				"subject": fed.subject, "expires": expires}
+			return nil
+		})
+	}
+	if err != nil {
+		var e *apiError
+		if !errors.As(err, &e) {
+			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
+			e = apiErr(http.StatusInternalServerError, "internal error")
+		}
+		if e.status == http.StatusUnauthorized {
+			w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+		}
+		webuiFail(w, e.status, e.msg)
+		return
+	}
+	webuiReply(w, http.StatusOK, answer)
 }
 
 // ---- /sign ------------------------------------------------------------------

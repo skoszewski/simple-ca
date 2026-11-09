@@ -147,18 +147,23 @@ async function load() {
   const u = info.user_token;
   const joined = (values, none) => (values || []).join(", ") || none;
   const attributes = [["Name", u.name], ["Status", "valid until " + time(u.expires)], ["Issued", time(u.issued)],
-    ["Scopes", joined(u.scopes, "-")], ["Token type", u.token_type],
-    ...[["Issuer", u.issuer], ["Audience", u.audience], ["Subject", u.subject]].filter(([, value]) => value),
-    ...Object.entries(u.claims || {}).sort().map(([name, value]) => ["Claim " + name, value])];
+    ["Scopes", joined(u.scopes, "-")]];
   if (u.oidc) {
     attributes.push(["OIDC user", u.oidc.user], ["OIDC issuer", u.oidc.issuer]);
   }
-  if (u.scopes.some((scope) => scope === "sign" || scope === "*")) {
+  const signs = u.scopes.some((scope) => scope === "sign" || scope === "*");
+  if (signs) {
     attributes.push(["Cert types", joined(u.types, "-")], ["Domains", joined(u.domains, "-")],
       ["IP addresses", joined((u.ips || []).map(address), "-")]);
   }
-  attributes.push(["Used from", joined((u.clients || []).map(address), "any client")],
-    ["Certificates", u.certs.length + (u.certs.length ? ": " + u.certs.join(", ") : "")]);
+  if (u.federate) {
+    attributes.push(["Federates", u.federate.type], ["Audience", u.federate.audience || "that of the token type"],
+      ...Object.entries(u.federate.claims || {}).sort().map(([name, value]) => ["Claim " + name, value]));
+  }
+  attributes.push(["Used from", joined((u.clients || []).map(address), "any client")]);
+  if (signs) {
+    attributes.push(["Certificates", u.certs.length + (u.certs.length ? ": " + u.certs.join(", ") : "")]);
+  }
   $("user-attributes").replaceChildren(...attributes.flatMap(([label, value]) => [
     element("dt", { className: "text-muted", textContent: label }), element("dd", { className: "break-all", textContent: value })]));
   $("user-row").classList.replace("hidden", "flex");

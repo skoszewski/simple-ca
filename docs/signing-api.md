@@ -10,7 +10,8 @@ request a certificate at `/help/`.
 
 `token create` creates the token `NAME` for the CA in the CA directory (root or issuing CA),
 records it in that directory's `tokens-db.json` and prints it. The token is a JWT signed with the
-CA key (RS256), its header naming the key by its `kid`, and is valid only for that CA. It is shown
+CA key, RS256 for an RSA key and ES256 for an EC key (`ca create --key-type`), its header naming
+the key by its `kid`, and is valid only for that CA. It is shown
 only once, so copy it then.
 
 `--scope` sets what the token opens; it may be specified multiple times, and defaults to `sign`:
@@ -21,6 +22,7 @@ only once, so copy it then.
 | `tokens` | the [token page](#token-page) of `serve --webui` |
 | `certs` | the [certificate page](usage.md#certificate-page) of `serve --webui` |
 | `audit` | the [audit page](audit.md#the-audit-page) of `serve --webui` |
+| `federate` | [`/api/federation-token`](#federation-tokens), the JWTs of a token type for workload identity federation |
 | `*` | all of them, given alone |
 
 A root CA token opens the pages for every CA; an issuing CA token opens only its own CA.
@@ -57,12 +59,19 @@ token to `example.com`. `--host` and `--network` together replace both `hosts` a
 The defaults of `--cert-type`, `--domain` and `--ip` apply only to tokens with the scope `sign`.
 `--localhost` has no default: it is given for each token that allows it.
 
-`--token-type` shapes the JWT for a party other than simple-ca that verifies it, such as Google
-or Microsoft Entra workload identity federation: `api`, the default, for simple-ca alone,
-`google`, `azure`, or a type of `token_types` in `simple-ca.json`. `--audience` gives the `aud`
-claim in place of that of the type, and `--claim NAME=VALUE`, which may be specified multiple
-times, adds a claim. The token keeps its scopes and limits and works with simple-ca as well. See
-[Workload identity federation](workload-identity.md).
+With the scope `federate`, these options set the JWTs the token gets at
+[`/api/federation-token`](#federation-tokens), for workload identity federation:
+
+- `--federate-type` - the token type of the JWTs, `google`, `azure` or a type of
+  `federation.types` in `simple-ca.json`;
+- `--audience` - their audience, in place of that of the type;
+- `--claim NAME=VALUE` - a claim they carry, over those of the type; may be specified multiple
+  times.
+
+Without `federate`, these options are refused. A token with `federate`, or `*`, and no token type
+gets no JWTs, and grants the scope `federate` on the [token page](#token-page). See
+[Workload identity federation](workload-identity.md). `token issue` prints one such JWT on the CA
+host, without a token.
 
 ### One-time setup codes
 
@@ -88,23 +97,23 @@ simple-ca token create --ca-dir /tmp/ca/servers --otc --otc-network 192.168.1.0/
   --valid 720h --domain example.com builder
 ```
 
-`token list` lists the tokens of the CA: name, token type, expiry (marked `(expired)`, `revoked`,
+`token list` lists the tokens of the CA: name, expiry (marked `(expired)`, `revoked`,
 `setup until TIME` or `setup expired`), scopes, cert types, domains, IP prefixes, clients, the
-number of certificates issued and the OIDC user it was made for. `-` marks what a token without
-`sign` does not have, and a token not made by the [OIDC sign-in](oidc.md).
+token type of its JWTs with the scope `federate`, the number of certificates issued with the
+scope `sign`, and the OIDC user it was made for. `-` marks what a token without `sign` or
+`federate` does not have, and a token not made by the [OIDC sign-in](oidc.md).
 
 `token describe NAME` prints the attributes of the token `NAME` of the CA, one per line: its
 status (valid until, expired, revoked, or waiting for its setup code), when it was issued, its
-scopes, its token type, the issuer and audience of its JWT when it has them, the subject when it
-is not the name, and its claims, for a token of the OIDC sign-in its OIDC user and
-issuer, with `sign` its cert types, domains
-and IP addresses, the clients it is used from, for a setup
+scopes, for a token of the OIDC sign-in its OIDC user and issuer, with `sign` its cert types,
+domains and IP addresses, with `federate` the token type, audience and claims of its JWTs, the
+clients it is used from, for a setup
 code the clients the code is usable from and the validity of the token after the exchange, and
-the serial numbers of the certificates issued with it.
+with `sign` the serial numbers of the certificates issued with it.
 
 `token describe --token-file FILE`, or `--stdin` for a token on the standard input, describes a
-token itself, as its holder has it. Its JWT holds only its name, its scopes, its times, and its
-issuer, audience and subject, which are shown, with a note that the signature is not checked. With `--ca-dir` as well, the signature
+token itself, as its holder has it. Its JWT holds only its name, its scopes and its times, which
+are shown, with a note that the signature is not checked. With `--ca-dir` as well, the signature
 is checked against that CA, and the rest is read from its `tokens-db.json`; a token renewed,
 revoked or removed there is shown as refused.
 
@@ -119,7 +128,6 @@ Name:          deploy
 Status:        valid until 2026-11-03 09:07:28 UTC
 Issued:        2026-11-03 08:07:28 UTC
 Scopes:        sign
-Token type:    api
 Cert types:    server
 Domains:       example.com
 IP addresses:  -
@@ -166,11 +174,11 @@ certificates for clients in 192.168.1.0/24. `admin` is a root CA token that open
 certificate pages for every CA.
 
 ```text
-NAME     TOKEN TYPE  EXPIRES                  SCOPES  CERT TYPES  DOMAINS      IPS         CLIENTS         CERTS  OIDC USER
-builder  api         2026-12-01 13:43:41 UTC  sign    server      *            -           192.168.1.4     0      -
-deploy   api         2026-11-01 21:43:41 UTC  sign    server      example.com  -           any             1      -
-dev      api         2026-11-01 14:43:41 UTC  sign    server      localhost    127.0.0.1   192.168.1.0/24  0      -
-lab      api         2026-12-01 13:43:41 UTC  sign    server      *            10.0.0.0/8  any             0      -
+NAME     EXPIRES                  SCOPES  CERT TYPES  DOMAINS      IPS         CLIENTS         FEDERATES  CERTS  OIDC USER
+builder  2026-12-01 13:43:41 UTC  sign    server      *            -           192.168.1.4     -          0      -
+deploy   2026-11-01 21:43:41 UTC  sign    server      example.com  -           any             -          1      -
+dev      2026-11-01 14:43:41 UTC  sign    server      localhost    127.0.0.1   192.168.1.0/24  -          0      -
+lab      2026-12-01 13:43:41 UTC  sign    server      *            10.0.0.0/8  any             -          0      -
 ```
 
 The commands and `serve` change `tokens-db.json` under a lock: the file `tokens-db.json.lock`
@@ -197,22 +205,23 @@ kept has the scope of one of the pages. A root CA token sees every CA; an issuin
 own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
 root CA. On it you can:
 
-- list the tokens, as `token list` does, and find them with the search and the filters. The search
-  shows the tokens holding every word of it, in any letter case, in their name, OIDC user, token
-  type, audience, subject, status, scopes, cert types, domains, IP addresses, clients or certificate
-  serials. The Token type column shows the audience below the type, and the issuer, subject and
-  claims when the pointer rests on it. The filters are:
+- list the tokens, as `token list` does, each name opening a dialog of the token as JSON, as
+  `GET /tokens/api/tokens` answers with it, and find them with the search and the filters. The search
+  shows the tokens holding every word of it, in any letter case, in their name, OIDC user,
+  status, scopes, cert types, domains, IP addresses, clients, certificate serials, or the token
+  type and audience of their JWTs with `federate`. The Federates column shows that token type,
+  followed by the built-in type it is based on, such as `gcp-wif (google)`, as the choosers of the
+  page show it; it opens a dialog of the token type, the audience and the claims. The filters are:
   - **Status**: active, waiting for a setup code, expired or revoked, one or more, showing the
     tokens of any status chosen;
-  - **Scope**: sign, tokens, certs or audit, one or more, showing the tokens having every scope
-    chosen, by name or by `*`;
-  - **Token type**: one or more token types;
+  - **Scope**: sign, tokens, certs, audit or federate, one or more, showing the tokens having every
+    scope chosen, by name or by `*`;
+  - **Federates**: one or more token types, or none, the tokens without the scope `federate`;
   - **Made by**: the OIDC sign-in or another way.
 
   A count tells how many are shown. The search and the filters are kept in the address, as `?q=`,
-  `?status=`, `?scope=`, `?token_type=` and `?kind=`, several values separated by commas, so a
-  reload or a link
-  keeps them;
+  `?status=`, `?scope=`, `?federates=` and `?kind=`, several values separated by commas, so a
+  reload or a link keeps them;
 - renew a token, as `token renew` does, confirming first, for the validity of "Valid for", the
   one it had by default, with a setup code in place of its JWT when "One-time setup code" is
   checked in the question;
@@ -220,9 +229,13 @@ root CA. On it you can:
   confirming first;
 - create a token with the options of `token create`, in a dialog filled with the `tokens`
   defaults of [simple-ca.json](configuration.md), or a setup code of it with "One-time setup
-  code", its validity, 15 minutes by default, and the networks it is exchanged from. The Token
-  type chooser picks the token type; the Audience field shows the audience of the type, which a
-  value typed replaces, or that the type needs one; Claims takes one `name=value` a line.
+  code", its validity, 15 minutes by default, and the networks it is exchanged from. The name,
+  the validity, the scopes and the clients come first; the Signing group shows with the scope
+  `sign`, and the Federation group with the scope `federate`, both with `*`. In the Federation
+  group, Token type picks the token type of its JWTs, or `none`, for a token that only grants the
+  scope `federate`; once a type is chosen, Audience shows the audience of the type, which a value typed
+  replaces, or that the type needs one, and Claims takes one `name=value` a line. The page never
+  shows a JWT of a token type.
 
 A new or renewed token, or the setup code of a new one, is shown once, in a dialog with a Copy
 button, and is gone from the page when the dialog closes. A token waiting for its setup code is
@@ -271,9 +284,9 @@ API takes no defaults, unlike `token create` and `token renew`: a create gives `
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `token_types`, each with `name`, `audience`, `needs_audience`, true when a token of the type needs an audience given, and `max_valid`, empty without a limit; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json`, with `token_type`, `api` without it, only the scopes of them the token can give, or `sign` without any, and `otc_valid`, always 15 minutes |
-| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `token_type`, `issuer`, `audience` and `subject`, empty when the JWT has none or its subject is the name, `claims`, null without them, `issued`, `expires`, the expiry of its setup code when it is `pending`, `valid`, the validity `token renew` keeps, empty for a revoked token, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, `certs`, the serials of the certificates issued with it, and `oidc`, the `issuer`, `subject` and `user` of the OIDC user it was made for, or null |
-| `POST /tokens/api/tokens` | `ca`, `name`, `token_type`, `api` when empty, `audience`, `claims`, an object of strings, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
+| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `token_types`, the token types of the scope `federate`, each with `name`, `base`, the built-in type it is or is based on, empty for none, `audience`, `needs_audience`, true when a token of the type needs an audience given, `valid`, the validity of its JWTs, and `max_valid`, empty without a limit; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json`, with only the scopes of them the token can give, or `sign` without any, and `otc_valid`, always 15 minutes |
+| `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `issued`, `expires`, the expiry of its setup code when it is `pending`, `valid`, the validity `token renew` keeps, empty for a revoked token, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, `certs`, the serials of the certificates issued with it, `oidc`, the `issuer`, `subject` and `user` of the OIDC user it was made for, or null, and `federate`, the `type`, `audience`, empty for that of the type, and `claims` of its JWTs, or null |
+| `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for the scope `federate`, `federate`, an object of `type`, `audience` and `claims`, an object of strings; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/renew` | `ca`, `name`, `valid`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `name` and `token`, the new JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/revoke` | `ca`, `name` | `name` |
 | `POST /tokens/api/tokens/purge` | `ca`, and `name` for one token | `removed`, the count |
@@ -422,6 +435,38 @@ jq -n --rawfile csr web.csr '{csr: $csr, type: "server", name: "web", days: 90}'
 [examples.md](examples.md) describes the API clients in `examples/` and `cmd/request-cert/`, in
 Python, Node.js, Go and the shell. They make a key and a request, and write the key, the
 certificate and its chain.
+
+## Federation tokens
+
+`serve` hands a token with the scope `federate` a new JWT of its token type at
+`/api/federation-token` for the root CA, and `/NAME/api/federation-token` for the issuing CA
+`NAME`, for [workload identity federation](workload-identity.md). A request is a `POST` with the
+token as its bearer token and an empty body, or `{}`: the token alone decides what the JWT holds,
+its token type, audience and claims, fixed by `token create --federate-type`, `--audience` and
+`--claim`.
+
+The answer is `{"token": "eyJ...", "token_type": "google", "audience": "...", "subject":
+"deploy", "expires": "2026-11-08T21:53:50Z"}`. The JWT is valid for the `valid` of its type, one
+hour by default, and never after the token expires. It is not stored: revoking the token stops
+new JWTs, and those issued stay valid until they expire. simple-ca refuses such a JWT as a token.
+Each JWT issued is recorded as `token.issue` in the [audit log](audit.md).
+
+An error is `{"error": "..."}` with the status:
+
+- `400 Bad Request` - a body other than empty or `{}`, a token type no longer in
+  `simple-ca.json`, or a CA without an issuer;
+- `401 Unauthorized` - no token, or an invalid, revoked, expired or unknown one, or one of another
+  CA;
+- `403 Forbidden` - a token without the scope `federate`, a token without a token type, or a
+  client the token does not allow;
+- `404 Not Found` - a CA without its key or `tokens-db.json`;
+- `429 Too Many Requests` - the client is held back after refused tokens.
+
+```sh
+CA_URL=https://pki.example.com:8443/servers
+TOKEN=$(cat deploy.token)
+curl -sS -X POST -H "Authorization: Bearer $TOKEN" "$CA_URL/api/federation-token" | jq -r .token
+```
 
 ## Refused credentials
 

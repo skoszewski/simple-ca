@@ -19,10 +19,10 @@ func TestTokenWebUI(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	caDir := t.TempDir()
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	key, err := makeToken(caDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)

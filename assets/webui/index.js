@@ -11,6 +11,38 @@ if (location.hash) {
   document.getElementById(decodeURIComponent(location.hash.slice(1)))?.querySelector("button[data-info]")?.click();
 }
 
+// The copy button after a link, its URL in data-copy, copies the URL, as copying does, and shows a
+// check mark for two seconds.
+const copyIcons = {
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  copied: '<path d="M5 12l5 5 9-10"/>',
+};
+const copyIcon = (button, name) => {
+  button.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + copyIcons[name] + "</svg>";
+};
+for (const button of document.querySelectorAll("button[data-copy]")) {
+  copyIcon(button, "copy");
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(button.dataset.copy);
+    } catch {
+      // Without a secure context, as over plain HTTP, the text is copied from a field selected.
+      const field = element("textarea", { value: button.dataset.copy, className: "fixed -left-full" });
+      document.body.append(field);
+      field.select();
+      document.execCommand("copy");
+      field.remove();
+    }
+    copyIcon(button, "copied");
+    button.title = button.ariaLabel = "Copied";
+    setTimeout(() => {
+      copyIcon(button, "copy");
+      button.title = button.ariaLabel = "Copy the link";
+    }, 2000);
+  });
+}
+
 // With the webui pages, the token kept in the tab by them is named by the first page accepting
 // it, and Sign out forgets it; a token refused as invalid is forgotten.
 const userRow = document.getElementById("user-row");

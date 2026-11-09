@@ -30,13 +30,13 @@ func TestServe(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	if err := makeCA(caDir, "Test CA", 3650, "", server.URL); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", server.URL, "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", ""); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if _, err := makeCert("web.example.com", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil); err != nil {
+	if _, err := makeCert("web.example.com", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 
@@ -73,7 +73,7 @@ func TestServe(t *testing.T) {
 	if status, _, _ := get("GET", cdp); status != http.StatusOK {
 		t.Fatalf("GET %s, the first CRL of ca create: %d, want 200", cdp, status)
 	}
-	if err := makeCA(caDir, "Short CA", 10, "short-ca", ""); err != nil {
+	if err := makeCA(caDir, "Short CA", 10, "short-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA short: %v", err)
 	}
 	status, typ, page := get("GET", "/")
@@ -269,11 +269,11 @@ func TestHelpPage(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	caDir := t.TempDir()
-	if err := makeCA(caDir, "Test CA", 3650, "", ""); err != nil {
+	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	for _, name := range []string{"help", "docs", "tokens", "certificates"} {
-		if err := makeCA(caDir, "Pages CA", 3650, name, ""); err == nil || !strings.Contains(err.Error(), "taken") {
+		if err := makeCA(caDir, "Pages CA", 3650, name, "", "rsa"); err == nil || !strings.Contains(err.Error(), "taken") {
 			t.Fatalf("makeCA --issuing-ca %s: %v, want it refused", name, err)
 		}
 	}
