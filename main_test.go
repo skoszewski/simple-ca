@@ -86,7 +86,7 @@ func TestKebabCaseNames(t *testing.T) {
 			t.Fatalf("makeToken %q: %v, want a kebab-case error", name, err)
 		}
 	}
-	if err := makeCA(caDir, "Lab Servers CA", 3650, "lab-servers2", "", "rsa"); err != nil {
+	if err := makeCA(caDir, "Lab Servers CA", 0, "lab-servers2", "", "rsa"); err != nil {
 		t.Fatalf("makeCA --issuing-ca lab-servers2: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "lab-servers2")

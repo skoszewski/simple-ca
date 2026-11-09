@@ -30,7 +30,7 @@ func TestACME(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Servers CA", 3650, "servers", "", "rsa"); err != nil {
+	if err := makeCA(caDir, "Servers CA", 0, "servers", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	if _, err := makeCert("localhost", nil, caDir, tlsDir, "server", 30, nil, nil, ""); err != nil {

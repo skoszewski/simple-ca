@@ -45,6 +45,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // buildVersion is the version a release build is given at link time with
@@ -53,6 +54,11 @@ var buildVersion string
 
 // errUsage reports wrong arguments, after the usage has been printed.
 var errUsage = errors.New("usage")
+
+// client sends the requests of request-cert, and maxAnswer is the most it reads of an answer.
+var client = &http.Client{Timeout: 30 * time.Second}
+
+const maxAnswer = 1 << 20
 
 func run() error {
 	flag.Usage = func() {
@@ -114,17 +120,25 @@ func run() error {
 	case token != "" && *tokenFile != "":
 		return errors.New("give the token in SIMPLE_CA_TOKEN or in --token-file, not both")
 	case code != "":
-		// The token of the setup code is written to --token-file, which must not exist yet, so a
-		// used code leaves no token behind by mistake.
-		if _, err := os.Stat(*tokenFile); *tokenFile != "" && err == nil {
-			return fmt.Errorf("--token-file: %s exists; the token of --setup-code is written to a new file", *tokenFile)
-		}
+		// The token of the setup code is written to --token-file, a new file made before the code is
+		// used, so a used code leaves no token behind by mistake.
+		var file *os.File
 		var err error
+		if *tokenFile != "" {
+			if file, err = os.OpenFile(*tokenFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
+				return fmt.Errorf("--token-file: %w; the token of --setup-code is written to a new file", err)
+			}
+		}
 		if token, err = exchange(flag.Arg(0), code); err != nil {
+			if file != nil {
+				file.Close()
+				os.Remove(*tokenFile)
+			}
 			return err
 		}
-		if *tokenFile != "" {
-			if err := os.WriteFile(*tokenFile, []byte(token+"\n"), 0o600); err != nil {
+		if file != nil {
+			_, err = file.WriteString(token + "\n")
+			if err := cmp.Or(err, file.Close()); err != nil {
 				return fmt.Errorf("--token-file: %w", err)
 			}
 			fmt.Printf("Token written to %s\n", *tokenFile)
@@ -149,9 +163,18 @@ func run() error {
 	fileName := cmp.Or(*name, prefix)
 	prefix = filepath.Join(*outDir, prefix)
 	keyPath, certPath, chainPath := prefix+"_key.pem", prefix+"_cert.pem", prefix+"_chain.pem"
-	if _, err := os.Stat(keyPath); err == nil {
-		return fmt.Errorf("%s exists", keyPath)
+	// The key file is made before the request, new and readable by its owner alone.
+	keyFile, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
 	}
+	written := false
+	defer func() {
+		keyFile.Close()
+		if !written {
+			os.Remove(keyPath)
+		}
+	}()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -180,12 +203,12 @@ func run() error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	answer, err := io.ReadAll(resp.Body)
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer))
 	if err != nil {
 		return err
 	}
@@ -212,9 +235,10 @@ func run() error {
 	if err := os.WriteFile(chainPath, []byte(result.Chain), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+	if err := pem.Encode(keyFile, &pem.Block{Type: "PRIVATE KEY", Bytes: der}); err != nil {
 		return err
 	}
+	written = true
 	fmt.Printf("Certificate %s written to %s, its chain to %s and its key to %s\n", result.Serial, certPath, chainPath, keyPath)
 	return nil
 }
@@ -231,12 +255,12 @@ func exchange(caURL, code string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.Post(setupURL, "application/json", bytes.NewReader(body))
+	resp, err := client.Post(setupURL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-	answer, err := io.ReadAll(resp.Body)
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer))
 	if err != nil {
 		return "", err
 	}

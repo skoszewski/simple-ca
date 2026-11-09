@@ -38,6 +38,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 )
 
 // ---- signing requests -------------------------------------------------------
@@ -164,6 +165,9 @@ func parseCSR(data []byte) (*x509.CertificateRequest, error) {
 	if err := csr.CheckSignature(); err != nil {
 		return nil, fmt.Errorf("invalid signature: %w", err)
 	}
+	if err := checkSubject(csr.Subject); err != nil {
+		return nil, err
+	}
 	return csr, nil
 }
 
@@ -180,6 +184,28 @@ func csrSAN(csr *x509.CertificateRequest) *pkix.Extension {
 }
 
 // ---- issueLeaf --------------------------------------------------------------
+
+// maxValidityDays is the most days a validity is computed for.
+const maxValidityDays = 1000000
+
+// checkValidity returns an error when a certificate valid for days from now ends after caCert.
+func checkValidity(caCert *x509.Certificate, now time.Time, days int) error {
+	if days <= maxValidityDays && !now.AddDate(0, 0, days).After(caCert.NotAfter) {
+		return nil
+	}
+	return fmt.Errorf("the validity of %d days ends after the CA certificate, which allows at most %d days",
+		days, max(int(caCert.NotAfter.Sub(now).Hours()/24), 0))
+}
+
+// checkSubject returns an error when an attribute value of name holds a control character.
+func checkSubject(name pkix.Name) error {
+	for _, attr := range name.Names {
+		if strings.ContainsFunc(fmt.Sprint(attr.Value), unicode.IsControl) {
+			return errors.New("the subject holds a control character")
+		}
+	}
+	return nil
+}
 
 // leafKeyUsage returns the key usages ku of a certificate for the public key pub, without
 // keyEncipherment for an ECDSA key, which cannot encipher keys (RFC 5480).
@@ -236,6 +262,9 @@ func issueLeaf(caDir, certType string, days int, ekus, kus []string, tmpl *x509.
 		return nil, err
 	}
 	now := time.Now().UTC()
+	if err := checkValidity(caCert, now, days); err != nil {
+		return nil, err
+	}
 	tmpl.SerialNumber = serial
 	tmpl.NotBefore = now
 	tmpl.NotAfter = now.AddDate(0, 0, days)

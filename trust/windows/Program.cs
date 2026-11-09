@@ -33,7 +33,7 @@ using System.Text;
 
 const string Usage = """
     Usage:
-      simple-ca-trust add [--user | --machine] [--ca-dir DIR | --file FILE]
+      simple-ca-trust add [--user | --machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
       simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE]
       simple-ca-trust list [--user | --machine]
       simple-ca-trust --version
@@ -43,7 +43,9 @@ const string Usage = """
     Certification Authorities store, removes them, or lists the CAs it added. --ca-dir is the
     directory of the root CA or of one of its issuing CAs, or a directory holding a copy of
     ca_bundle.pem; it defaults to SIMPLE_CA_DIR, else the working directory. --file names the
-    root CA certificate or a CA bundle, PEM or DER, instead. --user, the default,
+    root CA certificate or a CA bundle, PEM or DER, instead. add prints the SHA-256 fingerprint
+    of the root CA, and with --fingerprint adds nothing unless the root CA has that fingerprint,
+    as ca show and the index page of serve write it. --user, the default,
     is the stores of the current user; --machine is the stores of the computer, and needs an
     elevated prompt.
 
@@ -94,6 +96,7 @@ static int Run(string[] arguments)
     var machine = false;
     var caDir = "";
     var file = "";
+    var wanted = "";
     var rest = arguments.Skip(1).ToList();
     while (rest.Count > 0 && rest[0].StartsWith('-'))
     {
@@ -107,7 +110,7 @@ static int Run(string[] arguments)
             case "--user" or "-user":
                 machine = false;
                 break;
-            case "--ca-dir" or "-ca-dir" or "--file" or "-file":
+            case "--ca-dir" or "-ca-dir" or "--file" or "-file" or "--fingerprint" or "-fingerprint":
                 if (rest.Count == 0)
                 {
                     throw new Failure($"simple-ca-trust {command}: {option} needs a value", usage: true);
@@ -116,11 +119,18 @@ static int Run(string[] arguments)
                 {
                     caDir = rest[0];
                 }
+                else if (option.EndsWith("fingerprint", StringComparison.Ordinal))
+                {
+                    wanted = rest[0];
+                }
                 else
                 {
                     file = rest[0];
                 }
                 rest.RemoveAt(0);
+                break;
+            case var value when value.StartsWith("--fingerprint=", StringComparison.Ordinal) || value.StartsWith("-fingerprint=", StringComparison.Ordinal):
+                wanted = value[(value.IndexOf('=') + 1)..];
                 break;
             case var value when value.StartsWith("--ca-dir=", StringComparison.Ordinal) || value.StartsWith("-ca-dir=", StringComparison.Ordinal):
                 caDir = value[(value.IndexOf('=') + 1)..];
@@ -142,6 +152,10 @@ static int Run(string[] arguments)
     if (caDir != "" && file != "")
     {
         throw new Failure($"simple-ca-trust {command}: --ca-dir and --file cannot be given together", usage: true);
+    }
+    if (wanted != "" && command != "add")
+    {
+        throw new Failure($"simple-ca-trust {command}: --fingerprint is an option of add", usage: true);
     }
     var location = machine ? StoreLocation.LocalMachine : StoreLocation.CurrentUser;
 
@@ -186,6 +200,15 @@ static int Run(string[] arguments)
         file = Path.Combine(dir, "ca_bundle.pem");
     }
     var (root, issuing) = LoadCAs(file);
+    if (command == "add")
+    {
+        Console.WriteLine($"root CA {root.Subject}, SHA-256 fingerprint {Fingerprint(root)}");
+        static string Plain(string value) => value.Replace(":", "").Replace(" ", "").ToUpperInvariant();
+        if (wanted != "" && Plain(wanted) != Plain(Fingerprint(root)))
+        {
+            throw new Failure($"the root CA in {file} does not have the fingerprint of --fingerprint; nothing was added");
+        }
+    }
     if (machine && !Environment.IsPrivilegedProcess)
     {
         throw new Failure("changing the certificate stores of the computer needs an elevated prompt; run it as Administrator");

@@ -142,9 +142,9 @@ status, and `jq -r .error web.json` prints from the answer saved above:
 
 | Status | Meaning |
 |---|---|
-| `400 Bad Request` | the body is not JSON with `csr`, `type`, `name` and `days`, or the CSR does not read |
+| `400 Bad Request` | the body is not JSON with `csr`, `type`, `name` and `days`, the CSR does not read, or `days` end after the CA certificate, whose error names the most days allowed |
 | `401 Unauthorized` | the token is missing, expired, revoked, or of another CA, which the error names |
-| `403 Forbidden` | the token does not allow a name, an address or the type, whose error names the types it allows, or your address |
+| `403 Forbidden` | the token does not allow a name, an address or the type, whose error names the types it allows, or your address; or the subject has more than one CN |
 | `404 Not Found` | the CA does not sign requests here |
 | `415 Unsupported Media Type` | the `Content-Type` header is not `application/json` |
 | `429 Too Many Requests` | too many refused tokens or codes from your address; retry after the seconds of `Retry-After` |

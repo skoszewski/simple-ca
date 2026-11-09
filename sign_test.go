@@ -17,7 +17,7 @@ func TestSign(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")

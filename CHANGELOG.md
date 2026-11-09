@@ -1,5 +1,52 @@
 # Changelog
 
+## 1.14.0
+
+feat: the findings of a security review are fixed, with limits of the ACME server in simple-ca.json and simple-ca-trust add --fingerprint.
+
+- The routes of an issuing CA, `/NAME/...`, take only a kebab-case `NAME`; a name with an escaped
+  `/` or `..`, which reached a CA directory outside the root CA, is `404 Not Found`.
+- A request whose subject holds a control character is refused by the signing API, the signing
+  form, the certificate page and `cert sign`, and so is such a CN by `cert create`; a CN with a
+  line end and tabs added forged lines to `index.txt`.
+- The signing API and form refuse a subject with more than one CN, and a CN that is not a string.
+- `/api/sign` refuses an `eku` or `ku` the certificate type does not have: a token adds no
+  usages to its types.
+- No certificate is issued valid past its CA: `cert create`, `cert sign`, the signing API, the
+  certificate page, ACME and `ca create --issuing-ca` refuse it, naming the most days allowed. An
+  issuing CA made without `--days` and `days.ca` is valid as long as its root CA.
+- `index.txt` is changed under the lock file `index.txt.lock` and replaced at once, so `serve`,
+  the certificate page and the commands do not lose each other's entries.
+- `serve` has read, write and idle timeouts, and answers with `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY` and `Referrer-Policy: same-origin`; the token and certificate pages no
+  longer answer an internal error with file paths.
+- ACME: the new settings `acme.max_accounts` (1000), `max_orders` (50), `max_names` (100),
+  `max_contacts` (10) and `max_nonces` (100000) limit what clients make the server keep; an
+  account stores only its key, an RSA key of at most 8192 bits, and its contacts are checked when
+  they change too.
+- ACME: the http-01 check follows a redirect only to the same name on port 80 or 443, and a
+  failed fetch or lookup no longer tells the client why; finalize refuses a request signed with
+  the account key, and a certificate file that has a key beside it is not replaced.
+- Refused credentials: an attempt is counted before it is checked, so requests sent together get
+  no more guesses; a request without a credential counts as a refusal; a token `/token-describe`
+  shows as expired, revoked, renewed or removed no longer forgets the refusals. The token,
+  certificate and audit pages ask for the token before they call their API.
+- OIDC: a discovery document whose endpoints are not `http` or `https` URLs is refused, and an
+  unreachable provider no longer holds back the other requests of the sign-in.
+- Private keys are written through a new file readable by the owner alone, so the wider mode of
+  a file they replace is not kept; an encrypted key with more than 10000000 PBKDF2 iterations is
+  refused.
+- `simple-ca-trust add` prints the SHA-256 fingerprint of the root CA, and with the new option
+  `--fingerprint` adds nothing unless the root CA has it, on Linux, Windows and macOS; the Linux
+  version runs the command that rebuilds the trust store from the system directories, not from
+  `PATH`.
+- `request-cert`, `request-jwt`, `token-setup` and `examples/request-cert.mjs` make the key and
+  token files they write as new files, wait at most 30 seconds for an answer, and the Go tools
+  read at most 1 MiB of it.
+- `build.mjs` checks the serve-markdown assets archive against the SHA-256 of
+  `assets/markdown.sha256`.
+- `go.mod` requires Go 1.27.3.
+
 ## 1.13.1
 
 fix: cert list, cert show, ca show and the certificate page show whether the private key of a certificate or CA is encrypted.

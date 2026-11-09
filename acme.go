@@ -140,6 +140,7 @@ type acmeServer struct {
 	states  map[string]*acmeState
 	nonceMu sync.Mutex
 	nonces  map[string]time.Time
+	issued  []string
 }
 
 func newACMEServer() *acmeServer {
@@ -209,18 +210,19 @@ func (s *acmeServer) save(caDir string) error {
 	return os.Rename(tmp, filepath.Join(caDir, acmeStateFile))
 }
 
-// newNonce returns a new nonce, dropping the nonces that expired.
-func (s *acmeServer) newNonce() string {
+// newNonce returns a new nonce, dropping the oldest nonces that expired, were used, or are beyond
+// limit.
+func (s *acmeServer) newNonce(limit int) string {
 	s.nonceMu.Lock()
 	defer s.nonceMu.Unlock()
 	now := time.Now()
-	for n, t := range s.nonces {
-		if now.Sub(t) > acmeNonceLifetime {
-			delete(s.nonces, n)
-		}
+	for len(s.issued) > 0 && (len(s.issued) >= limit || now.Sub(s.nonces[s.issued[0]]) > acmeNonceLifetime) {
+		delete(s.nonces, s.issued[0])
+		s.issued = s.issued[1:]
 	}
 	n := randomID()
 	s.nonces[n] = now
+	s.issued = append(s.issued, n)
 	return n
 }
 
@@ -233,8 +235,8 @@ func (s *acmeServer) useNonce(nonce string) bool {
 	return ok && time.Since(t) <= acmeNonceLifetime
 }
 
-// parseJWK returns the public key of a JSON Web Key, RSA, EC P-256, P-384 or P-521, or Ed25519,
-// and its thumbprint of RFC 7638.
+// parseJWK returns the public key of a JSON Web Key, RSA of at most 8192 bits, EC P-256, P-384 or
+// P-521, or Ed25519, and its thumbprint of RFC 7638.
 func parseJWK(raw json.RawMessage) (crypto.PublicKey, string, error) {
 	var k struct{ Kty, Crv, X, Y, N, E string }
 	if err := json.Unmarshal(raw, &k); err != nil {
@@ -252,7 +254,7 @@ func parseJWK(raw json.RawMessage) (crypto.PublicKey, string, error) {
 	switch k.Kty {
 	case "RSA":
 		n, e := decode(k.N), decode(k.E)
-		if len(n) == 0 || len(e) == 0 || len(e) > 4 {
+		if len(n) == 0 || len(n) > 1024 || len(e) == 0 || len(e) > 4 {
 			return nil, "", errors.New("invalid RSA key")
 		}
 		pub = &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: int(new(big.Int).SetBytes(e).Int64())}
@@ -338,11 +340,13 @@ type acmeRequest struct {
 }
 
 // acmeCA is the ACME server of one CA for one request: the CA directory, the scheme and host of
-// the request, the URL the CA's ACME paths start with, the allowed domains, and the client.
+// the request, the URL the CA's ACME paths start with, the allowed domains, the limits, and the
+// client.
 type acmeCA struct {
 	*acmeServer
 	dir, origin, base string
 	domains           []string
+	limits            acmeConfig
 	client            netip.Addr
 }
 
@@ -363,7 +367,7 @@ func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caD
 	}
 	origin := scheme + "://" + r.Host
 	ca := &acmeCA{acmeServer: s, dir: caDir, origin: origin, base: origin + prefix, domains: cfg.ACME.Domains,
-		client: clientAddr(r)}
+		limits: cfg.ACME.limits(), client: clientAddr(r)}
 	w.Header().Set("Link", fmt.Sprintf("<%s/directory>;rel=\"index\"", ca.base))
 
 	switch {
@@ -377,7 +381,7 @@ func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caD
 		})
 		return
 	case path == "new-nonce" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
-		w.Header().Set("Replay-Nonce", s.newNonce())
+		w.Header().Set("Replay-Nonce", s.newNonce(ca.limits.MaxNonces))
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusNoContent)
@@ -398,7 +402,7 @@ func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caD
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			p = problem(http.StatusInternalServerError, "serverInternal", "internal error")
 		}
-		w.Header().Set("Replay-Nonce", s.newNonce())
+		w.Header().Set("Replay-Nonce", s.newNonce(ca.limits.MaxNonces))
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.WriteHeader(p.Status)
 		json.NewEncoder(w).Encode(p)
@@ -407,7 +411,7 @@ func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caD
 
 // json writes v as the JSON response with status and a new nonce.
 func (ca *acmeCA) json(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Replay-Nonce", ca.newNonce())
+	w.Header().Set("Replay-Nonce", ca.newNonce(ca.limits.MaxNonces))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
@@ -453,15 +457,15 @@ func (ca *acmeCA) verify(r *http.Request, jwkAllowed bool) (*acmeRequest, error)
 		id, ok := strings.CutPrefix(header.Kid, ca.base+"/acct/")
 		issueMu.Lock()
 		st, err := ca.state(ca.dir)
-		var acct *acmeAccount
-		if err == nil {
-			acct = st.Accounts[id]
+		var acct acmeAccount
+		if err == nil && st.Accounts[id] != nil {
+			acct = *st.Accounts[id]
 		}
 		issueMu.Unlock()
 		if err != nil {
 			return nil, err
 		}
-		if !ok || acct == nil {
+		if !ok || acct.Status == "" {
 			return nil, problem(http.StatusBadRequest, "accountDoesNotExist", "no account %s", header.Kid)
 		}
 		if acct.Status != "valid" {
@@ -524,6 +528,19 @@ func (ca *acmeCA) accountObject(id string, a *acmeAccount) map[string]any {
 	return map[string]any{"status": a.Status, "contact": a.Contact, "orders": ca.base + "/acct/" + id + "/orders"}
 }
 
+// checkContacts returns the problem of contacts that are too many, too long or no mailto: URLs.
+func (ca *acmeCA) checkContacts(contacts []string) error {
+	if len(contacts) > ca.limits.MaxContacts {
+		return problem(http.StatusBadRequest, "invalidContact", "an account has at most %d contacts", ca.limits.MaxContacts)
+	}
+	for _, c := range contacts {
+		if !strings.HasPrefix(c, "mailto:") || len(c) > 254 {
+			return problem(http.StatusBadRequest, "unsupportedContact", "contact %q is not a mailto: URL of at most 254 characters", c)
+		}
+	}
+	return nil
+}
+
 // newAccount registers the key of req as an account, or returns the account of the key.
 func (ca *acmeCA) newAccount(w http.ResponseWriter, req *acmeRequest) error {
 	var p struct {
@@ -533,10 +550,21 @@ func (ca *acmeCA) newAccount(w http.ResponseWriter, req *acmeRequest) error {
 	if err := json.Unmarshal(req.payload, &p); err != nil {
 		return problem(http.StatusBadRequest, "malformed", "the payload is not an account object")
 	}
-	for _, c := range p.Contact {
-		if !strings.HasPrefix(c, "mailto:") {
-			return problem(http.StatusBadRequest, "unsupportedContact", "contact %q is not a mailto: URL", c)
-		}
+	if err := ca.checkContacts(p.Contact); err != nil {
+		return err
+	}
+	var jwk struct {
+		Kty string `json:"kty"`
+		Crv string `json:"crv,omitempty"`
+		X   string `json:"x,omitempty"`
+		Y   string `json:"y,omitempty"`
+		N   string `json:"n,omitempty"`
+		E   string `json:"e,omitempty"`
+	}
+	json.Unmarshal(req.jwk, &jwk)
+	key, err := json.Marshal(jwk)
+	if err != nil {
+		return err
 	}
 	issueMu.Lock()
 	defer issueMu.Unlock()
@@ -554,8 +582,12 @@ func (ca *acmeCA) newAccount(w http.ResponseWriter, req *acmeRequest) error {
 	if p.OnlyReturnExisting {
 		return problem(http.StatusBadRequest, "accountDoesNotExist", "no account of this key")
 	}
+	if len(st.Accounts) >= ca.limits.MaxAccounts {
+		return problem(http.StatusServiceUnavailable, "rateLimited", "this CA has its %d accounts, acme.max_accounts",
+			ca.limits.MaxAccounts)
+	}
 	id := randomID()
-	a := &acmeAccount{Key: req.jwk, Thumbprint: req.thumbprint, Contact: p.Contact, Status: "valid"}
+	a := &acmeAccount{Key: key, Thumbprint: req.thumbprint, Contact: p.Contact, Status: "valid"}
 	st.Accounts[id] = a
 	if err := ca.save(ca.dir); err != nil {
 		return err
@@ -577,6 +609,11 @@ func (ca *acmeCA) account(w http.ResponseWriter, req *acmeRequest, id string) er
 	if len(req.payload) > 0 {
 		if err := json.Unmarshal(req.payload, &p); err != nil {
 			return problem(http.StatusBadRequest, "malformed", "the payload is not an account object")
+		}
+	}
+	if p.Contact != nil {
+		if err := ca.checkContacts(*p.Contact); err != nil {
+			return err
 		}
 	}
 	issueMu.Lock()
@@ -651,6 +688,9 @@ func (ca *acmeCA) newOrder(w http.ResponseWriter, req *acmeRequest) error {
 	if p.NotBefore != "" || p.NotAfter != "" {
 		return problem(http.StatusBadRequest, "malformed", "notBefore and notAfter are not supported")
 	}
+	if len(p.Identifiers) > ca.limits.MaxNames {
+		return problem(http.StatusBadRequest, "malformed", "an order has at most %d identifiers", ca.limits.MaxNames)
+	}
 	var names []string
 	for _, id := range p.Identifiers {
 		name := strings.ToLower(id.Value)
@@ -673,6 +713,16 @@ func (ca *acmeCA) newOrder(w http.ResponseWriter, req *acmeRequest) error {
 	st, err := ca.state(ca.dir)
 	if err != nil {
 		return err
+	}
+	open := 0
+	for _, o := range st.Orders {
+		if o.Account == req.account && o.Status != "valid" && o.Status != "invalid" {
+			open++
+		}
+	}
+	if open >= ca.limits.MaxOrders {
+		return problem(http.StatusTooManyRequests, "rateLimited", "the account has its %d open orders, acme.max_orders",
+			ca.limits.MaxOrders)
 	}
 	expires := time.Now().UTC().Add(acmeOrderLifetime).Truncate(time.Second)
 	o := &acmeOrder{Account: req.account, Status: "pending", Expires: expires, Names: names}
@@ -883,10 +933,18 @@ func (ca *acmeCA) validate(aid, typ, name, keyAuth string) {
 			host = net.JoinHostPort(name, strconv.Itoa(acmeHTTPPort))
 		}
 		token, _, _ := strings.Cut(keyAuth, ".")
-		client := &http.Client{Timeout: 10 * time.Second}
+		// A redirect is followed to the same name alone, on the ports of HTTP and HTTPS.
+		client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(r *http.Request, via []*http.Request) error {
+			ports := []string{"", "80", "443", strconv.Itoa(acmeHTTPPort)}
+			if len(via) >= 10 || !strings.EqualFold(r.URL.Hostname(), name) || !slices.Contains(ports, r.URL.Port()) {
+				return errors.New("redirect to another host or port")
+			}
+			return nil
+		}}
 		resp, err := client.Get("http://" + host + "/.well-known/acme-challenge/" + token)
 		if err != nil {
-			failure = problem(http.StatusBadRequest, "connection", "could not fetch the http-01 challenge of %s: %v", name, err)
+			slog.Info("acme.challenge", "dir", ca.dir, "type", typ, "name", name, "error", err.Error())
+			failure = problem(http.StatusBadRequest, "connection", "could not fetch the http-01 challenge of %s", name)
 			break
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
@@ -902,7 +960,8 @@ func (ca *acmeCA) validate(aid, typ, name, keyAuth string) {
 		cancel()
 		switch {
 		case err != nil:
-			failure = problem(http.StatusBadRequest, "dns", "could not look up the TXT record of _acme-challenge.%s: %v", name, err)
+			slog.Info("acme.challenge", "dir", ca.dir, "type", typ, "name", name, "error", err.Error())
+			failure = problem(http.StatusBadRequest, "dns", "could not look up the TXT record of _acme-challenge.%s", name)
 		case !slices.Contains(records, want):
 			failure = problem(http.StatusForbidden, "incorrectResponse", "no TXT record of _acme-challenge.%s holds the key authorization digest", name)
 		}
@@ -954,6 +1013,9 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 	if err != nil || csr.CheckSignature() != nil {
 		return problem(http.StatusBadRequest, "badCSR", "the csr does not parse or its signature is invalid")
 	}
+	if key, ok := req.key.(interface{ Equal(crypto.PublicKey) bool }); ok && key.Equal(csr.PublicKey) {
+		return problem(http.StatusBadRequest, "badCSR", "the key of the csr is the account key")
+	}
 
 	issueMu.Lock()
 	defer issueMu.Unlock()
@@ -991,10 +1053,20 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 		days = cfg.ACME.Days
 	}
 	// The certificate is stored as the commands store it, named after the first name of the order
-	// by the server rules, and replaces an earlier certificate of the name.
+	// by the server rules, and replaces an earlier certificate of the name that has no key beside it.
 	file, err := certFile(certFileName(strings.TrimPrefix(o.Names[0], "*."), "", false))
 	if err != nil {
 		return problem(http.StatusBadRequest, "rejectedIdentifier", "%v", err)
+	}
+	if fileExists(filepath.Join(ca.dir, strings.TrimSuffix(file, "_cert.pem")+"_key.pem")) {
+		return problem(http.StatusConflict, "rejectedIdentifier", "the CA holds a certificate %s with its key, which is not replaced", file)
+	}
+	caCert, err := loadCert(filepath.Join(ca.dir, "ca_cert.pem"))
+	if err != nil {
+		return err
+	}
+	if err := checkValidity(caCert, time.Now(), days); err != nil {
+		return problem(http.StatusInternalServerError, "serverInternal", "acme.days: %v", err)
 	}
 	tmpl := &x509.Certificate{DNSNames: o.Names}
 	if len(o.Names[0]) <= 64 {
@@ -1008,10 +1080,6 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 		return err
 	}
 	chain := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
-	caCert, err := loadCert(filepath.Join(ca.dir, "ca_cert.pem"))
-	if err != nil {
-		return err
-	}
 	if !bytes.Equal(caCert.RawSubject, caCert.RawIssuer) {
 		chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw})...)
 	}
@@ -1041,7 +1109,7 @@ func (ca *acmeCA) certificate(w http.ResponseWriter, req *acmeRequest, oid strin
 	if o.Status != "valid" {
 		return problem(http.StatusNotFound, "malformed", "the order has no certificate")
 	}
-	w.Header().Set("Replay-Nonce", ca.newNonce())
+	w.Header().Set("Replay-Nonce", ca.newNonce(ca.limits.MaxNonces))
 	w.Header().Set("Content-Type", "application/pem-certificate-chain")
 	io.WriteString(w, o.Chain)
 	return nil
@@ -1105,7 +1173,7 @@ func (ca *acmeCA) revoke(w http.ResponseWriter, req *acmeRequest) error {
 	}
 	audit(ca.dir, "cert.revoke", "serial", serial, "reason", reason, "via", "acme", "actor", req.account,
 		"client", ca.client.String())
-	w.Header().Set("Replay-Nonce", ca.newNonce())
+	w.Header().Set("Replay-Nonce", ca.newNonce(ca.limits.MaxNonces))
 	w.WriteHeader(http.StatusOK)
 	return nil
 }

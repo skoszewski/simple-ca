@@ -55,7 +55,8 @@ if (code) {
   let text = "";
   try {
     response = await fetch(setupURL, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+      signal: AbortSignal.timeout(30000) });
     text = await response.text();
   } catch (e) {
     console.error(`${setupURL}: ${e.cause?.message ?? e.message}`);
@@ -71,7 +72,7 @@ if (code) {
   }
   token = answer.token;
   if (tokenFile) {
-    writeFileSync(tokenFile, token + "\n", { mode: 0o600 });
+    writeFileSync(tokenFile, token + "\n", { mode: 0o600, flag: "wx" });
     console.log(`Token written to ${tokenFile}`);
   }
 } else if (tokenFile) {
@@ -124,6 +125,7 @@ try {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
     });
     text = await response.text();
   } catch (e) {

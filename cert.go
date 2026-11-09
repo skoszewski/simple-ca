@@ -37,6 +37,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // ---- makeCert ---------------------------------------------------------------
@@ -288,6 +289,9 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 		if email != "" {
 			emails = []string{email}
 		}
+		if strings.ContainsFunc(cn, unicode.IsControl) {
+			return nil, errors.New("invalid CN: it holds a control character")
+		}
 	}
 	for _, entry := range rest {
 		oid, oidErr := x509.ParseOID(entry)
@@ -381,6 +385,9 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 		return nil, err
 	}
 	now := time.Now().UTC()
+	if err := checkValidity(caCert, now, days); err != nil {
+		return nil, err
+	}
 
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,

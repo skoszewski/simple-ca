@@ -31,6 +31,7 @@
 // another version, and go on without them, warning, when the download fails.
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -64,6 +65,7 @@ if (registry === null && action === "docker" && process.env.SIMPLE_CA_REGISTRY) 
 }
 const markdownAssets = join(root, "assets", "markdown");
 const versionFile = join(markdownAssets, ".version");
+const checksumFile = join(root, "assets", "markdown.sha256");
 const requiredTag = readFileSync(join(root, "go.mod"), "utf8")
   .match(/^\s*github\.com\/skoszewski\/serve-markdown\/v3 (v\S+)/m)?.[1] ?? "";
 
@@ -89,8 +91,9 @@ function run(command, args, { env = process.env, capture = false } = {}) {
 }
 
 /**
- * Downloads the serve-markdown-assets archive of the serve-markdown version go.mod requires and
- * unpacks it into assets/markdown, replacing what it held but .gitkeep; throws when that fails.
+ * Downloads the serve-markdown-assets archive of the serve-markdown version go.mod requires,
+ * checks it against the SHA-256 assets/markdown.sha256 has for that version, and unpacks it into
+ * assets/markdown, replacing what it held but .gitkeep; throws when that fails.
  */
 async function fetchMarkdownAssets() {
   if (requiredTag === "") {
@@ -103,10 +106,17 @@ async function fetchMarkdownAssets() {
   if (!response.ok) {
     throw new Error(`${url}: ${response.status} ${response.statusText}`);
   }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const pinned = readFileSync(checksumFile, "utf8").split("\n").map((line) => line.trim().split(/\s+/))
+    .find(([version]) => version === tag)?.[1];
+  const actual = createHash("sha256").update(bytes).digest("hex");
+  if (pinned !== actual) {
+    throw new Error(`${url}: SHA-256 ${actual} is not the one assets/markdown.sha256 has for ${tag}, ${pinned ?? "none"}`);
+  }
   const scratch = mkdtempSync(join(tmpdir(), "simple-ca-assets-"));
   try {
     const archive = join(scratch, "assets.tar.gz");
-    writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
+    writeFileSync(archive, bytes);
     for (const name of readdirSync(markdownAssets)) {
       if (name !== ".gitkeep") {
         rmSync(join(markdownAssets, name), { recursive: true, force: true });

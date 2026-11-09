@@ -14,7 +14,7 @@ platform's own toolset:
 | Linux | `cmd/simple-ca-trust/` | Go | the system trust anchors |
 
 ```sh
-simple-ca-trust add    [--user | --machine] [--ca-dir DIR | --file FILE]
+simple-ca-trust add    [--user | --machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
 simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE]
 simple-ca-trust list   [--user | --machine]
 simple-ca-trust --version
@@ -32,8 +32,15 @@ when its `ca_cert.pem` is that of an issuing CA.
 name. It cannot be given with `--ca-dir`.
 
 On a machine without the CA, use a copy of `ca_bundle.pem` or of the root CA's `ca_cert.pem`,
-which `serve` publishes at `/ca_bundle.pem` and `/ca_cert.pem`; compare the SHA-256 fingerprint
-of its root CA with the one `simple-ca ca show` prints on the CA's machine before trusting it.
+which `serve` publishes at `/ca_bundle.pem` and `/ca_cert.pem`. `add` prints the SHA-256
+fingerprint of the root CA it adds; with `--fingerprint`, given the fingerprint
+`simple-ca ca show` prints on the CA's machine, with or without its colons, it adds nothing
+unless the root CA has it:
+
+```sh
+FINGERPRINT=7C:3A:...:9E
+simple-ca-trust add --file ca_bundle.pem --fingerprint "$FINGERPRINT"
+```
 
 The certificates must hold exactly one root CA, a CA certificate signed by its own key; every
 other certificate among them must be a CA certificate the root CA signed. Certificates that do

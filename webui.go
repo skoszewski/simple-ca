@@ -201,12 +201,13 @@ func (s *webuiServer) authenticate(w http.ResponseWriter, r *http.Request) bool 
 	scope := s.scope
 	given, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	client := clientAddr(r)
-	var err error = apiErr(http.StatusUnauthorized, "a token with the scope %s is required", scope)
-	if given = strings.TrimSpace(given); given != "" {
-		err = guard.attempt(w, r, s.rootDir, func() error { return s.identify(given, scope, client) })
-	} else {
-		auditRefused(r, s.rootDir, "a token with the scope "+scope+" is required", client)
-	}
+	given = strings.TrimSpace(given)
+	err := guard.attempt(w, r, s.rootDir, func() error {
+		if given == "" {
+			return apiErr(http.StatusUnauthorized, "a token with the scope %s is required", scope)
+		}
+		return s.identify(given, scope, client)
+	})
 	if err == nil {
 		return true
 	}
@@ -378,7 +379,7 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 	db, err := loadTokens(dir)
 	if err != nil {
 		slog.Error("serve.error", "error", err.Error())
-		webuiFail(w, http.StatusInternalServerError, err.Error())
+		webuiFail(w, http.StatusInternalServerError, "could not read the tokens")
 		return
 	}
 	// A token is renewed, revoked or removed only by a token that may grant its scopes.
@@ -470,7 +471,8 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 		for _, name := range slices.Sorted(maps.Keys(db.Tokens)) {
 			if t := db.Tokens[name]; !now.Before(t.Expires) && s.grants(t.scopes()) {
 				if err := purgeToken(dir, name); err != nil {
-					webuiFail(w, http.StatusInternalServerError, err.Error())
+					slog.Error("serve.error", "error", err.Error())
+					webuiFail(w, http.StatusInternalServerError, "could not remove the tokens")
 					return
 				}
 				n++
@@ -575,7 +577,7 @@ func (s *webuiServer) listTokens(w http.ResponseWriter, dir string) {
 	db, err := loadTokens(dir)
 	if err != nil {
 		slog.Error("serve.error", "error", err.Error())
-		webuiFail(w, http.StatusInternalServerError, err.Error())
+		webuiFail(w, http.StatusInternalServerError, "could not read the tokens")
 		return
 	}
 	now := time.Now()

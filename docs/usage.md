@@ -73,7 +73,12 @@ to `ca_bundle.pem` and to `index.txt` of the root CA. `NAME` is a **kebab-case**
 lower-case letters and digits joined by hyphens, such as `servers` or `lab-servers`, but not
 `help`, `docs`, `tokens`, `certificates` or `audit`, the routes of the pages of
 [serve](serve.md). The CA directory must not hold an issuing CA. A CA that exists is left as it
-is. `--days` defaults to `days.ca` of `simple-ca.json`, 3650 without it.
+is. `--days` defaults to `days.ca` of `simple-ca.json`, 3650 without it; an issuing CA without
+either is valid as long as its root CA.
+
+No certificate is issued for longer than its CA: `ca create --issuing-ca`, `cert create`,
+`cert sign`, the signing API, the certificate page and ACME refuse a validity that ends after the
+certificate of the CA that signs, naming the most days it allows.
 
 `--key-type` is the type of the CA key: `rsa`, RSA 4096, by default, or `ec`, ECDSA P-256. The CA
 key signs the certificates, the CRLs and the tokens of the CA, with `sha256WithRSAEncryption` and

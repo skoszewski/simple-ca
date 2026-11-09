@@ -107,8 +107,12 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 	if err != nil {
 		return err
 	}
-	server := &http.Server{ReadHeaderTimeout: 10 * time.Second,
+	server := &http.Server{ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second,
+		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Referrer-Policy", "same-origin")
 			if !requestLog {
 				handler.ServeHTTP(w, r)
 				return
@@ -206,6 +210,16 @@ type indexCA struct {
 	Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME, API, SignForm, ID string
 	ExpiresSoon                                                                                bool
 	Fingerprint                                                                                []string
+}
+
+// issuingCADir returns the directory of the issuing CA the path value ca of r names, and false
+// when it names none.
+func issuingCADir(rootDir string, r *http.Request) (string, bool) {
+	ca := r.PathValue("ca")
+	if !kebabCaseRE.MatchString(ca) || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+		return "", false
+	}
+	return filepath.Join(rootDir, ca), true
 }
 
 // newServeMux returns the handler serving an index page at /, the files of servedFiles of the
@@ -403,12 +417,12 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			serve(w, r, rootDir, name)
 		})
 		mux.HandleFunc("GET /{ca}/"+name, func(w http.ResponseWriter, r *http.Request) {
-			ca := r.PathValue("ca")
-			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+			dir, ok := issuingCADir(rootDir, r)
+			if !ok {
 				http.NotFound(w, r)
 				return
 			}
-			serve(w, r, filepath.Join(rootDir, ca), name)
+			serve(w, r, dir, name)
 		})
 	}
 
@@ -420,13 +434,13 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			acme.handle(w, r, rootDir, rootDir, "/acme", strings.TrimPrefix(r.URL.Path, "/acme/"))
 		})
 		mux.HandleFunc("/{ca}/acme/"+p, func(w http.ResponseWriter, r *http.Request) {
-			ca := r.PathValue("ca")
-			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+			dir, ok := issuingCADir(rootDir, r)
+			if !ok {
 				http.NotFound(w, r)
 				return
 			}
-			prefix := "/" + ca + "/acme"
-			acme.handle(w, r, rootDir, filepath.Join(rootDir, ca), prefix, strings.TrimPrefix(r.URL.Path, prefix+"/"))
+			prefix := "/" + r.PathValue("ca") + "/acme"
+			acme.handle(w, r, rootDir, dir, prefix, strings.TrimPrefix(r.URL.Path, prefix+"/"))
 		})
 	}
 
@@ -472,12 +486,12 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		apiFederationToken(w, r, rootDir)
 	})
 	mux.HandleFunc("POST /{ca}/api/federation-token", func(w http.ResponseWriter, r *http.Request) {
-		ca := r.PathValue("ca")
-		if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+		dir, ok := issuingCADir(rootDir, r)
+		if !ok {
 			http.NotFound(w, r)
 			return
 		}
-		apiFederationToken(w, r, filepath.Join(rootDir, ca))
+		apiFederationToken(w, r, dir)
 	})
 
 	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign.
@@ -489,16 +503,15 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 	mux.HandleFunc("POST /{ca}/api/sign", func(w http.ResponseWriter, r *http.Request) {
-		ca := r.PathValue("ca")
-		if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+		dir, ok := issuingCADir(rootDir, r)
+		if !ok {
 			http.NotFound(w, r)
 			return
 		}
-		apiSign(w, r, filepath.Join(rootDir, ca))
+		apiSign(w, r, dir)
 	})
 	mux.HandleFunc("GET /{ca}/api/sign", func(w http.ResponseWriter, r *http.Request) {
-		ca := r.PathValue("ca")
-		if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+		if _, ok := issuingCADir(rootDir, r); !ok {
 			http.NotFound(w, r)
 			return
 		}
@@ -509,12 +522,11 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	// /CA and /CA/ of an issuing CA redirect to its section of the index page.
 	for _, pattern := range []string{"GET /{ca}", "GET /{ca}/{$}"} {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			ca := r.PathValue("ca")
-			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+			if _, ok := issuingCADir(rootDir, r); !ok {
 				http.NotFound(w, r)
 				return
 			}
-			http.Redirect(w, r, (&url.URL{Path: "/", Fragment: ca}).String(), http.StatusFound)
+			http.Redirect(w, r, (&url.URL{Path: "/", Fragment: r.PathValue("ca")}).String(), http.StatusFound)
 		})
 	}
 
@@ -524,12 +536,12 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			signPage(w, r, rootDir, "/sign")
 		})
 		mux.HandleFunc(method+" /{ca}/sign", func(w http.ResponseWriter, r *http.Request) {
-			ca := r.PathValue("ca")
-			if strings.HasPrefix(ca, ".") || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+			dir, ok := issuingCADir(rootDir, r)
+			if !ok {
 				http.NotFound(w, r)
 				return
 			}
-			signPage(w, r, filepath.Join(rootDir, ca), "/"+ca+"/sign")
+			signPage(w, r, dir, "/"+r.PathValue("ca")+"/sign")
 		})
 	}
 

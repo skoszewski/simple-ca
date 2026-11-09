@@ -14,7 +14,11 @@ const $ = (id) => document.getElementById(id);
 // refused asks for another, and the tab forgets it only when it is invalid. A request that succeeds
 // hides the error shown, and leaves the message.
 async function api(method, path, body) {
-  const headers = { Authorization: "Bearer " + (sessionStorage.getItem(tokenName) || "") };
+  if (!sessionStorage.getItem(tokenName)) {
+    askToken("");
+    throw new Error("no token");
+  }
+  const headers = { Authorization: "Bearer " + sessionStorage.getItem(tokenName) };
   if (body) {
     headers["Content-Type"] = "application/json";
   }

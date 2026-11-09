@@ -90,7 +90,7 @@ func TestWriteOpenSSLConf(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "http://pki.example.com", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	cfg, err := loadConfig(caDir)

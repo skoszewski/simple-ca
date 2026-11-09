@@ -171,7 +171,8 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := storeCert(dir, filepath.Join(dir, file), cert); err != nil {
-			webuiFail(w, http.StatusInternalServerError, err.Error())
+			slog.Error("serve.error", "error", err.Error())
+			webuiFail(w, http.StatusInternalServerError, "could not store the certificate")
 			return
 		}
 		auditIssued(dir, cert, req.Type, s.auditActor()...)
@@ -231,7 +232,7 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 	entries, err := readIndex(dir)
 	if err != nil {
 		slog.Error("serve.error", "error", err.Error())
-		webuiFail(w, http.StatusInternalServerError, err.Error())
+		webuiFail(w, http.StatusInternalServerError, "could not read the certificates")
 		return
 	}
 	now := time.Now()

@@ -44,7 +44,7 @@ struct CA {
 
 let usageText = """
     Usage:
-      simple-ca-trust add [--user | --machine] [--ca-dir DIR | --file FILE]
+      simple-ca-trust add [--user | --machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
       simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE]
       simple-ca-trust list [--user | --machine]
       simple-ca-trust --version
@@ -53,7 +53,9 @@ let usageText = """
     root CA, to a keychain and trusts the root CA, removes them, or lists the CAs it added.
     --ca-dir is the directory of the root CA or of one of its issuing CAs, or a directory holding
     a copy of ca_bundle.pem; it defaults to SIMPLE_CA_DIR, else the working directory. --file
-    names the root CA certificate or a CA bundle, PEM or DER, instead. --user,
+    names the root CA certificate or a CA bundle, PEM or DER, instead. add prints the SHA-256
+    fingerprint of the root CA, and with --fingerprint adds nothing unless the root CA has that
+    fingerprint, as ca show and the index page of serve write it. --user,
     the default, is the login keychain and the user's trust settings, and asks for the user's
     password; --machine is the System keychain and the trust settings of all users, and needs
     root.
@@ -227,6 +229,7 @@ func run(_ arguments: [String]) throws {
     var machine = false
     var caDir = ""
     var file = ""
+    var wanted = ""
     var rest = Array(arguments.dropFirst())
     while let option = rest.first, option.hasPrefix("-") {
         rest.removeFirst()
@@ -235,16 +238,20 @@ func run(_ arguments: [String]) throws {
             machine = true
         case "--user", "-user":
             machine = false
-        case "--ca-dir", "-ca-dir", "--file", "-file":
+        case "--ca-dir", "-ca-dir", "--file", "-file", "--fingerprint", "-fingerprint":
             guard let value = rest.first else {
                 throw Failure(message: "simple-ca-trust \(command): \(option) needs a value", usage: true)
             }
             if option.hasSuffix("ca-dir") {
                 caDir = value
+            } else if option.hasSuffix("fingerprint") {
+                wanted = value
             } else {
                 file = value
             }
             rest.removeFirst()
+        case let option where option.hasPrefix("--fingerprint=") || option.hasPrefix("-fingerprint="):
+            wanted = String(option.drop(while: { $0 != "=" }).dropFirst())
         case let option where option.hasPrefix("--ca-dir=") || option.hasPrefix("-ca-dir="):
             caDir = String(option.drop(while: { $0 != "=" }).dropFirst())
         case let option where option.hasPrefix("--file=") || option.hasPrefix("-file="):
@@ -261,6 +268,9 @@ func run(_ arguments: [String]) throws {
     }
     if !caDir.isEmpty && !file.isEmpty {
         throw Failure(message: "simple-ca-trust \(command): --ca-dir and --file cannot be given together", usage: true)
+    }
+    if !wanted.isEmpty && command != "add" {
+        throw Failure(message: "simple-ca-trust \(command): --fingerprint is an option of add", usage: true)
     }
     let domain: SecTrustSettingsDomain = machine ? .admin : .user
     let store = try keychain(machine: machine)
@@ -303,6 +313,13 @@ func run(_ arguments: [String]) throws {
         file = dir.appendingPathComponent("ca_bundle.pem").path
     }
     let cas = try loadCAs(file)
+    if command == "add", let root = cas.first(where: { $0.root }) {
+        print("root CA \(root.subject), SHA-256 fingerprint \(root.fingerprint)")
+        let plain = { (value: String) in value.replacingOccurrences(of: ":", with: "").replacingOccurrences(of: " ", with: "").uppercased() }
+        if !wanted.isEmpty && plain(wanted) != plain(root.fingerprint) {
+            throw Failure(message: "the root CA in \(file) does not have the fingerprint of --fingerprint; nothing was added")
+        }
+    }
     if machine && getuid() != 0 {
         throw Failure(message: "changing the System keychain and the trust settings of all users needs root; run it with sudo")
     }

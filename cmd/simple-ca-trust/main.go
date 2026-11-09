@@ -39,6 +39,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -68,7 +69,7 @@ var layouts = []layout{
 var goos = runtime.GOOS
 
 const usage = `Usage:
-  simple-ca-trust add [--machine] [--ca-dir DIR | --file FILE]
+  simple-ca-trust add [--machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
   simple-ca-trust remove [--machine] [--ca-dir DIR | --file FILE]
   simple-ca-trust list [--machine]
   simple-ca-trust --version
@@ -77,8 +78,10 @@ Adds the root CA and the issuing CAs of the CA in --ca-dir, read from ca_bundle.
 CA, to the system trust store of Linux, removes them, or lists the CAs it added. --ca-dir is the
 directory of the root CA or of one of its issuing CAs, or a directory holding a copy of
 ca_bundle.pem; it defaults to SIMPLE_CA_DIR, else the working directory. --file names the root
-CA certificate or a CA bundle, PEM or DER, instead. Linux has only the system store, --machine,
-the default, and changing it needs root.
+CA certificate or a CA bundle, PEM or DER, instead. add prints the SHA-256 fingerprint of the root
+CA, and with --fingerprint adds nothing unless the root CA has that fingerprint, as ca show and
+the index page of serve write it. Linux has only the system store, --machine, the default, and
+changing it needs root.
 `
 
 func run(args []string) error {
@@ -113,10 +116,15 @@ func run(args []string) error {
 	user := flags.Bool("user", false, "the store of the current user, which Linux does not have")
 	caDir := flags.String("ca-dir", "", "directory of the root CA or of one of its issuing CAs")
 	file := flags.String("file", "", "the root CA certificate or a CA bundle, instead of --ca-dir")
+	wanted := flags.String("fingerprint", "", "the SHA-256 fingerprint the root CA added must have")
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
+		return errUsage
+	}
+	if *wanted != "" && command != "add" {
+		fmt.Fprintf(os.Stderr, "simple-ca-trust %s: --fingerprint is an option of add\n\n%s", command, usage)
 		return errUsage
 	}
 	if flags.NArg() != 0 {
@@ -176,6 +184,13 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	if command == "add" {
+		fmt.Printf("root CA %s, SHA-256 fingerprint %s\n", root.Subject, fingerprint(root))
+		plain := func(s string) string { return strings.ToUpper(strings.NewReplacer(":", "", " ", "").Replace(s)) }
+		if *wanted != "" && plain(*wanted) != plain(fingerprint(root)) {
+			return fmt.Errorf("the root CA in %s does not have the fingerprint of --fingerprint; nothing was added", path)
+		}
+	}
 	changed := false
 	for _, cert := range append([]*x509.Certificate{root}, issuing...) {
 		role := "issuing CA"
@@ -212,12 +227,31 @@ func run(args []string) error {
 	if !changed {
 		return nil
 	}
-	refresh := exec.Command(store.refresh[0], store.refresh[1:]...)
+	// The refresh command is run from the system directories, not from PATH.
+	systemDirs := []string{"/usr/sbin", "/usr/bin", "/sbin", "/bin"}
+	i := slices.IndexFunc(systemDirs, func(dir string) bool {
+		info, err := os.Stat(filepath.Join(dir, store.refresh[0]))
+		return err == nil && !info.IsDir()
+	})
+	if i < 0 {
+		return fmt.Errorf("%s not found in %s", store.refresh[0], strings.Join(systemDirs, ", "))
+	}
+	refresh := exec.Command(filepath.Join(systemDirs[i], store.refresh[0]), store.refresh[1:]...)
 	refresh.Stdout, refresh.Stderr = os.Stderr, os.Stderr
 	if err := refresh.Run(); err != nil {
 		return fmt.Errorf("%s: %w", store.refresh[0], err)
 	}
 	return nil
+}
+
+// fingerprint returns the SHA-256 fingerprint of cert as simple-ca ca show writes it.
+func fingerprint(cert *x509.Certificate) string {
+	sum := sha256.Sum256(cert.Raw)
+	pairs := make([]string, len(sum))
+	for i, b := range sum {
+		pairs[i] = fmt.Sprintf("%02X", b)
+	}
+	return strings.Join(pairs, ":")
 }
 
 // loadCAs returns the root CA in the PEM or DER file at path and the issuing CAs it signed: the
@@ -321,13 +355,8 @@ func list(dir string) error {
 		if bytes.Equal(cert.RawSubject, cert.RawIssuer) {
 			role = "root CA"
 		}
-		sum := sha256.Sum256(cert.Raw)
-		pairs := make([]string, len(sum))
-		for i, b := range sum {
-			pairs[i] = fmt.Sprintf("%02X", b)
-		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", role, cert.Subject, cert.NotAfter.UTC().Format(time.DateTime+" UTC"),
-			strings.Join(pairs, ":"))
+			fingerprint(cert))
 	}
 	return tw.Flush()
 }

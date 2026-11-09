@@ -57,12 +57,15 @@ type authGuard struct {
 	clients map[netip.Prefix]*authFailures
 }
 
-// authFailures are the refusals in a row of a client: their count, the last one, and the end of
-// the hold.
+// authFailures are the refusals in a row of a client: their count with the attempts under way,
+// those attempts, the last refusal, and the end of the hold.
 type authFailures struct {
-	count       int
-	last, until time.Time
+	count, pending int
+	last, until    time.Time
 }
+
+// errUncounted is the outcome of an attempt that is neither a refusal nor a success.
+var errUncounted = errors.New("uncounted attempt")
 
 // newAuthGuard returns a guard without refusals.
 func newAuthGuard() *authGuard {
@@ -80,7 +83,7 @@ func guardKey(client netip.Addr) netip.Prefix {
 }
 
 // attempt runs try for the client of r unless it is held back, records its outcome, audits a
-// refusal and a hold for the CA in dir, and returns its error.
+// refusal and a hold for the CA in dir, and returns its error, nil for errUncounted.
 func (g *authGuard) attempt(w http.ResponseWriter, r *http.Request, dir string, try func() error) error {
 	client := clientAddr(r)
 	if err := g.check(w, client); err != nil {
@@ -88,6 +91,9 @@ func (g *authGuard) attempt(w http.ResponseWriter, r *http.Request, dir string, 
 	}
 	err := try()
 	hold := g.record(client, err)
+	if errors.Is(err, errUncounted) {
+		return nil
+	}
 	var e *apiError
 	if errors.As(err, &e) && e.status == http.StatusUnauthorized {
 		auditRefused(r, dir, e.msg, client)
@@ -105,47 +111,62 @@ func auditRefused(r *http.Request, dir, reason string, client netip.Addr) {
 	audit(dir, "auth.refused", "route", route, "reason", reason, "client", client.String())
 }
 
-// check returns an error of status 429, setting Retry-After on w, while client is held back.
+// check counts an attempt of client, or returns an error of status 429, setting Retry-After on w,
+// while client is held back, or has an attempt under way after its free refusals.
 func (g *authGuard) check(w http.ResponseWriter, client netip.Addr) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	f := g.clients[guardKey(client)]
-	if f == nil || !time.Now().Before(f.until) {
-		return nil
-	}
-	wait := time.Until(f.until)
-	w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
-	return apiErr(http.StatusTooManyRequests, "too many refused attempts from %s; retry in %s", client,
-		wait.Round(time.Second).String())
-}
-
-// record counts the outcome err of a request of client: a refused credential, of status 401, is
-// counted, and a success, a nil err, forgets the refusals. It returns the hold the refusal starts,
-// zero for none.
-func (g *authGuard) record(client netip.Addr, err error) time.Duration {
-	var e *apiError
-	refused := errors.As(err, &e) && e.status == http.StatusUnauthorized
-	if err != nil && !refused {
-		return 0
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
 	key, now := guardKey(client), time.Now()
-	if !refused {
-		delete(g.clients, key)
-		return 0
-	}
 	for k, f := range g.clients {
-		if now.Sub(f.last) > authForget {
+		if f.pending == 0 && now.Sub(f.last) > authForget {
 			delete(g.clients, k)
 		}
 	}
 	f := g.clients[key]
 	if f == nil {
-		f = &authFailures{}
+		f = &authFailures{last: now}
 		g.clients[key] = f
 	}
-	f.count, f.last = f.count+1, now
+	wait := f.until.Sub(now)
+	if wait <= 0 && f.pending > 0 && f.count >= authFreeFailures {
+		wait = authFirstWait
+	}
+	if wait > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+		return apiErr(http.StatusTooManyRequests, "too many refused attempts from %s; retry in %s", client,
+			wait.Round(time.Second).String())
+	}
+	f.count, f.pending = f.count+1, f.pending+1
+	return nil
+}
+
+// record settles the attempt of client that check counted with its outcome err: a refused
+// credential, of status 401, stays counted, a success, a nil err, forgets the refusals, and another
+// error takes the attempt back. It returns the hold the refusal starts, zero for none.
+func (g *authGuard) record(client netip.Addr, err error) time.Duration {
+	var e *apiError
+	refused := errors.As(err, &e) && e.status == http.StatusUnauthorized
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key, now := guardKey(client), time.Now()
+	f := g.clients[key]
+	if f == nil {
+		return 0
+	}
+	f.pending--
+	switch {
+	case err == nil:
+		f.count = f.pending
+	case !refused:
+		f.count--
+	}
+	if !refused {
+		if f.count <= 0 && f.pending <= 0 {
+			delete(g.clients, key)
+		}
+		return 0
+	}
+	f.last = now
 	n := f.count - authFreeFailures
 	if n <= 0 {
 		return 0

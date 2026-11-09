@@ -35,6 +35,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"time"
 )
 
 // buildVersion is the version a release build is given at link time with
@@ -43,6 +44,11 @@ var buildVersion string
 
 // errUsage reports wrong arguments, after the usage has been printed.
 var errUsage = errors.New("usage")
+
+// client sends the request of token-setup, and maxAnswer is the most it reads of the answer.
+var client = &http.Client{Timeout: 30 * time.Second}
+
+const maxAnswer = 1 << 20
 
 func run() error {
 	flag.Usage = func() {
@@ -80,8 +86,19 @@ func run() error {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return fmt.Errorf("'%s' is not a URL such as https://pki.example.com; give --url or set SIMPLE_CA_URL", *serverURL)
 	}
-	if _, err := os.Stat(*tokenFile); *tokenFile != "" && err == nil {
-		return fmt.Errorf("--token-file: %s exists; the token is written to a new file", *tokenFile)
+	// The token file is made before the code is used, new and readable by its owner alone.
+	written := *tokenFile == ""
+	var file *os.File
+	if *tokenFile != "" {
+		if file, err = os.OpenFile(*tokenFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
+			return fmt.Errorf("--token-file: %w; the token is written to a new file", err)
+		}
+		defer func() {
+			file.Close()
+			if !written {
+				os.Remove(*tokenFile)
+			}
+		}()
 	}
 
 	setupURL := u.Scheme + "://" + u.Host + "/api/token-setup"
@@ -89,12 +106,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	resp, err := http.Post(setupURL, "application/json", bytes.NewReader(body))
+	resp, err := client.Post(setupURL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	answer, err := io.ReadAll(resp.Body)
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer))
 	if err != nil {
 		return err
 	}
@@ -111,9 +128,10 @@ func run() error {
 		fmt.Println(result.Token)
 		return nil
 	}
-	if err := os.WriteFile(*tokenFile, []byte(result.Token+"\n"), 0o600); err != nil {
+	if _, err := file.WriteString(result.Token + "\n"); err != nil {
 		return fmt.Errorf("--token-file: %w", err)
 	}
+	written = true
 	fmt.Printf("Token written to %s\n", *tokenFile)
 	return nil
 }

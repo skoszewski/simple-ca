@@ -264,11 +264,16 @@ func (db *tokensDB) save(caDir string) error {
 	return os.Rename(tmp, filepath.Join(caDir, tokensFile))
 }
 
-// lockTokens locks tokens-db.json of caDir for the commands and serve by creating
-// tokens-db.json.lock, which one of them at a time can create, holding the PID of the locker. It
-// waits up to tokensLockWait for the lock, and returns the function that unlocks it.
+// lockTokens locks tokens-db.json of caDir, as lockFile does.
 func lockTokens(caDir string) (func(), error) {
-	path := filepath.Join(caDir, tokensFile+".lock")
+	return lockFile(filepath.Join(caDir, tokensFile))
+}
+
+// lockFile locks the file for the commands and serve by creating FILE.lock, which one of them at
+// a time can create, holding the PID of the locker. It waits up to tokensLockWait for the lock,
+// and returns the function that unlocks it.
+func lockFile(file string) (func(), error) {
+	path := file + ".lock"
 	deadline := time.Now().Add(tokensLockWait)
 	for {
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -286,7 +291,7 @@ func lockTokens(caDir string) (func(), error) {
 		if time.Now().After(deadline) {
 			pid, _ := os.ReadFile(path)
 			return nil, fmt.Errorf("%s is locked by process %s; remove %s if that process is gone",
-				filepath.Join(caDir, tokensFile), strings.TrimSpace(string(pid)), path)
+				file, strings.TrimSpace(string(pid)), path)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -916,44 +921,45 @@ func tokenDescribePage(w http.ResponseWriter, r *http.Request, rootDir string) {
 			http.Error(w, "the form is too large or malformed", http.StatusBadRequest)
 			return
 		}
-		client := clientAddr(r)
 		token := strings.TrimSpace(r.PostForm.Get("token"))
-		err = apiErr(http.StatusUnauthorized, "a token is required")
-		if token == "" {
-			auditRefused(r, rootDir, "a token is required", client)
-		} else {
-			// The token is checked against each CA of the server, as token describe --ca-dir checks it
-			// against one, and its entry read from the tokens-db.json of the CA that signed it.
-			err = guard.attempt(w, r, rootDir, func() error {
-				for _, id := range caIDs(rootDir) {
-					dir := filepath.Join(rootDir, id)
-					cert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
-					if err != nil {
-						continue
-					}
-					c, err := verifyJWT(cert, token)
-					if err != nil {
-						continue
-					}
-					db, err := loadTokens(dir)
-					if err != nil {
-						return err
-					}
-					page.CA = "root CA"
-					if id != "" {
-						page.CA = "issuing CA " + id
-					}
-					if entry := db.Tokens[c.Subject]; entry != nil && entry.ID != "" && entry.ID == c.ID {
-						page.Attributes = describeToken(c.Subject, entry, true)
-					} else {
-						page.Attributes = describeToken(c.Subject, c.token(), false)
-						page.Attributes[1][1] = "refused: the token was renewed, revoked or removed"
-					}
-					return nil
+		// The token is checked against each CA of the server, as token describe --ca-dir checks it
+		// against one, and its entry read from the tokens-db.json of the CA that signed it.
+		err = guard.attempt(w, r, rootDir, func() error {
+			if token == "" {
+				return apiErr(http.StatusUnauthorized, "a token is required")
+			}
+			for _, id := range caIDs(rootDir) {
+				dir := filepath.Join(rootDir, id)
+				cert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
+				if err != nil {
+					continue
 				}
-				return apiErr(http.StatusUnauthorized, "the token is not one of a CA of this server")
-			})
-		}
+				c, err := verifyJWT(cert, token)
+				if err != nil {
+					continue
+				}
+				db, err := loadTokens(dir)
+				if err != nil {
+					return err
+				}
+				page.CA = "root CA"
+				if id != "" {
+					page.CA = "issuing CA " + id
+				}
+				entry := db.Tokens[c.Subject]
+				if entry == nil || entry.ID == "" || entry.ID != c.ID {
+					page.Attributes = describeToken(c.Subject, c.token(), false)
+					page.Attributes[1][1] = "refused: the token was renewed, revoked or removed"
+					return errUncounted
+				}
+				page.Attributes = describeToken(c.Subject, entry, true)
+				if !entry.active(time.Now()) {
+					return errUncounted
+				}
+				return nil
+			}
+			return apiErr(http.StatusUnauthorized, "the token is not one of a CA of this server")
+		})
 		var e *apiError
 		switch {
 		case errors.As(err, &e):
@@ -996,13 +1002,13 @@ func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 		}
 		client := clientAddr(r)
 		code := strings.TrimSpace(r.PostForm.Get("code"))
-		err = apiErr(http.StatusUnauthorized, "a setup code is required")
-		if code != "" {
-			err = guard.attempt(w, r, rootDir, func() (err error) {
-				page.CA, page.Name, page.Token, err = exchangeSetupCode(rootDir, code, client)
-				return err
-			})
-		}
+		err = guard.attempt(w, r, rootDir, func() (err error) {
+			if code == "" {
+				return apiErr(http.StatusUnauthorized, "a setup code is required")
+			}
+			page.CA, page.Name, page.Token, err = exchangeSetupCode(rootDir, code, client)
+			return err
+		})
 		var e *apiError
 		switch {
 		case errors.As(err, &e):
@@ -1145,6 +1151,7 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, tok *apiToken) er
 		})
 	}
 	var emails []string
+	cns := 0
 	for _, attr := range csr.Subject.Names {
 		switch {
 		case attr.Type.Equal(oidEmailAddress):
@@ -1152,7 +1159,15 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, tok *apiToken) er
 			emails = append(emails, s)
 		case attr.Type.String() != "2.5.4.3":
 			return apiErr(http.StatusForbidden, "the subject may hold only CN and emailAddress")
+		default:
+			if _, ok := attr.Value.(string); !ok {
+				return apiErr(http.StatusForbidden, "the CN of the subject is not a string")
+			}
+			cns++
 		}
+	}
+	if cns > 1 {
+		return apiErr(http.StatusForbidden, "the subject may hold only one CN")
 	}
 	if san := csrSAN(csr); san != nil {
 		var gns []asn1.RawValue
@@ -1368,9 +1383,19 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	if san := csrSAN(csr); san != nil {
 		tmpl.ExtraExtensions = []pkix.Extension{*san}
 	}
-	if _, _, _, err := parseUsages(append(slices.Clone(def.keyUsage), kus...),
-		append(slices.Clone(def.extKeyUsage), ekus...)); err != nil {
+	ku, eku, oids, err := parseUsages(append(slices.Clone(def.keyUsage), kus...),
+		append(slices.Clone(def.extKeyUsage), ekus...))
+	if err != nil {
 		return nil, nil, "", apiErr(http.StatusBadRequest, "%v", err)
+	}
+	// A token adds no usages to those of the type.
+	if typeKU, typeEKU, typeOIDs, _ := parseUsages(def.keyUsage, def.extKeyUsage); ku != typeKU ||
+		len(eku) != len(typeEKU) || len(oids) != len(typeOIDs) {
+		return nil, nil, "", apiErr(http.StatusForbidden,
+			"the token does not allow key usages or extended key usages beyond those of the type '%s'", certType)
+	}
+	if err := checkValidity(caCert, time.Now(), days); err != nil {
+		return nil, nil, "", apiErr(http.StatusBadRequest, "days: %v", err)
 	}
 	cert, err = issueLeaf(caDir, certType, days, ekus, kus, tmpl, csr.PublicKey)
 	if err != nil {
@@ -1429,8 +1454,7 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 	case strings.TrimSpace(ct) != "application/json":
 		err = apiErr(http.StatusUnsupportedMediaType, "the content type must be application/json")
 	case !ok:
-		err = apiErr(http.StatusUnauthorized, "a bearer token is required")
-		auditRefused(r, caDir, "a bearer token is required", client)
+		err = guard.attempt(w, r, caDir, func() error { return apiErr(http.StatusUnauthorized, "a bearer token is required") })
 	case dec.Decode(&req) != nil:
 		err = apiErr(http.StatusBadRequest, "invalid request: the body is not a JSON object of csr, type, name, "+
 			"days, ku and eku")
@@ -1489,8 +1513,7 @@ func apiFederationToken(w http.ResponseWriter, r *http.Request, caDir string) {
 	case err != nil || (len(bytes.TrimSpace(body)) > 0 && (json.Unmarshal(body, &fields) != nil || len(fields) > 0)):
 		err = apiErr(http.StatusBadRequest, "invalid request: the body is empty or {}; the token decides the JWT")
 	case !ok:
-		err = apiErr(http.StatusUnauthorized, "a bearer token is required")
-		auditRefused(r, caDir, "a bearer token is required", client)
+		err = guard.attempt(w, r, caDir, func() error { return apiErr(http.StatusUnauthorized, "a bearer token is required") })
 	default:
 		err = guard.attempt(w, r, caDir, func() error {
 			caCert, err := loadCert(filepath.Join(caDir, "ca_cert.pem"))
@@ -1624,16 +1647,14 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 		var cert *x509.Certificate
 		var fileName string
 		token := strings.TrimSpace(r.PostForm.Get("token"))
-		var err error = apiErr(http.StatusUnauthorized, "a token or a setup code is required")
-		if token == "" {
-			auditRefused(r, caDir, "a token or a setup code is required", client)
-		} else {
-			// The form takes the defaults of the type, the days and the file name.
-			err = guard.attempt(w, r, caDir, func() (err error) {
-				cert, _, fileName, err = signWithToken(caDir, token, client, []byte(page.CSR), page.Type, "", 0, nil, nil, true)
-				return err
-			})
-		}
+		// The form takes the defaults of the type, the days and the file name.
+		err := guard.attempt(w, r, caDir, func() (err error) {
+			if token == "" {
+				return apiErr(http.StatusUnauthorized, "a token or a setup code is required")
+			}
+			cert, _, fileName, err = signWithToken(caDir, token, client, []byte(page.CSR), page.Type, "", 0, nil, nil, true)
+			return err
+		})
 		if err == nil {
 			w.Header().Set("Content-Type", "application/x-pem-file")
 			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fileName}))

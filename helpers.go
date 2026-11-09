@@ -24,6 +24,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
@@ -43,6 +44,7 @@ import (
 	"hash"
 	"math/big"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -114,17 +116,29 @@ func writeKey(key crypto.Signer, path string) error {
 	if err != nil {
 		return err
 	}
+	blockType := "ENCRYPTED PRIVATE KEY"
 	pass, err := keyPassphrase(false)
-	if errors.Is(err, errNoPassphrase) {
-		return writePEMFile(path, "PRIVATE KEY", der, 0o600)
+	switch {
+	case errors.Is(err, errNoPassphrase):
+		blockType = "PRIVATE KEY"
+	case err != nil:
+		return err
+	default:
+		if der, err = encryptKeyDER(der, pass); err != nil {
+			return err
+		}
 	}
+	// The key replaces the file at once, so an earlier file's mode is not kept.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".key-*")
 	if err != nil {
 		return err
 	}
-	if der, err = encryptKeyDER(der, pass); err != nil {
+	defer os.Remove(tmp.Name())
+	err = cmp.Or(tmp.Chmod(0o600), pem.Encode(tmp, &pem.Block{Type: blockType, Bytes: der}), tmp.Close())
+	if err != nil {
 		return err
 	}
-	return writePEMFile(path, "ENCRYPTED PRIVATE KEY", der, 0o600)
+	return os.Rename(tmp.Name(), path)
 }
 
 // ---- private key encryption -------------------------------------------------
@@ -224,8 +238,12 @@ var (
 	oidAES256CBC      = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 42}
 )
 
-// keyIterations is the PBKDF2 iteration count of the keys simple-ca encrypts.
-const keyIterations = 600000
+// keyIterations is the PBKDF2 iteration count of the keys simple-ca encrypts, and keyMaxIterations
+// the most it reads a key with.
+const (
+	keyIterations    = 600000
+	keyMaxIterations = 10000000
+)
 
 // encryptedPrivateKeyInfo is the EncryptedPrivateKeyInfo of RFC 5958.
 type encryptedPrivateKeyInfo struct {
@@ -333,7 +351,7 @@ func decryptKeyDER(der []byte, pass string) ([]byte, error) {
 	if _, err := asn1.Unmarshal(params.Cipher.Parameters.FullBytes, &iv); err != nil || len(iv) != aes.BlockSize {
 		return nil, errors.New("bad AES-CBC initialization vector")
 	}
-	if kdf.KeyLength != 0 && kdf.KeyLength != size || kdf.Iterations < 1 {
+	if kdf.KeyLength != 0 && kdf.KeyLength != size || kdf.Iterations < 1 || kdf.Iterations > keyMaxIterations {
 		return nil, errors.New("bad PBKDF2 parameters")
 	}
 	if len(info.Data) == 0 || len(info.Data)%aes.BlockSize != 0 {

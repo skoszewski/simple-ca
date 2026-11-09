@@ -59,10 +59,31 @@ type typeConfig struct {
 
 // acmeConfig holds the ACME settings of serve: the domains whose names, and the names below them,
 // the ACME server issues certificates for, ACME being off without them, and the validity of its
-// certificates in days.
+// certificates in days; and its limits: the accounts of a CA, the open orders and the contacts of
+// an account, the names of an order, and the unused nonces of the server.
 type acmeConfig struct {
-	Domains []string `json:"domains,omitempty"`
-	Days    int      `json:"days,omitempty"`
+	Domains     []string `json:"domains,omitempty"`
+	Days        int      `json:"days,omitempty"`
+	MaxAccounts int      `json:"max_accounts,omitempty"`
+	MaxOrders   int      `json:"max_orders,omitempty"`
+	MaxNames    int      `json:"max_names,omitempty"`
+	MaxContacts int      `json:"max_contacts,omitempty"`
+	MaxNonces   int      `json:"max_nonces,omitempty"`
+}
+
+// limits returns the settings with the default of each limit that is not set.
+func (c acmeConfig) limits() acmeConfig {
+	set := func(limit *int, byDefault int) {
+		if *limit < 1 {
+			*limit = byDefault
+		}
+	}
+	set(&c.MaxAccounts, 1000)
+	set(&c.MaxOrders, 50)
+	set(&c.MaxNames, 100)
+	set(&c.MaxContacts, 10)
+	set(&c.MaxNonces, 100000)
+	return c
 }
 
 // serveConfig holds the settings of serve: the addresses and prefixes of the proxies whose

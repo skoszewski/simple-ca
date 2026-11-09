@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -119,6 +120,11 @@ func entryStatus(e indexEntry, now time.Time) (string, error) {
 
 // recordIssued adds cert as a valid certificate to index.txt of the CA directory dir.
 func recordIssued(dir string, cert *x509.Certificate) error {
+	unlock, err := lockFile(filepath.Join(dir, indexFile))
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	entries, err := readIndex(dir)
 	if err != nil {
 		return err
@@ -137,11 +143,20 @@ func recordIssued(dir string, cert *x509.Certificate) error {
 	return writeIndex(dir, entries)
 }
 
-// writeIndex writes entries to index.txt of the CA directory dir.
+// writeIndex writes entries to index.txt of the CA directory dir, replacing the file at once; an
+// entry with a tab or a line end in a field is an error.
 func writeIndex(dir string, entries []indexEntry) error {
 	var b strings.Builder
 	for _, e := range entries {
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%s\n", e.status, e.expires, e.revoked, e.serial, e.file, e.subject)
+		fields := []string{e.status, e.expires, e.revoked, e.serial, e.file, e.subject}
+		if slices.ContainsFunc(fields, func(f string) bool { return strings.ContainsAny(f, "\t\r\n") }) {
+			return fmt.Errorf("the entry of serial %s holds a tab or a line end", e.serial)
+		}
+		b.WriteString(strings.Join(fields, "\t") + "\n")
 	}
-	return os.WriteFile(filepath.Join(dir, indexFile), []byte(b.String()), 0o644)
+	path := filepath.Join(dir, indexFile)
+	if err := os.WriteFile(path+".tmp", []byte(b.String()), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(path+".tmp", path)
 }

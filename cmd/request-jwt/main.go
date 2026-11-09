@@ -37,6 +37,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"time"
 )
 
 // buildVersion is the version a release build is given at link time with
@@ -45,6 +46,11 @@ var buildVersion string
 
 // errUsage reports wrong arguments, after the usage has been printed.
 var errUsage = errors.New("usage")
+
+// client sends the requests of request-jwt, and maxAnswer is the most it reads of an answer.
+var client = &http.Client{Timeout: 30 * time.Second}
+
+const maxAnswer = 1 << 20
 
 // defaultConfig is the configuration file read from the working directory without --config.
 const defaultConfig = "federation.json"
@@ -167,14 +173,24 @@ func run() error {
 	case code != "" && token != "":
 		return errors.New("give the token or a setup code with --setup-code, not both")
 	case code != "":
-		if _, err := os.Stat(s.TokenFile); s.TokenFile != "" && err == nil {
-			return fmt.Errorf("%s exists; the token of --setup-code is written to a new file", s.TokenFile)
+		var file *os.File
+		if s.TokenFile != "" {
+			if file, err = os.OpenFile(s.TokenFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
+				return fmt.Errorf("%w; the token of --setup-code is written to a new file", err)
+			}
 		}
 		if token, err = exchange(s.CAURL, code); err != nil {
+			if file != nil {
+				file.Close()
+				os.Remove(s.TokenFile)
+			}
 			return err
 		}
-		if s.TokenFile != "" {
-			if err := os.WriteFile(s.TokenFile, []byte(token+"\n"), 0o600); err != nil {
+		if file != nil {
+			if _, err := file.WriteString(token + "\n"); err != nil {
+				return err
+			}
+			if err := file.Close(); err != nil {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "Token written to %s\n", s.TokenFile)
@@ -250,12 +266,12 @@ func post(target, contentType, bearer string, body []byte, result any) error {
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	answer, err := io.ReadAll(resp.Body)
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer))
 	if err != nil {
 		return err
 	}

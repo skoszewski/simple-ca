@@ -33,7 +33,7 @@ import (
 // runCACreate runs ca create.
 func runCACreate(args []string) error {
 	fs := newFlagSet("ca create", "CA_NAME", "Create a root or issuing CA.")
-	days := fs.Int("days", 3650, "validity period in `days`")
+	days := fs.Int("days", 3650, "validity period in `days`; an issuing CA is valid as long as its root CA by default")
 	issuingCA := fs.String("issuing-ca", "", "create an issuing CA with this directory `name`")
 	baseURL := fs.String("ca-url", "", "base `URL` for AIA and CRL distribution point extensions")
 	fs.StringVar(baseURL, "ca-publish-base-url", "", "former name of --ca-url")
@@ -54,8 +54,11 @@ func runCACreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	if !given["days"] && cfg.Days.CA > 0 {
+	switch {
+	case !given["days"] && cfg.Days.CA > 0:
 		*days = cfg.Days.CA
+	case !given["days"] && *issuingCA != "":
+		*days = 0
 	}
 	if err := makeCA(dir, rest[0], *days, *issuingCA, *baseURL, *keyType); err != nil {
 		return err
@@ -63,6 +66,9 @@ func runCACreate(args []string) error {
 	target := dir
 	if *issuingCA != "" {
 		target = filepath.Join(dir, *issuingCA)
+	}
+	if cert, err := loadCert(filepath.Join(target, "ca_cert.pem")); *days == 0 && err == nil {
+		*days = int(cert.NotAfter.Sub(cert.NotBefore).Hours() / 24)
 	}
 	audit(target, "ca.create", "subject", rest[0], "days", *days, "key_type", *keyType, "via", "cli", "actor", cliActor())
 	if !*writeConf {

@@ -77,7 +77,9 @@ Every CA directory holds the database of `openssl ca`, so the directory can also
   simple-ca reads but does not write), expiry, revocation, serial in hex, file name (`unknown`) and
   subject. The revocation is the date, followed by `,` and the reason when one is recorded. The
   dates are UTCTime, `YYMMDDHHMMSSZ`; an expiry from 2050 on is GeneralizedTime,
-  `YYYYMMDDHHMMSSZ`.
+  `YYYYMMDDHHMMSSZ`. While simple-ca changes it, `index.txt.lock` holds the PID of the process
+  that does, as `tokens-db.json.lock` does for the tokens; a lock left by a process that is gone
+  is removed by hand.
 - `index.txt.attr` - `unique_subject = no`, so a subject can be issued again.
 - `crlnumber` - the number of the next CRL, in hex.
 

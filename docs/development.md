@@ -32,7 +32,10 @@ The `/help/` page, `help/index.md`, and the `/docs/` pages of `serve --docs`, th
 [serve-markdown](https://github.com/skoszewski/serve-markdown), whose browser files are not in
 either repository. `./build.mjs assets` downloads `serve-markdown-assets-X.Y.Z.tar.gz` of the
 serve-markdown release `go.mod` names and unpacks it into `assets/markdown/`, which `serve`
-embeds; `assets/markdown/.version` names the release it came from. `build`, `test` and `check`
+embeds; `assets/markdown/.version` names the release it came from. The archive must have the
+SHA-256 that `assets/markdown.sha256` holds for the release, a line `vX.Y.Z SHA256`; a new
+serve-markdown release in `go.mod` needs its line there, the output of
+`shasum -a 256 serve-markdown-assets-X.Y.Z.tar.gz`. `build`, `test` and `check`
 download it first when `assets/markdown/` holds another release, and build without the
 pages, with a warning, when the download fails. A plain `go build` embeds what
 `assets/markdown/` holds, and builds without the pages when it holds only `.gitkeep`.

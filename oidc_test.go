@@ -33,7 +33,7 @@ func TestOIDC(t *testing.T) {
 	if err := makeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(rootDir, "Clients CA", 3650, "clients", "", "rsa"); err != nil {
+	if err := makeCA(rootDir, "Clients CA", 0, "clients", "", "rsa"); err != nil {
 		t.Fatalf("makeCA clients: %v", err)
 	}
 

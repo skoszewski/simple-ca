@@ -56,7 +56,7 @@ form. A record never holds a token, a setup code, an ID token, a key or a passwo
 | `token.purge` | `name`, or `count` for a removal of all expired and revoked tokens |
 | `token.setup` | `name`, the token a setup code was exchanged for |
 | `token.oidc` | `name`, `user`, `issuer`, `profile`, `action`: `made`, `replaced` or `reused` |
-| `auth.refused` | `route`, `reason`: a token, setup code or ID token refused with `401` |
+| `auth.refused` | `route`, `reason`: a token, setup code or ID token refused with `401`, or a request without one |
 | `auth.held` | `wait`: the client is held back, see [Refused credentials](signing-api.md#refused-credentials) |
 
 A record is written once the change is made. A refused request writes no record, unless it is an

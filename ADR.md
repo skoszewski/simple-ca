@@ -167,7 +167,44 @@ which a single host can fill with addresses. It lives in memory: `serve` is one 
 restart forgetting it costs an attacker the restart. A valid credential is held back too, since
 telling a held client which credential is valid would undo the hold, and the hold of a lab
 user mistyping a code is seconds, while a guessing client reaches the 15 minute cap at its 16th
-refusal.
+refusal. An attempt is counted before its credential is checked, and once the free refusals are
+used a client has one attempt checked at a time, so requests sent together get no more guesses
+than requests sent in turn. A request without a credential counts as a refusal, since it is
+audited as one and would otherwise fill the audit log unhindered; the pages ask for the token
+before they call their API, so opening one counts nothing.
+
+## The CA of a route is a kebab-case name
+
+The `{ca}` part of a route names an issuing CA only when it is a kebab-case name, the form
+`ca create` gives them, with a `ca_cert.pem` in its directory. A path value is unescaped by the
+mux, so it can hold `/` and `..`; checking its form, and not what it must not start with, keeps
+every route inside the root CA directory.
+
+## index.txt is changed under a lock file and replaced at once
+
+`serve`, its certificate page and the commands all add to `index.txt` and mark revocations in
+it. Each change reads the file, changes it and writes it back, under `index.txt.lock`, made as
+`tokens-db.json.lock` is, and the new file replaces the old one by a rename, so two processes do
+not lose each other's entries and an interrupted write leaves the file as it was. A field with a
+tab or a line end is never written, and a request whose subject holds a control character is
+refused where it is read, since the subject is a field of the file.
+
+## A token adds no usages, and no certificate outlives its CA
+
+The types of a token say what its certificates are for, so the signing API refuses a key usage
+or extended key usage the type does not have; `cert sign` and the certificate page, used by the
+operator of the CA, add usages. A validity that ends after the certificate of the signing CA is
+refused on every path, not shortened, so the caller learns the limit; an issuing CA made without
+`--days` and `days.ca` ends with its root CA, since the default of a root CA would always end
+after it.
+
+## The ACME server limits what its clients make it keep
+
+Anyone who reaches the server may register an account, so the accounts of a CA, the open orders
+and contacts of an account, the names of an order and the unused nonces have limits, settings of
+`acme` with defaults. An account stores only the members of its key that are read. The http-01
+check follows a redirect only to the same name on the ports of HTTP and HTTPS, and tells the
+client that a fetch failed, not why, so it cannot be used to probe the network of the server.
 
 ## The audit log is slog lines in one file, copied to the journal or stderr by serve
 

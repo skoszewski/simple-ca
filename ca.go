@@ -74,9 +74,9 @@ func rebuildCABundle(caDir string) error {
 // makeCA creates the root CA in caDir, or with issuingCA, a kebab-case name, an issuing CA in
 // caDir/issuingCA signed by the root CA in caDir, with a key of keyType, rsa or ec, its database
 // and an empty first CRL valid for days.crl of simple-ca.json, 30 days without it, and skips a CA
-// that exists.
+// that exists. An issuing CA with days of zero is valid as long as its root CA.
 func makeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) error {
-	if days < 1 {
+	if days < 1 && (days != 0 || issuingCA == "") {
 		return errors.New("--days must be a positive integer")
 	}
 	if !slices.Contains(keyTypes, keyType) {
@@ -205,11 +205,18 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 			return err
 		}
 		now := time.Now().UTC()
+		notAfter := rootCert.NotAfter
+		if days > 0 {
+			if err := checkValidity(rootCert, now, days); err != nil {
+				return err
+			}
+			notAfter = now.AddDate(0, 0, days)
+		}
 		tmpl := &x509.Certificate{
 			SerialNumber:          serial,
 			Subject:               pkix.Name{CommonName: caName},
 			NotBefore:             now,
-			NotAfter:              now.AddDate(0, 0, days),
+			NotAfter:              notAfter,
 			IsCA:                  true,
 			BasicConstraintsValid: true,
 			MaxPathLen:            0,

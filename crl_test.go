@@ -17,7 +17,7 @@ func TestMakeCRLAll(t *testing.T) {
 		t.Fatalf("makeCA: %v", err)
 	}
 	for _, name := range []string{"servers", "users"} {
-		if err := makeCA(caDir, name+" CA", 3650, name, "", "rsa"); err != nil {
+		if err := makeCA(caDir, name+" CA", 0, name, "", "rsa"); err != nil {
 			t.Fatalf("makeCA %s: %v", name, err)
 		}
 	}
@@ -71,7 +71,7 @@ func TestRevokeAndCRL(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	for _, name := range []string{"alice", "bob"} {

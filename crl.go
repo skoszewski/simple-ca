@@ -175,6 +175,11 @@ func auditCRL(caDir string, args ...any) {
 // CA in caDir, for reason, a name of crlReasons, or for no reason when empty; it returns false
 // when the certificate was revoked already.
 func markRevoked(caDir, serial, reason string) (bool, error) {
+	unlock, err := lockFile(filepath.Join(caDir, indexFile))
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	entries, err := readIndex(caDir)
 	if err != nil {
 		return false, err

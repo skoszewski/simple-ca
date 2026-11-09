@@ -31,14 +31,25 @@ func TestAuthGuard(t *testing.T) {
 	client := netip.MustParseAddr("192.0.2.10")
 	other := netip.MustParseAddr("2001:db8:1:2:bbbb::2")
 	refusedErr := apiErr(http.StatusUnauthorized, "invalid token")
+	// attempt counts an attempt of the client once its hold is over, and settles it with err.
+	attempt := func(err error) {
+		t.Helper()
+		if f := g.clients[guardKey(client)]; f != nil {
+			f.until = time.Time{}
+		}
+		if err := g.check(httptest.NewRecorder(), client); err != nil {
+			t.Fatalf("check of a client that is not held: %v", err)
+		}
+		g.record(client, err)
+	}
 	for i, want := range []time.Duration{0, 0, time.Second, 2 * time.Second, 4 * time.Second} {
-		g.record(client, refusedErr)
+		attempt(refusedErr)
 		if hold := time.Until(g.clients[guardKey(client)].until); hold > want || (want > 0 && hold < want-time.Second) {
 			t.Errorf("refusal %d: hold %s, want %s", i+1, hold, want)
 		}
 	}
 	for range 40 {
-		g.record(client, refusedErr)
+		attempt(refusedErr)
 	}
 	if hold := time.Until(g.clients[guardKey(client)].until); hold > authMaxWait {
 		t.Errorf("hold %s after many refusals, want at most %s", hold, authMaxWait)
@@ -50,9 +61,17 @@ func TestAuthGuard(t *testing.T) {
 	if err := g.check(httptest.NewRecorder(), other); err != nil {
 		t.Errorf("check of another client: %v, want none", err)
 	}
-	g.record(client, apiErr(http.StatusForbidden, "the token does not have the scope tokens"))
+	attempt(apiErr(http.StatusForbidden, "the token does not have the scope tokens"))
 	if g.clients[guardKey(client)] == nil {
 		t.Error("an error other than 401 forgot the refusals, want them kept")
+	}
+
+	// An attempt under way after the free refusals holds back the next one.
+	if err := g.check(httptest.NewRecorder(), client); err != nil {
+		t.Fatalf("check of a client that is not held: %v", err)
+	}
+	if err := g.check(httptest.NewRecorder(), client); err == nil {
+		t.Error("check with an attempt under way after the free refusals: none, want 429")
 	}
 	g.record(client, nil)
 	if err := g.check(httptest.NewRecorder(), client); err != nil {

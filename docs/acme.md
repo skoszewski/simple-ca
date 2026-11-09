@@ -8,7 +8,9 @@ whose key is in its directory: the root CA at `/acme/directory` and the issuing 
 reaches the server may register an account; certificates are issued only for DNS names that are
 one of `acme.domains` or below one of them, and whose challenge is met:
 
-- `http-01` - the server fetches `http://NAME/.well-known/acme-challenge/TOKEN` on port 80;
+- `http-01` - the server fetches `http://NAME/.well-known/acme-challenge/TOKEN` on port 80; it
+  follows a redirect only to the same name on port 80 or 443, and any other redirect fails the
+  challenge;
 - `dns-01` - the server looks up the TXT record `_acme-challenge.NAME` with the system resolver;
   a wildcard name, `*.NAME`, is offered only this challenge.
 
@@ -18,14 +20,34 @@ characters, and all its names as DNS names; the key usages, extended key usages,
 Distribution Point URLs are those of `cert create`. It is recorded
 in `index.txt` like any other, and stored in the CA directory, as the
 [directory layout](directory-layout.md) describes; an order whose first name gives the name `ca`,
-such as `ca.example.com`, is refused. The chain returned holds the certificate and, from an
-issuing CA, the issuing CA certificate. A certificate is revoked by the account it was issued to, or with its
-key, for a reason from 0 to 5, as for `cert revoke`; `crl create` writes the CRL listing it.
+such as `ca.example.com`, is refused, and so is one whose file `NAME_cert.pem` has a key
+`NAME_key.pem` beside it, the certificate `cert create` made with its key. The request of an
+order must not be signed with the account key. The chain returned holds the certificate and, from
+an issuing CA, the issuing CA certificate. A certificate is revoked by the account it was issued
+to, or with its key, for a reason from 0 to 5, as for `cert revoke`; `crl create` writes the CRL
+listing it.
 
 The accounts, the orders and the authorizations of a CA are kept in `acme.json` of its directory,
 so `serve` needs to write to the CA directories and read the CA keys. An order and its
 authorizations expire 7 days after they are made. Nonces are kept in memory; after a restart, a
 client retries a request with a new nonce.
+
+## Limits
+
+The `acme` section of [simple-ca.json](configuration.md) limits what the clients can make the
+server keep:
+
+| Setting | Default | Limits |
+|---|---|---|
+| `max_accounts` | 1000 | the accounts of a CA; a new account beyond it is refused |
+| `max_orders` | 50 | the orders of an account that are neither valid nor invalid |
+| `max_names` | 100 | the names of an order |
+| `max_contacts` | 10 | the contacts of an account, each a `mailto:` URL of at most 254 characters |
+| `max_nonces` | 100000 | the unused nonces kept; the oldest are dropped beyond it |
+
+Accounts are not removed, so a CA that has `max_accounts` accounts takes no new ones until the
+limit is raised. The key of an account is an RSA key of at most 8192 bits, an EC key or an
+Ed25519 key.
 
 ## Getting a certificate with lego
 

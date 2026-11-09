@@ -373,15 +373,15 @@ The API takes no defaults, as `cert sign` takes them from its options:
 - `name` - the name of the certificate file, as `cert sign` takes the name of the request file:
   each run of characters other than letters, digits, hyphens and underscores becomes one `_`, so
   `web` is stored as `web_cert.pem`; the name `ca`, whose file is the CA certificate, is refused;
-- `days` - the validity in days;
-- `ku` and `eku` - key usages and extended key usages added to those of the type, as `--ku` and
-  `--eku` of `cert sign` add them; either may be left out.
+- `days` - the validity in days, which must not end after the CA certificate;
+- `ku` and `eku` - key usages and extended key usages, each one of those of the type: a token
+  adds no usages to its types; either may be left out.
 
 The names in the request are checked by the name rules of the type, `names` in
 [simple-ca.json](configuration.md):
 
-- the subject may hold only a CN and `emailAddress`, and the SANs only DNS names, email addresses
-  and IP addresses;
+- the subject may hold only one CN and `emailAddress`, without control characters, and the SANs
+  only DNS names, email addresses and IP addresses;
 - `server` rules: the CN, if any, is a hostname, a wildcard or an IP address; the token must allow
   the CN and every DNS name and IP address; at least one name or address is required, and no
   email address is allowed;
@@ -389,8 +389,7 @@ The names in the request are checked by the name rules of the type, `names` in
   address is required, and no DNS name or IP address is allowed; the CN is free text.
 
 The certificate gets the subject and the SANs of the request, and the key usages, extended key
-usages, AIA and CRL Distribution Point URLs that `cert create` gives the type, with those of `ku`
-and `eku`. It is stored in the CA directory as `NAME_cert.pem`, replacing the file of an earlier
+usages, AIA and CRL Distribution Point URLs that `cert create` gives the type. It is stored in the CA directory as `NAME_cert.pem`, replacing the file of an earlier
 certificate of the name, as the [directory layout](directory-layout.md) describes, recorded in
 `index.txt`, and its serial number in the token's entry in `tokens-db.json`. The response is JSON:
 
@@ -406,14 +405,15 @@ certificate of the name, as the [directory layout](directory-layout.md) describe
 `{"error": "..."}` with one of these statuses:
 
 - `400 Bad Request` - a malformed body or request, a field missing, a name that gives no file
-  name or is `ca`, or a key usage or extended key usage that is not one;
+  name or is `ca`, a key usage or extended key usage that is not one, a subject with a control
+  character, or a validity that ends after the CA certificate;
 - `401 Unauthorized` - the token is missing, belongs to another CA, which the error names, or is
   revoked, expired or unknown (as the old JWT of a renewed token is); a request without a token is
-  recorded as `auth.refused` in the [audit log](audit.md), as a refused token is;
+  recorded as `auth.refused` in the [audit log](audit.md) and counted, as a refused token is;
 - `403 Forbidden` - the token has no scope `sign`, does not allow the type or a name, or is not
-  accepted from the client, or the request breaks the name rules above, such as a subject
-  attribute other than CN and `emailAddress`, or a SAN other than a DNS name, an email address
-  or an IP address;
+  accepted from the client, the request names a key usage or extended key usage the type does
+  not have, or it breaks the name rules above, such as a subject attribute other than CN and
+  `emailAddress`, a second CN, or a SAN other than a DNS name, an email address or an IP address;
 - `415 Unsupported Media Type` - the body is not `application/json`;
 - `429 Too Many Requests` - the client is held back after refused tokens, see
   [Refused credentials](#refused-credentials).
@@ -471,22 +471,23 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" "$CA_URL/api/federation-token
 ## Refused credentials
 
 `serve` counts the tokens, setup codes and OIDC ID tokens it refuses with
-`401 Unauthorized` for each client, an IPv6 client by its /64 prefix. This applies to the
-signing API, the signing forms, `/api/token-setup`, `/token-setup`, `/api/oidc-token` and the
-API of the token, certificate and audit pages. The first 5 refusals in a row are free; from the
-6th:
+`401 Unauthorized` for each client, an IPv6 client by its /64 prefix, and the requests that
+should carry one and carry none. This applies to the signing API, the signing forms,
+`/api/token-setup`, `/token-setup`, `/token-describe`, `/api/oidc-token` and the API of the
+token, certificate and audit pages. The first 5 refusals in a row are free; from the 6th:
 
 - the client is held back for 1 second, a time that doubles with each further refusal, up to
   15 minutes;
-- while held back, every request of the client that carries a credential is answered with
-  `429 Too Many Requests` and a `Retry-After` header, the seconds left, without checking the
-  credential, even a valid one;
-- a request without a credential is not counted.
+- while held back, every such request of the client is answered with `429 Too Many Requests` and
+  a `Retry-After` header, the seconds left, without checking the credential, even a valid one;
+- once the free refusals are used, the client has one request checked at a time: a request sent
+  while another is being checked is answered with `429 Too Many Requests`.
 
 A request that succeeds forgets the refusals of its client, and so do 60 minutes without a
 refusal. A request whose credential is valid but refused with another status, such as
 `403 Forbidden` for a scope, a client or a name the token does not allow, neither counts nor
-forgets. The count is kept in memory and starts again with `serve`. Behind a reverse proxy, name
+forgets; neither does a token that `/token-describe` describes as expired, revoked, renewed or
+removed. The count is kept in memory and starts again with `serve`. Behind a reverse proxy, name
 it with `--trusted-proxy`, or every client counts as the proxy.
 
 ## Signing form

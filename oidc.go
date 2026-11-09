@@ -35,6 +35,7 @@ import (
 	"maps"
 	"mime"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -118,13 +119,18 @@ func (c *oidcClient) fetch(url string, v any) error {
 	return nil
 }
 
-// discover returns the cached discovery document of the issuer of oc, fetching it first; c.mu is
-// held.
+// discover returns the cached discovery document of the issuer of oc, fetching it first, without
+// c.mu held.
 func (c *oidcClient) discover(oc oidcConfig) (*oidcDiscovery, error) {
-	if c.issuer == oc.Issuer && c.discovery != nil {
-		return c.discovery, nil
+	c.mu.Lock()
+	cached := c.discovery
+	if c.issuer != oc.Issuer {
+		cached = nil
 	}
-	c.issuer, c.discovery, c.keys, c.keysAt = oc.Issuer, nil, nil, time.Time{}
+	c.mu.Unlock()
+	if cached != nil {
+		return cached, nil
+	}
 	var d oidcDiscovery
 	if err := c.fetch(strings.TrimSuffix(oc.Issuer, "/")+"/.well-known/openid-configuration", &d); err != nil {
 		return nil, err
@@ -135,12 +141,19 @@ func (c *oidcClient) discover(oc oidcConfig) (*oidcDiscovery, error) {
 	case d.AuthorizationEndpoint == "" || d.TokenEndpoint == "" || d.JWKSURI == "":
 		return nil, fmt.Errorf("the discovery document of %s lacks an endpoint or jwks_uri", oc.Issuer)
 	}
-	c.discovery = &d
-	return c.discovery, nil
+	for _, endpoint := range []string{d.AuthorizationEndpoint, d.TokenEndpoint, d.JWKSURI} {
+		if u, err := url.Parse(endpoint); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return nil, fmt.Errorf("the discovery document of %s names '%s', which is not an http or https URL", oc.Issuer, endpoint)
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.issuer, c.discovery, c.keys, c.keysAt = oc.Issuer, &d, nil, time.Time{}
+	return &d, nil
 }
 
-// key returns the JWKS key kid of the provider of oc, or its only key for an empty kid; c.mu is
-// held.
+// key returns the JWKS key kid of the provider of oc, or its only key for an empty kid, fetching
+// the keys without c.mu held.
 func (c *oidcClient) key(oc oidcConfig, kid string) (crypto.PublicKey, error) {
 	d, err := c.discover(oc)
 	if err != nil {
@@ -155,10 +168,14 @@ func (c *oidcClient) key(oc oidcConfig, kid string) (crypto.PublicKey, error) {
 		k, ok := c.keys[kid]
 		return k, ok && kid != ""
 	}
-	if k, ok := find(); ok {
+	c.mu.Lock()
+	k, ok := find()
+	fetched := c.keys != nil && time.Since(c.keysAt) < oidcKeysRefetch
+	c.mu.Unlock()
+	switch {
+	case ok:
 		return k, nil
-	}
-	if c.keys != nil && time.Since(c.keysAt) < oidcKeysRefetch {
+	case fetched:
 		return nil, apiErr(http.StatusUnauthorized, "invalid ID token: the provider has no key '%s'", kid)
 	}
 	var jwks struct {
@@ -167,7 +184,7 @@ func (c *oidcClient) key(oc oidcConfig, kid string) (crypto.PublicKey, error) {
 	if err := c.fetch(d.JWKSURI, &jwks); err != nil {
 		return nil, err
 	}
-	c.keys, c.keysAt = map[string]crypto.PublicKey{}, time.Now()
+	keys := map[string]crypto.PublicKey{}
 	for _, raw := range jwks.Keys {
 		var meta struct{ Kid, Use string }
 		json.Unmarshal(raw, &meta)
@@ -175,9 +192,12 @@ func (c *oidcClient) key(oc oidcConfig, kid string) (crypto.PublicKey, error) {
 			continue
 		}
 		if pub, _, err := parseJWK(raw); err == nil {
-			c.keys[meta.Kid] = pub
+			keys[meta.Kid] = pub
 		}
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.keys, c.keysAt = keys, time.Now()
 	if k, ok := find(); ok {
 		return k, nil
 	}
@@ -203,8 +223,6 @@ func (c *oidcClient) checkIDToken(oc oidcConfig, raw string) (map[string]any, er
 		return nil, invalid("the algorithm '" + h.Alg + "' is not accepted")
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	pub, err := c.key(oc, h.Kid)
 	if err != nil {
 		return nil, err
@@ -252,6 +270,8 @@ func (c *oidcClient) checkIDToken(oc oidcConfig, raw string) (map[string]any, er
 	case nonce == "":
 		return nil, invalid("no nonce")
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	maps.DeleteFunc(c.nonces, func(_ string, until time.Time) bool { return !now.Before(until) })
 	if _, used := c.nonces[nonce]; used {
 		return nil, invalid("it has been used")
@@ -403,9 +423,7 @@ func (c *oidcClient) apiSettings(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c.mu.Lock()
 	d, err := c.discover(oc)
-	c.mu.Unlock()
 	if err != nil {
 		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusBadGateway, "could not read the discovery document of the OIDC provider")

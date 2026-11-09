@@ -1,6 +1,6 @@
 module github.com/skoszewski/simple-ca
 
-go 1.27.0
+go 1.27.3
 
 require (
 	github.com/skoszewski/serve-markdown/v3 v3.5.2

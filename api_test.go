@@ -260,10 +260,10 @@ func TestAPISign(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if err := makeCA(caDir, "Plain CA", 3650, "plain-ca", "", "rsa"); err != nil {
+	if err := makeCA(caDir, "Plain CA", 0, "plain-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA plain: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")
@@ -689,7 +689,7 @@ func TestSetupCode(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")
@@ -906,7 +906,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 	}
 	cas := []string{"", "servers", "clients", "devices"}
 	for _, id := range cas[1:] {
-		if err := makeCA(rootDir, "CA "+id, 3650, id, "", "rsa"); err != nil {
+		if err := makeCA(rootDir, "CA "+id, 0, id, "", "rsa"); err != nil {
 			t.Fatalf("makeCA %s: %v", id, err)
 		}
 	}
@@ -1279,7 +1279,7 @@ func TestAPISignStoresCertificates(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 3650, "issuing-ca", "", "rsa"); err != nil {
+	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")

@@ -84,7 +84,9 @@ writes it, and it can be written or edited by hand. A setting not described here
 - `acme` - the [ACME](acme.md) server of `serve`:
   - `domains` - the domains whose names and the names below them it issues certificates for;
     without them, `serve` has no ACME server;
-  - `days` - the validity of its certificates, 90 days by default.
+  - `days` - the validity of its certificates, 90 days by default;
+  - `max_accounts`, `max_orders`, `max_names`, `max_contacts`, `max_nonces` - its
+    [limits](acme.md#limits).
 - `days` - defaults for `--days`: `ca`, `cert`, `crl`.
 - `audit` - the [audit log](audit.md):
   - `file` - its path, absolute or relative to the root CA directory; `audit.log` by default.
