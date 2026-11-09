@@ -236,6 +236,9 @@ keys, at most 8, when the CA key changes.
 
 ## Microsoft Entra
 
+`examples/federation/entra.md` walks through the whole setup for one machine, from the issuer to
+the access token of Entra ID.
+
 Microsoft Entra has no upload of keys: it fetches them from the discovery document of the issuer,
 over public HTTPS, with a certificate Microsoft trusts, which a certificate of the CA itself is
 not. Either run `serve` behind a reverse proxy with a public certificate at the issuer's URL, or

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.12.3
+
+fix: examples/federation/entra.md sets up Microsoft Entra ID workload identity federation for one machine, as google.md does for Google Cloud, which request-jwt serves without the Node.js script.
+
+- `examples/federation/entra.md` walks through the issuer published for Entra ID, the
+  application with its federated credential and roles, the token of the machine, and the access
+  token of `request-jwt` or curl; the guide and the menu of the pages link it.
+- `examples/federation/google-access-token.mjs` is removed, as `request-jwt` does what it did;
+  `google.md` no longer names it.
+
 ## 1.12.2
 
 fix: ./build.mjs docker takes its registry from SIMPLE_CA_REGISTRY when --registry is not given.

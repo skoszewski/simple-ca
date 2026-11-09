@@ -17,4 +17,5 @@ menu:
       - Development: docs/development.md
   - Examples:
       - Google Cloud workload identity federation: examples/federation/google.md
+      - Microsoft Entra ID workload identity federation: examples/federation/entra.md
   - Changelog: CHANGELOG.md

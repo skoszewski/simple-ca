@@ -149,9 +149,6 @@ jq -n --arg token "$JWT" --arg audience "$PROVIDER" \
   jq -r .access_token
 ```
 
-`google-access-token.mjs`, beside this guide, does the same in Node.js:
-`google-access-token.mjs CA_URL TOKEN_FILE PROVIDER`.
-
 The `audience` of this request is the provider's name with `//iam.googleapis.com/`, unlike the
 `aud` claim of the JWT, which has `https://`. Each JWT lasts an hour, and the machine asks for a
 new one when it needs one.
