@@ -41,7 +41,9 @@ the port, are changed with `systemctl edit simple-ca.service`.
 ## Debian package
 
 The package that `./build.mjs deb` writes to `dist/`, described in
-[Development](development.md#building), installs:
+[Development](development.md#building), installs as follows; the
+[releases](https://github.com/skoszewski/simple-ca/releases) hold it for amd64 and arm64,
+`simple-ca_X.Y.Z-1_<arch>.deb`:
 
 - `simple-ca`, `request-cert`, `token-setup`, `request-token` and `simple-ca-trust` in `/usr/bin`;
 - `simple-ca.service`, `simple-ca-crl.service` and `simple-ca-crl.timer`, the units above, with
@@ -52,7 +54,7 @@ The package that `./build.mjs deb` writes to `dist/`, described in
 The CA is created as above, and then the units are enabled:
 
 ```sh
-DEB=dist/simple-ca_1.14.2-1_amd64.deb
+DEB=dist/simple-ca_1.15.1-1_amd64.deb
 CA_URL=http://ca.example.com:8080
 sudo dpkg -i "$DEB"
 sudo -u simple-ca simple-ca ca create --ca-dir /etc/simple-ca --ca-url "$CA_URL" "My Root CA"

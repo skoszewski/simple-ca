@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.15.1
+
+fix: the release workflow builds the Debian package for amd64 and arm64 and adds both to the release.
+
+- The new job `deb` of `.github/workflows/build.yml` runs `./build.mjs deb` on an amd64 runner
+  and on an arm64 runner, `ubuntu-24.04-arm`, each with a `docker-container` builder of buildx,
+  and the release holds `simple-ca_X.Y.Z-1_amd64.deb` and `simple-ca_X.Y.Z-1_arm64.deb` beside
+  the archives.
+
 ## 1.15.0
 
 feat: request-jwt becomes request-token, with a subcommand for each token, the access token of a Google service account and the credential file of Google's client libraries and gcloud, and the workload identity guides no longer repeat each other.

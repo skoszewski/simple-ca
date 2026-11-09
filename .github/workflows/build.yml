@@ -4,8 +4,11 @@
 # - build: for each platform, simple-ca, request-cert, token-setup, request-token and
 #   simple-ca-trust, versioned with the tag, in one archive, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz,
 #   .zip for Windows.
+# - deb: the Debian package of ./build.mjs deb for amd64 and arm64, each on a runner of its
+#   architecture, simple-ca_X.Y.Z-1_<arch>.deb.
 # - release: refuses a tag that is not semver, not on main, or not the newest CHANGELOG.md entry;
-#   creates the release with the archives and the tag's message as notes, a prerelease for -PRE.
+#   creates the release with the archives and the package, and the tag's message as notes, a
+#   prerelease for -PRE.
 
 name: build
 
@@ -116,8 +119,41 @@ jobs:
           archive: false
           if-no-files-found: error
 
+  deb:
+    needs: check
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-latest }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      # The whole history with its tags, so build.mjs finds the tag of the newest entry.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      # A docker-container builder, which writes the package with --output type=local.
+      - uses: docker/setup-buildx-action@v4
+      # Builds the package in Docker for the architecture of the runner.
+      - name: Debian package
+        id: deb
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          node build.mjs deb
+          package="$(cd dist && ls "simple-ca_"*"_$ARCH.deb")"
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/${{ steps.deb.outputs.package }}
+          archive: false
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, deb]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -161,7 +197,8 @@ jobs:
           path: dist
           merge-multiple: true
           skip-decompress: true
-      # Creates the release with the archives, a prerelease for a tag with a -PRE part.
+      # Creates the release with the archives and the package, a prerelease for a tag with a -PRE
+      # part.
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}

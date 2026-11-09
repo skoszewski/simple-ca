@@ -72,8 +72,10 @@ version for `linux/amd64` and `linux/arm64`, the macOS version for `darwin/amd64
 `darwin/arm64` on GitHub's Xcode 27 image, and the Windows version for `windows/amd64` and
 `windows/arm64`, running on the installed .NET runtime, with `build.mjs trust`, and packs each
 into the archive of its platform, `simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` for Windows,
-with `simple-ca`, `request-cert`, `token-setup` and `request-token`; [Trust stores](trust.md) has the commands for
-building it by hand.
+with `simple-ca`, `request-cert`, `token-setup` and `request-token`; [Trust stores](trust.md) has
+the commands for building it by hand. It also builds the Debian package with `./build.mjs deb`
+for amd64 and arm64, each on a runner of its architecture with a `docker-container` builder of
+buildx, and adds `simple-ca_X.Y.Z-1_amd64.deb` and `simple-ca_X.Y.Z-1_arm64.deb` to the release.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
 are run with `./build.mjs test` or `./build.mjs check`. It refuses a tag that is not on `main` or
