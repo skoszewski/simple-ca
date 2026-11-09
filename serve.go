@@ -23,7 +23,9 @@
 package main
 
 import (
+	"crypto"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"embed"
 	"encoding/asn1"
@@ -117,8 +119,34 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 				"client", clientAddr(r).String())
 		})}
 	if tlsCert != "" {
+		chain, err := os.ReadFile(tlsCert)
+		if err != nil {
+			return err
+		}
+		var certificate tls.Certificate
+		for block, rest := pem.Decode(chain); block != nil; block, rest = pem.Decode(rest) {
+			if block.Type == "CERTIFICATE" {
+				certificate.Certificate = append(certificate.Certificate, block.Bytes)
+			}
+		}
+		if len(certificate.Certificate) == 0 {
+			return fmt.Errorf("no CERTIFICATE PEM block in %s", tlsCert)
+		}
+		leaf, err := x509.ParseCertificate(certificate.Certificate[0])
+		if err != nil {
+			return fmt.Errorf("%s: %w", tlsCert, err)
+		}
+		key, err := loadKey(tlsKey)
+		if err != nil {
+			return err
+		}
+		if !key.Public().(interface{ Equal(crypto.PublicKey) bool }).Equal(leaf.PublicKey) {
+			return fmt.Errorf("the key in %s does not match the certificate in %s", tlsKey, tlsCert)
+		}
+		certificate.PrivateKey = key
+		server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{certificate}}
 		listening("https://" + listener.Addr().String())
-		return server.ServeTLS(listener, tlsCert, tlsKey)
+		return server.ServeTLS(listener, "", "")
 	}
 	listening("http://" + listener.Addr().String())
 	return server.Serve(listener)

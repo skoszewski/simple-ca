@@ -8,7 +8,10 @@ listens on, `127.0.0.1` by default and `0.0.0.0` for all interfaces (`::` also w
 `--port` the TCP port, 8080 by default. With `--tls-cert` and `--tls-key`, PEM files of a
 certificate chain and its key, it serves HTTPS instead, as [ACME](acme.md) clients require; the
 certificate can be one of the CA itself. Without them, `SIMPLE_CA_TLS_CERT` and
-`SIMPLE_CA_TLS_KEY` name the two files; either way, the two are given together. With `--docs`,
+`SIMPLE_CA_TLS_KEY` name the two files; either way, the two are given together. When the key or
+a CA key is [encrypted](usage.md#encrypted-private-keys), `serve` gets the passphrase at start,
+from `SIMPLE_CA_KEY_PASSWORD` or `SIMPLE_CA_KEY_PASSWORD_FILE`, else at the prompt of its
+terminal, and does not start without it. With `--docs`,
 it also shows the guides of `simple-ca`, the files of `docs/`, at `/docs/`.
 
 With `--webui`, it also serves the [token page](signing-api.md#token-page) at `/tokens/`, the

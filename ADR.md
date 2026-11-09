@@ -105,6 +105,30 @@ CA gives EC certificates without a flag. An ECDSA key cannot encipher keys (RFC 
 certificate of any EC key leaves out `keyEncipherment`, whatever its type or `--ku` names,
 also for requests signed by the API, the form and ACME.
 
+## Private keys are encrypted as PKCS#8 PBES2 by own code on the standard library
+
+An encrypted key is the `ENCRYPTED PRIVATE KEY` of RFC 5958 with PBES2 (RFC 8018). This is the
+form OpenSSL writes and reads, so `openssl pkey`, `openssl ca` and the servers a leaf key is
+copied to read it with the passphrase. The legacy `Proc-Type` PEM encryption of
+`x509.EncryptPEMBlock` is deprecated and weak, so it is not used. Go's standard library has
+PBKDF2, AES-CBC and ASN.1, but no encoder of the format, and go-pkcs12 does not export its own,
+so the structures and the padding are own code in `helpers.go` instead of a new dependency.
+
+One passphrase serves every CA, so `serve` and the CRL timer need one secret. It comes from
+`SIMPLE_CA_KEY_PASSWORD` or a file, which fits systemd credentials and container secrets. The
+terminal prompt needs `golang.org/x/term`, since the standard library cannot turn echo off.
+
+Only the start of a command may ask, through `keyPassphrase(true)`. Every other call passes
+`false` and fails without a passphrase, so `serve` never blocks a request on a prompt, and a
+command without a terminal never waits.
+
+A key is written encrypted whenever the command knows the passphrase. A CA that has one is then
+encrypted throughout without a flag on each command.
+
+PBKDF2 with 600000 iterations takes a noticeable part of a second, so `loadKey` keeps each key it
+read with the bytes of its file. `serve`, which loads the CA key for every request, derives the
+key again only after the file changes.
+
 ## The token and certificate pages are part of serve
 
 `serve --webui` serves the token page at `/tokens/` and the certificate page at `/certificates/`,

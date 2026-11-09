@@ -126,6 +126,10 @@ var commands = []command{
 		{name: "issue", summary: "Print a JWT of a token type, not stored, for workload identity federation.", run: runTokenIssue},
 		{name: "jwks", summary: "Print the JSON Web Key Set verifying the tokens of a CA.", run: runTokenJWKS},
 	}},
+	{name: "key", summary: "Encrypt and decrypt the private keys of CAs and certificates.", sub: []command{
+		{name: "encrypt", summary: "Encrypt the private keys of a CA with the passphrase.", run: runKeyEncrypt},
+		{name: "decrypt", summary: "Decrypt the private keys of a CA.", run: runKeyDecrypt},
+	}},
 	{name: "audit", summary: "Read the audit log of a root CA and its issuing CAs.", sub: []command{
 		{name: "list", summary: "Print the records of the audit log, filtered.", run: runAuditList},
 	}},

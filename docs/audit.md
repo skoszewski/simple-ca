@@ -47,6 +47,8 @@ form. A record never holds a token, a setup code, an ID token, a key or a passwo
 | `cert.revoke` | `serial`, `reason` |
 | `cert.pfx` | `file`, the certificate the bundle was made of; also when the certificate page makes a file to download |
 | `crl.write` | `number` |
+| `key.encrypt` | `files`, the comma-separated names of the keys of the CA that `key encrypt` encrypted |
+| `key.decrypt` | `files`, the comma-separated names of the keys of the CA that `key decrypt` decrypted |
 | `token.create` | `name`, `scopes`, `setup_code`; `federate` and `audience`, empty for that of the type, for a token with the scope `federate` |
 | `token.renew` | `name`, `setup_code` |
 | `token.issue` | `name`, the token of `/api/federation-token`, or the name of `token issue`, `token_type`, `audience`, `subject`, `jti`: a JWT of a token type, which is not stored; its claims are not written |

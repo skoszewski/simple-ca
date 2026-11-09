@@ -54,6 +54,9 @@ func runCRLCreate(args []string) error {
 		*days = cfg.Days.CRL
 	}
 	if !*all {
+		if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+			return err
+		}
 		if err := makeCRL(dir, *days); err != nil {
 			return err
 		}
@@ -73,6 +76,13 @@ func runCRLCreate(args []string) error {
 		if e.IsDir() && fileExists(filepath.Join(sub, "ca_cert.pem")) && fileExists(filepath.Join(sub, "ca_key.pem")) {
 			dirs = append(dirs, sub)
 		}
+	}
+	keys := make([]string, len(dirs))
+	for i, d := range dirs {
+		keys[i] = filepath.Join(d, "ca_key.pem")
+	}
+	if err := readKeyPassphrase(keys...); err != nil {
+		return err
 	}
 	var errs []error
 	for _, d := range dirs {

@@ -105,6 +105,9 @@ func runTokenCreate(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
+	if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+		return err
+	}
 	cfg, err := loadRootConfig(dir)
 	if err != nil {
 		return err
@@ -214,6 +217,9 @@ func runTokenIssue(args []string) error {
 	caKeyPath := filepath.Join(dir, "ca_key.pem")
 	if !fileExists(filepath.Join(dir, "ca_cert.pem")) || !fileExists(caKeyPath) {
 		return fmt.Errorf("CA certificate and key not found in %s. Please point --ca-dir to a CA directory", dir)
+	}
+	if err := readKeyPassphrase(caKeyPath); err != nil {
+		return err
 	}
 	cfg, err := loadRootConfig(dir)
 	if err != nil {
@@ -440,6 +446,9 @@ func runTokenRenew(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
+	if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+		return err
+	}
 	token, err := reissueToken(dir, rest[0], *valid, setupValid, setupClients)
 	if err != nil {
 		return err

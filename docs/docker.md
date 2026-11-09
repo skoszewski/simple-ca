@@ -58,6 +58,16 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" -w /work -e SIMPLE_CA
   --entrypoint request-cert simple-ca "$CA_URL" web.example.com
 ```
 
+With [encrypted private keys](usage.md#encrypted-private-keys), a container without a terminal
+gets the passphrase from a file, mounted read-only and readable by the user of the container, and
+named by `SIMPLE_CA_KEY_PASSWORD_FILE`:
+
+```sh
+KEY_PASSWORD_FILE=$HOME/.config/simple-ca/key-password
+docker run -d -p 8080:8080 -v simple-ca:/data -v "$KEY_PASSWORD_FILE:/run/secrets/key-password:ro" \
+  -e SIMPLE_CA_KEY_PASSWORD_FILE=/run/secrets/key-password simple-ca serve --address 0.0.0.0
+```
+
 ## Docker Compose
 
 `examples/compose.yaml` runs the image of `./build.mjs docker` as the service `simple-ca`, with

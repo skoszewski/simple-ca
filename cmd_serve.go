@@ -84,10 +84,18 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	var keys []string
+	if *tlsKey != "" {
+		keys = append(keys, *tlsKey)
+	}
 	for _, id := range caIDs(rootDir) {
 		if _, err := loadTheme(filepath.Join(rootDir, id)); err != nil {
 			return err
 		}
+		keys = append(keys, filepath.Join(rootDir, id, "ca_key.pem"))
+	}
+	if err := readKeyPassphrase(keys...); err != nil {
+		return err
 	}
 	if err := checkOIDC(rootDir, cfg); err != nil {
 		return err

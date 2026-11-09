@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.13.0
+
+feat: private keys are encrypted at rest with a passphrase, as PKCS#8 PBES2 files that OpenSSL reads, and the new commands key encrypt and key decrypt convert the keys of a CA.
+
+- `SIMPLE_CA_KEY_PASSWORD`, or the file named by `SIMPLE_CA_KEY_PASSWORD_FILE`, is the passphrase
+  of the private keys, one for every CA. A command that reads an encrypted key asks for it at its
+  start when neither is set and the standard input is a terminal, and fails without it otherwise.
+- With the passphrase known, `ca create`, `cert create` and the certificate page write the CA and
+  certificate keys as `ENCRYPTED PRIVATE KEY` (PBKDF2-HMAC-SHA256, 600000 iterations,
+  AES-256-CBC); without it they write unencrypted keys, as before.
+- Every command and `serve` read encrypted keys, also those OpenSSL encrypts with PBES2, PBKDF2 and
+  AES-CBC. `serve` gets the passphrase before it listens and does not start without it.
+- `key encrypt` and `key decrypt` convert `ca_key.pem` and the `*_key.pem` files of the CA in
+  `--ca-dir`, or with `--all` of the root CA and all its issuing CAs, and write the audit records
+  `key.encrypt` and `key.decrypt`.
+- The `--tls-key` of `serve` may be encrypted, and a key that does not match `--tls-cert` is
+  refused at start.
+- `golang.org/x/term` is a new dependency, for the prompt without echo.
+
 ## 1.12.5
 
 fix: the menu of the guides groups the overview and the Google Cloud and Microsoft Entra ID walkthroughs of workload identity federation under one entry.

@@ -39,6 +39,9 @@ simple-ca token issue  [--ca-dir DIR] --token-type TYPE [--audience AUDIENCE]
                        [--claim NAME=VALUE ...] [--valid DURATION] NAME
 simple-ca token jwks   [--ca-dir DIR]
 
+simple-ca key encrypt  [--ca-dir DIR] [--all]
+simple-ca key decrypt  [--ca-dir DIR] [--all]
+
 simple-ca audit list   [--ca-dir DIR] [--event EVENT] [--ca NAME] [--actor ACTOR]
                        [--since TIME] [--until TIME]
 
@@ -48,7 +51,7 @@ simple-ca serve        [--ca-dir DIR] [--address ADDRESS] [--port PORT]
 simple-ca --version
 ```
 
-The commands are in groups, `ca`, `cert`, `crl`, `token` and `audit`; `serve` is a command of
+The commands are in groups, `ca`, `cert`, `crl`, `token`, `key` and `audit`; `serve` is a command of
 its own. The commands that change a CA write its [audit log](audit.md), which `audit list` reads.
 `simple-ca -h` lists the groups, `simple-ca GROUP -h` the commands of a group, and
 `simple-ca GROUP COMMAND -h` the options of a command. Options come before the arguments, and take
@@ -59,7 +62,8 @@ and it holds the CA a command works with. A CA whose certificate is self-signed 
 any other is an issuing CA, and its root CA is in the directory above it.
 
 The certificate and the key of HTTPS of `serve` are `--tls-cert` and `--tls-key`, else
-`SIMPLE_CA_TLS_CERT` and `SIMPLE_CA_TLS_KEY`, given together.
+`SIMPLE_CA_TLS_CERT` and `SIMPLE_CA_TLS_KEY`, given together. The key may be encrypted, as
+described under [Encrypted private keys](#encrypted-private-keys).
 
 ## ca create
 
@@ -291,6 +295,53 @@ them every certificate is listed. A certificate is expired from its expiry on. T
 STATUS   EXPIRES                  REVOKED                  REASON         SERIAL                                    SUBJECT
 valid    2027-10-30 21:51:52 UTC  -                        -              22AECF2AC0EE6D9185176A6CCEE9FC743F12EB9A  /CN=web.example.com
 revoked  2027-10-30 21:51:52 UTC  2026-10-30 21:51:52 UTC  keyCompromise  12193ECDF2A38AF35B12C657CD52BC5C4CC7626D  /CN=alice.example.com
+```
+
+## Encrypted private keys
+
+The private keys, the `ca_key.pem` of the CAs and the `{name}_key.pem` of the certificates, are
+PKCS#8 PEM files, encrypted with a passphrase or not. One passphrase serves every CA. It is
+`SIMPLE_CA_KEY_PASSWORD`, else the content of the file named by `SIMPLE_CA_KEY_PASSWORD_FILE`,
+without its line end; setting both is an error, and so is an empty passphrase.
+
+A command that reads an encrypted key gets the passphrase at its start. When neither variable is
+set and the standard input is a terminal, it asks for it, without echo:
+`Passphrase for private keys:`. Without a terminal it fails with `no passphrase for private keys`.
+`serve` gets it before it listens, when a CA key or its `--tls-key` is encrypted, so it never
+asks while serving.
+
+A command that knows the passphrase writes the keys it makes encrypted. These are the keys of
+`ca create`, `cert create` and the certificate page. It knows the passphrase from the variables,
+or from the prompt when it read an encrypted key. Without the passphrase it writes them
+unencrypted. Unencrypted keys are read as before.
+
+An encrypted key is an `ENCRYPTED PRIVATE KEY` block with these parameters:
+
+- PBES2, with PBKDF2-HMAC-SHA256, 600000 iterations and a 16-byte salt, and AES-256-CBC;
+- the form `openssl pkcs8 -topk8 -v2 aes-256-cbc` writes.
+
+Keys encrypted by OpenSSL with PBES2, PBKDF2 with HMAC-SHA1 or HMAC-SHA256, and AES-128, AES-192
+or AES-256 in CBC mode are read too. `openssl` reads the keys with `-passin`, for a server that
+needs its key unencrypted, or for `openssl ca`:
+
+```sh
+openssl pkey -in web_key.pem -passin env:SIMPLE_CA_KEY_PASSWORD -out /etc/ssl/private/web_key.pem
+```
+
+`key encrypt` encrypts `ca_key.pem` and the `*_key.pem` files of the CA in the CA directory, and
+`key decrypt` writes them unencrypted. With `--all`, each command converts the keys of the root
+CA of the CA directory and of all its issuing CAs. The behaviour of both commands:
+
+- a key already in the form asked for is left as it is;
+- each key converted is printed, and replaced by a new file with mode 0600;
+- keys written to a `--cert-dir` outside the CA directories are not converted.
+
+A passphrase is changed with `key decrypt` under the old one, then `key encrypt` under the new
+one.
+
+```sh
+export SIMPLE_CA_KEY_PASSWORD_FILE=/etc/simple-ca/key-password
+simple-ca key encrypt --ca-dir /tmp/ca --all
 ```
 
 ## Certificate page

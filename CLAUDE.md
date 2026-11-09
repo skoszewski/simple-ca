@@ -21,13 +21,14 @@
 
 ## Code
 
-- Go standard library only; `go-pkcs12` and serve-markdown's `render` package, which draws the
-  `/help/` page, are the dependencies, and no other is added.
+- Go standard library only; `go-pkcs12`, serve-markdown's `render` package, which draws the
+  `/help/` page, and `golang.org/x/term`, which reads the passphrase of the private keys without
+  echo, are the dependencies, and no other is added.
 - `simple-ca-trust` uses each platform's standard library only: `cmd/simple-ca-trust` the Go
   standard library, `trust/windows` the .NET base class library, without NuGet packages, and
   `trust/macos` Swift with the system frameworks, without package dependencies.
 - The command line uses the standard `flag` package, without a command framework.
-- Commands are grouped as `simple-ca GROUP COMMAND`: `ca`, `cert`, `crl` and `token`, with the
+- Commands are grouped as `simple-ca GROUP COMMAND`: `ca`, `cert`, `crl`, `token`, `key` and `audit`, with the
   verb `create` for making things; `serve` stands alone. No flat commands are added.
 - The names of flags, issuing CAs, certificate types and tokens are kebab-case (`kebabCaseRE`); JSON keys
   and file names are snake_case.

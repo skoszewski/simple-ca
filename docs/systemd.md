@@ -38,6 +38,27 @@ sudo systemctl enable --now simple-ca.service simple-ca-crl.timer
 The CRL is renewed daily, well within `days.crl`, 30 days by default. Other settings, such as
 the port, are changed with `systemctl edit simple-ca.service`.
 
+## Encrypted keys
+
+With [encrypted private keys](usage.md#encrypted-private-keys), both services need the
+passphrase, since neither has a terminal to ask at. `key encrypt` asks for it on the terminal,
+and a file readable by root alone keeps it for the services:
+
+```sh
+sudo -u simple-ca simple-ca key encrypt --ca-dir /etc/simple-ca --all
+sudo install -m 600 /dev/null /etc/simple-ca-key-password
+sudoedit /etc/simple-ca-key-password
+```
+
+A credential passes the file to each service, in a drop-in of each, made with
+`sudo systemctl edit simple-ca.service` and `sudo systemctl edit simple-ca-crl.service`:
+
+```ini
+[Service]
+LoadCredential=key-password:/etc/simple-ca-key-password
+Environment=SIMPLE_CA_KEY_PASSWORD_FILE=%d/key-password
+```
+
 ## Log and audit records
 
 `serve` sends every record of its [log](serve.md), its start, pages, warnings, errors, requests

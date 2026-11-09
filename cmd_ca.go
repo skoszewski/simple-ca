@@ -45,6 +45,11 @@ func runCACreate(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
+	if *issuingCA != "" {
+		if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+			return err
+		}
+	}
 	cfg, err := loadConfig(dir)
 	if err != nil {
 		return err

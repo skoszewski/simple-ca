@@ -38,13 +38,14 @@ openssl verify -CAfile /tmp/ca/ca_bundle.pem /tmp/ca/web_cert.pem
 simple-ca serve --ca-dir /tmp/ca
 ```
 
-The commands are in groups, `ca`, `cert`, `crl` and `token`, and `serve` is a command of its own;
+The commands are in groups, `ca`, `cert`, `crl`, `token`, `key` and `audit`, and `serve` is a
+command of its own;
 `simple-ca -h` lists them.
 
 ## Documentation
 
 - [Usage](docs/usage.md) - the commands: CAs, certificates, signing requests, PFX bundles,
-  revocation and CRLs.
+  revocation, CRLs and encrypted private keys.
 - [Directory layout](docs/directory-layout.md) - the files of a CA, their names, and the
   certificate database shared with `openssl ca`.
 - [Configuration](docs/configuration.md) - `simple-ca.json`: publish URL, default validity

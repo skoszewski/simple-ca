@@ -27,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -55,6 +56,9 @@ func runCertCreate(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
+	if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+		return err
+	}
 	cfg, err := loadRootConfig(dir)
 	if err != nil {
 		return err
@@ -115,6 +119,9 @@ func runCertSign(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
+	if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+		return err
+	}
 	cfg, err := loadRootConfig(dir)
 	if err != nil {
 		return err
@@ -139,6 +146,9 @@ func runCertPFX(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
+	if err := readKeyPassphrase(strings.TrimSuffix(rest[0], "_cert.pem") + "_key.pem"); err != nil {
+		return err
+	}
 	if err := makePFX(rest[0], dir, *password); err != nil {
 		return err
 	}
