@@ -191,6 +191,18 @@ func readKeyPassphrase(paths ...string) error {
 	return err
 }
 
+// keyStatus returns ENC for the encrypted private key file at path, PLAIN for an unencrypted one,
+// and - when there is no file.
+func keyStatus(path string) string {
+	switch {
+	case !fileExists(path):
+		return "-"
+	case keyEncrypted(path):
+		return "ENC"
+	}
+	return "PLAIN"
+}
+
 // keyEncrypted reports whether the first PEM block of the file path is an encrypted private key.
 func keyEncrypted(path string) bool {
 	b, err := os.ReadFile(path)

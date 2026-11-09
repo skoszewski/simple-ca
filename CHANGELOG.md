@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.13.1
+
+fix: cert list, cert show, ca show and the certificate page show whether the private key of a certificate or CA is encrypted.
+
+- `cert list` has a `KEY` column: `ENC` for an encrypted key in the CA directory, `PLAIN` for an
+  unencrypted one, `-` for none; the issuing CAs of a root CA show their `ca_key.pem`.
+- `ca show` and `cert show` end with `Private key:`, `ENC`, `PLAIN` or `-`; `cert show` gives it
+  for a file of one certificate named `NAME_cert.pem`.
+- The certificate page has a Key column with a closed padlock for an encrypted key and an open one
+  for an unencrypted key, and its Show dialog has the line Private key with the padlock.
+
 ## 1.13.0
 
 feat: private keys are encrypted at rest with a passphrase, as PKCS#8 PBES2 files that OpenSSL reads, and the new commands key encrypt and key decrypt convert the keys of a CA.

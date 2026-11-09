@@ -265,6 +265,11 @@ usage, DNS, IP, email, URI and registered ID subject alternative names, subject 
 IDs, AIA and CRL Distribution Point URLs, and the SHA-256 fingerprint. A field the certificate
 does not have is left out.
 
+`Private key` follows the fields: `ENC` for a key file encrypted with the passphrase of the
+[private keys](#encrypted-private-keys), `PLAIN` for an unencrypted one, and `-` for none. `ca
+show` gives it for `ca_key.pem`. `cert show` gives it for a file of one certificate named
+`NAME_cert.pem`, for `NAME_key.pem` beside it.
+
 ```text
 Subject:                 /CN=web.example.com
 Issuer:                  /CN=Servers CA
@@ -282,19 +287,23 @@ Authority key ID:        D5:22:EF:64:C5:3E:9D:79:27:C0:0D:14:A8:BB:1E:0A:FB:46:B
 AIA CA issuers:          http://pki.example.com/servers/ca_cert.crt
 CRL distribution point:  http://pki.example.com/servers/crl.pem
 SHA-256 fingerprint:     81:02:F1:BB:D7:4D:5E:94:25:D9:A6:61:8C:F4:93:41:80:74:B9:9E:F9:EC:75:E8:03:31:6C:22:85:26:18:27
+Private key:             ENC
 ```
 
 ## cert list
 
 Lists the certificates the CA in the CA directory issued, with their status, expiry, revocation
-date and reason, serial and subject; those of a root CA include its issuing CAs. `--valid`,
+date and reason, key, serial and subject; those of a root CA include its issuing CAs. `KEY` is
+`ENC` for a key in the CA directory that is encrypted, `PLAIN` for an unencrypted one, and `-`
+for none, as for a certificate of `cert sign`. The key of a certificate is `NAME_key.pem` beside
+its `NAME_cert.pem`, and that of an issuing CA its `ca_key.pem`. `--valid`,
 `--revoked` and `--expired` choose the certificates listed, and can be combined; without any of
 them every certificate is listed. A certificate is expired from its expiry on. The times are UTC.
 
 ```text
-STATUS   EXPIRES                  REVOKED                  REASON         SERIAL                                    SUBJECT
-valid    2027-10-30 21:51:52 UTC  -                        -              22AECF2AC0EE6D9185176A6CCEE9FC743F12EB9A  /CN=web.example.com
-revoked  2027-10-30 21:51:52 UTC  2026-10-30 21:51:52 UTC  keyCompromise  12193ECDF2A38AF35B12C657CD52BC5C4CC7626D  /CN=alice.example.com
+STATUS   EXPIRES                  REVOKED                  REASON         KEY    SERIAL                                    SUBJECT
+valid    2027-10-30 21:51:52 UTC  -                        -              ENC    22AECF2AC0EE6D9185176A6CCEE9FC743F12EB9A  /CN=web.example.com
+revoked  2027-10-30 21:51:52 UTC  2026-10-30 21:51:52 UTC  keyCompromise  PLAIN  12193ECDF2A38AF35B12C657CD52BC5C4CC7626D  /CN=alice.example.com
 ```
 
 ## Encrypted private keys
@@ -352,7 +361,9 @@ page, and offers no file to download. The page shows one CA at a time, chosen in
 starting with the root CA:
 
 - its certificates, with their status, subject, expiry and revocation, and its current CRL, with
-  its number and next update, marked when overdue;
+  its number and next update, marked when overdue. The **Key** column shows a closed padlock for
+  a private key in the CA directory that is encrypted, an open one for an unencrypted key, and `-`
+  for none; for the root CA, the keys of its issuing CAs are shown too;
 - **Search** and **Status**: the list shows the certificates holding every word of the search,
   in any letter case, in their subject, serial number, status or revocation reason, and of any of
   the statuses ticked: valid, expired or revoked. A count tells how many are shown. The search and
@@ -360,7 +371,8 @@ starting with the root CA:
   commas, so a reload or a link keeps them;
 - **Show**: the fields of a certificate, as `cert show` writes them, in a dialog naming the file
   they are read from: a certificate file of the CA directory, `NAME_cert.pem`, or for the root CA
-  the `ca_cert.pem` of an issuing CA. A certificate whose file a later certificate of the same name
+  the `ca_cert.pem` of an issuing CA, and the padlock of its private key with `encrypted` or
+  `unencrypted`. A certificate whose file a later certificate of the same name
   replaced, or which is not in the CA directory, cannot be shown;
 - **Create a certificate**: a dialog of `cert create`, with the type, the subject and the other
   names, the days, and the key usages and extended key usages added to those of the type; the

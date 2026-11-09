@@ -56,6 +56,9 @@ DerivedData/
 *.token
 *.tokens
 
+# Passwords
+*.secret
+
 # Editor/IDE
 # .idea/
 # .vscode/

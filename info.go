@@ -297,6 +297,9 @@ func showCert(w io.Writer, path string) error {
 		}
 		writeCertFields(tw, cert, now)
 	}
+	if len(certs) == 1 && strings.HasSuffix(path, "_cert.pem") {
+		fmt.Fprintf(tw, "Private key:\t%s\n", keyStatus(strings.TrimSuffix(path, "_cert.pem")+"_key.pem"))
+	}
 	return tw.Flush()
 }
 
@@ -334,6 +337,7 @@ func showInfo(w io.Writer, caDir string) error {
 	fmt.Fprintf(tw, "Role:\t%s\n", kind)
 	fmt.Fprintf(tw, "Directory:\t%s\n", signingDir)
 	writeCertFields(tw, cert, now)
+	fmt.Fprintf(tw, "Private key:\t%s\n", keyStatus(filepath.Join(signingDir, "ca_key.pem")))
 	fmt.Fprintf(tw, "Certificates:\t%d valid, %d revoked, %d expired\n", counts["valid"], counts["revoked"], counts["expired"])
 
 	// The CRL last written by crl create and the number of the next one.
@@ -393,7 +397,8 @@ func listCerts(w io.Writer, caDir string, statuses []string) error {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "STATUS\tEXPIRES\tREVOKED\tREASON\tSERIAL\tSUBJECT")
+	fmt.Fprintln(tw, "STATUS\tEXPIRES\tREVOKED\tREASON\tKEY\tSERIAL\tSUBJECT")
+	keys := keyFiles(signingDir)
 	now := time.Now()
 	for _, e := range entries {
 		status, err := entryStatus(e, now)
@@ -422,7 +427,12 @@ func listCerts(w io.Writer, caDir string, statuses []string) error {
 				reason = name
 			}
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", status, expires.UTC().Format(displayTimeFormat), revoked, reason, e.serial, e.subject)
+		key := "-"
+		if path, ok := keys[e.serial]; ok {
+			key = keyStatus(path)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", status, expires.UTC().Format(displayTimeFormat), revoked, reason, key,
+			e.serial, e.subject)
 	}
 	return tw.Flush()
 }

@@ -4,6 +4,22 @@
 // download, with a new random password shown once.
 let signing = false;
 
+// lock returns the icon of a private key, ENC a locked padlock, PLAIN an open one, titled with
+// the words it stands for, or - for a certificate without a key in the CA directory.
+const lockPaths = {
+  ENC: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  PLAIN: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
+};
+const lockTitles = { ENC: "Encrypted private key", PLAIN: "Unencrypted private key" };
+function lock(key) {
+  if (!lockPaths[key]) {
+    return element("span", { className: "text-muted", textContent: "-" });
+  }
+  return element("span", { title: lockTitles[key], className: "inline-flex align-middle " + (key === "ENC" ? "text-ink" : "text-muted"),
+    innerHTML: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="' + lockTitles[key] + '">' + lockPaths[key] + "</svg>" });
+}
+
 // showCA draws the certificates of the CA on the page, and its CRL.
 async function showCA() {
   const ca = currentCA();
@@ -19,6 +35,7 @@ async function showCA() {
     cell(element("span", {}, ...named(subjectName(c.subject), c.subject)), "whitespace-nowrap"),
     cell(time(c.expires), "whitespace-nowrap"),
     cell(c.revoked ? time(c.revoked) + (c.reason ? ", " + c.reason : "") : "-", "whitespace-nowrap"),
+    cell(lock(c.key)),
     element("td", { className: "py-1.5 text-right" }, element("div", { className: "flex justify-end gap-2" },
       c.has_key ? button("Download", () => download(c.serial)) : null,
       c.status === "revoked" ? null : button("Revoke", () => revoke(c)),
@@ -30,7 +47,7 @@ async function showCA() {
   $("ca-section").replaceChildren(
     heading(ca),
     answer.certs.length === 0 ? element("p", { className: "text-sm text-muted", textContent: "No certificates." }) :
-      searchable({ items: answer.certs, row, noun: "certificates", headings: ["Status", "Subject", "Expires", "Revoked", ""],
+      searchable({ items: answer.certs, row, noun: "certificates", headings: ["Status", "Subject", "Expires", "Revoked", "Key", ""],
         text: (c) => [c.status, oneLine(c.subject), ...c.subject.map(([, value]) => value), c.serial, c.reason || ""],
         filters: [{ name: "status", label: "Status", multiple: true, match: (c, values) => values.includes(c.status),
           choices: [["", "all"], ["valid", "valid"], ["expired", "expired"], ["revoked", "revoked"]] }] }),
@@ -88,7 +105,10 @@ async function show(c) {
   $("show-file").textContent = "From " + answer.file + " in the CA directory.";
   $("show-fields").replaceChildren(...fields.flatMap(([name, value]) => [
     element("dt", { className: "font-medium text-muted", textContent: name }),
-    element("dd", { className: "font-mono text-xs break-all sm:pt-0.5", textContent: value })]));
+    element("dd", { className: "font-mono text-xs break-all sm:pt-0.5", textContent: value })]),
+  element("dt", { className: "font-medium text-muted", textContent: "Private key" }),
+  element("dd", { className: "flex items-center gap-1.5 text-xs" }, lock(answer.key),
+    { ENC: "encrypted", PLAIN: "unencrypted" }[answer.key] || ""));
   $("show-dialog").showModal();
 }
 

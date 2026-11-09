@@ -40,7 +40,8 @@ import (
 
 // webuiCert is a certificate of the API, as index.txt of its CA records it: its serial number, the
 // attributes of its subject, each a type and a value, its status, valid, revoked or expired, its
-// expiry, when and why it was revoked, and whether the CA directory holds its key.
+// expiry, when and why it was revoked, whether the CA directory holds the key a PKCS#12 file is
+// made with, and whether its key, that of an issuing CA too, is ENC, PLAIN or - for none.
 type webuiCert struct {
 	Serial  string      `json:"serial"`
 	Subject [][2]string `json:"subject"`
@@ -49,6 +50,7 @@ type webuiCert struct {
 	Revoked *time.Time  `json:"revoked"`
 	Reason  string      `json:"reason"`
 	HasKey  bool        `json:"has_key"`
+	Key     string      `json:"key"`
 }
 
 // webuiCRL is the current CRL of a CA: its number, its next update, and whether that has passed.
@@ -233,7 +235,7 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 		return
 	}
 	now := time.Now()
-	files := certFiles(dir)
+	files, keys := certFiles(dir), keyFiles(dir)
 	certs := []webuiCert{}
 	for _, e := range entries {
 		status, err := entryStatus(e, now)
@@ -246,7 +248,10 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 			webuiFail(w, http.StatusInternalServerError, "invalid expiry of serial "+e.serial)
 			return
 		}
-		c := webuiCert{Serial: e.serial, Subject: subjectAttributes(e.subject), Status: status, Expires: expires}
+		c := webuiCert{Serial: e.serial, Subject: subjectAttributes(e.subject), Status: status, Expires: expires, Key: "-"}
+		if path, ok := keys[e.serial]; ok {
+			c.Key = keyStatus(path)
+		}
 		if path, ok := files[e.serial]; ok {
 			c.HasKey = fileExists(strings.TrimSuffix(path, "_cert.pem") + "_key.pem")
 		}
@@ -270,6 +275,23 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 	webuiReply(w, http.StatusOK, map[string]any{"certs": certs, "crl": crl})
 }
 
+// keyFiles returns the paths of the private keys of the certificates the CA in dir issued, by
+// their serial numbers: NAME_key.pem beside NAME_cert.pem, and for a root CA, the ca_key.pem of
+// each issuing CA; a path may name no file.
+func keyFiles(dir string) map[string]string {
+	keys := map[string]string{}
+	for serial, path := range certFiles(dir) {
+		keys[serial] = strings.TrimSuffix(path, "_cert.pem") + "_key.pem"
+	}
+	issuing, _ := filepath.Glob(filepath.Join(dir, "*", "ca_cert.pem"))
+	for _, path := range issuing {
+		if cert, err := loadCert(path); err == nil {
+			keys[serialHex(cert.SerialNumber)] = filepath.Join(filepath.Dir(path), "ca_key.pem")
+		}
+	}
+	return keys
+}
+
 // certFiles returns the certificate files NAME_cert.pem of the CA directory dir, besides that of
 // the CA, by the serial numbers of the certificates they hold.
 func certFiles(dir string) map[string]string {
@@ -286,8 +308,9 @@ func certFiles(dir string) map[string]string {
 	return files
 }
 
-// showCert answers with the file holding the certificate of the serial number serial, and the
-// content of the certificate, as certDetails returns it. The certificate
+// showCert answers with the file holding the certificate of the serial number serial, whether its
+// key beside it is ENC, PLAIN or - for none, and the content of the certificate, as certDetails
+// returns it. The certificate
 // is looked for in the certificate files of the CA in dir, and for the root CA also in the
 // certificates of its issuing CAs.
 func (s *webuiServer) showCert(w http.ResponseWriter, dir, serial string) {
@@ -310,7 +333,8 @@ func (s *webuiServer) showCert(w http.ResponseWriter, dir, serial string) {
 			continue
 		}
 		file, _ := filepath.Rel(dir, path)
-		webuiReply(w, http.StatusOK, map[string]any{"file": filepath.ToSlash(file), "certificate": certDetails(cert, time.Now())})
+		webuiReply(w, http.StatusOK, map[string]any{"file": filepath.ToSlash(file),
+			"key": keyStatus(strings.TrimSuffix(path, "_cert.pem") + "_key.pem"), "certificate": certDetails(cert, time.Now())})
 		return
 	}
 	webuiFail(w, http.StatusNotFound, "no certificate file of the CA directory holds the certificate "+serial+
