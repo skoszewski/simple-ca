@@ -6,7 +6,7 @@
 !*.go
 !cmd/request-cert
 !cmd/token-setup
-!cmd/request-jwt
+!cmd/request-token
 !cmd/simple-ca-trust
 !assets
 !templates

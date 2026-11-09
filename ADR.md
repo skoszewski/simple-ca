@@ -91,6 +91,22 @@ verify still, as simple-ca reads only `alg` of the header.
 `--federate-type`; `--type`, its former name, stays accepted and is hidden from the usage of
 `token create` alone, as `cert create --type` keeps it.
 
+## request-token has one subcommand for each token it gets
+
+The machine of a workload needs one kind of token at a time: the api token of its setup code, the
+JWT, or the access token of one cloud. Each is a subcommand of `request-token`, so a command line
+names its result, and a subcommand takes its own options alone, without checks of which options
+exclude each other. One `federation.json` serves them all: each subcommand reads the keys it uses,
+so a credential file and the commands of an operator share one file.
+
+Google's client libraries and `gcloud` refresh their access tokens themselves from a credential
+file, so `request-token` writes that file instead of being a wrapper around each tool. Its JWT
+comes from an executable source, `request-token jwt --google-executable`, which gets a new JWT
+whenever Google needs one, or from a file that `request-token jwt --output` renews, for a host
+that does not allow executable sources; the user chooses with `--credential-source`. The
+executable source runs the absolute paths of the program and of the configuration file, since
+the libraries run it from any directory.
+
 ## The key of a CA is RSA or EC P-256, and its algorithms follow the key
 
 `ca create --key-type` gives a CA an RSA 4096 or an ECDSA P-256 key, chosen for each CA, so an

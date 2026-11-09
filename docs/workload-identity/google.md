@@ -3,13 +3,16 @@ title: Google Cloud workload identity federation
 ---
 
 A machine authenticates with Google Cloud with JWTs that simple-ca issues, without a stored
-Google key. It holds a token of simple-ca with the scope `federate`, asks `serve` for a JWT
-whenever it needs one, and exchanges the JWT with Google's Security Token Service for a Google
-access token. [Workload identity federation](../workload-identity.md) describes the
-settings and the requests in full.
+Google key. It holds an api token of simple-ca with the scope `federate`, asks `serve` for a JWT
+whenever it needs one, and exchanges the JWT with Google's Security Token Service for a
+federated access token. With that token it calls Google Cloud as itself, or gets the access
+token of a service account it impersonates.
+[Workload identity federation](../workload-identity.md) describes the JWT, the token types, the
+scope `federate` and the issuer, which are the same for every cloud.
 
-The steps below use the root CA in `/etc/simple-ca` and its issuing CA `gcp-wif`, made for the
-federation alone:
+The steps below use the root CA in `/etc/simple-ca`, its issuing CA `gcp-wif`, made for the
+federation alone, the Google project `lab-project`, whose number is `123456789`, and the machine
+`build-01`:
 
 ```sh
 CA_DIR=/etc/simple-ca
@@ -35,7 +38,7 @@ The issuing CA `gcp-wif` gets the issuer `https://pki.example.com/gcp-wif`. Goog
 uploaded, so it never contacts the issuer: it is a name the `iss` claim of the JWTs and the
 provider of Google must share, and Google requires it to start with `https://`.
 
-## 2. The pool and the provider of Google
+## 2. The pool and the provider
 
 Export the public key of the CA, and create the workload identity pool and its OIDC provider,
 with the issuer of step 1 and the key uploaded:
@@ -54,21 +57,26 @@ gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" --projec
   --attribute-mapping=google.subject=assertion.sub --jwk-json-path=jwks.json
 ```
 
-The audience of the provider, the `aud` claim of the JWTs, is the provider's full name with
-`https://`. It is made of the project number, the pool and the provider:
+The next steps need the resource name of the provider, which holds the number of the project:
 
 ```sh
 PROJECT_ID=lab-project
 POOL_ID=lab
 PROVIDER_ID=simple-ca
 
-PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
-echo "https://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/providers/$PROVIDER_ID"
+gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" --project="$PROJECT_ID" \
+  --location=global --workload-identity-pool="$POOL_ID" --format='value(name)'
+```
+
+```text
+projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca
 ```
 
 ## 3. The token type
 
-Add the token type `gcp-wif` to the `federation` section, with the audience of step 2:
+Add the token type `gcp-wif` to the `federation` section of `simple-ca.json`. Its audience, the
+`aud` claim of the JWTs, is the one the provider accepts: `https://iam.googleapis.com/` and the
+resource name of step 2:
 
 ```json
 {
@@ -84,8 +92,15 @@ Add the token type `gcp-wif` to the `federation` section, with the audience of s
 }
 ```
 
-`google` limits a JWT to 24 hours, and the type issues JWTs valid for 1 hour; `valid` and
-`max_valid` change that, and `subject` and `claims` shape the `sub` claim and add others.
+The type issues JWTs valid for 1 hour, with the name of the token as the subject. Its other
+settings are optional:
+
+- `valid` and `max_valid` change the validity, within the 24 hours of `google`;
+- `subject` is a template of the subject: `simple-ca:{ca}:{name}` makes the subject of the token
+  `build-01` `simple-ca:gcp-wif:build-01`, which is then the subject of the principal of step 5;
+- `claims` adds claims: `"env": "lab"` reaches the conditions and the principal sets of Google as
+  an attribute when the provider of step 2 maps it, with
+  `--attribute-mapping=google.subject=assertion.sub,attribute.env=assertion.env`.
 
 ## 4. The token of the machine
 
@@ -102,58 +117,157 @@ simple-ca token create --ca-dir "$CA_DIR" --scope federate --federate-type gcp-w
 ```
 
 Hand `build-01.token` to the machine. With `--otc`, `token create` prints a one-time setup code
-instead, which the machine exchanges once for the token with `token-setup`, so the token itself
-is never handed over.
+instead, which the machine exchanges once for the token in step 6, so the token itself is never
+handed over.
 
-The subject of its JWTs is the name of the token, so in Google the machine is the principal:
+## 5. The access of the machine
+
+The subject of its JWTs, the name of the token, makes the machine this principal in Google, with
+the number of the project, not its ID:
 
 ```text
-principal://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/lab/subject/build-01
+principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/subject/build-01
 ```
 
-Give that principal the roles it needs on the resources it uses.
+The machine gets its access in one of two ways.
 
-## 5. On the machine
+### As the principal
 
-The machine asks `serve` for a JWT with its token, and exchanges the JWT for a Google access
-token. It needs to reach `serve`; Google does not.
+Google recommends giving the principal the roles on the resources the machine uses. The machine
+then calls Google Cloud with its federated access token:
 
-`request-jwt`, which the release archives of simple-ca hold, does both. Put its settings in
-`federation.json` of its working directory, with the token in `build-01.token` beside it:
+```sh
+PROJECT_ID=lab-project
+PRINCIPAL=principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/subject/build-01
+ROLE=roles/browser
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="$PRINCIPAL" --role="$ROLE"
+```
+
+### As a service account
+
+A machine that calls an API endpoint which Google lists with a limitation for federated identities
+acts as a service account instead. Create one for the machine, let the principal impersonate it
+with the role `roles/iam.workloadIdentityUser`, and give the service account the roles on the
+resources the machine uses:
+
+```sh
+PROJECT_ID=lab-project
+SA_NAME=build-01
+SA_DISPLAY_NAME="simple-ca build-01"
+SA_EMAIL=build-01@lab-project.iam.gserviceaccount.com
+PRINCIPAL=principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/subject/build-01
+ROLE=roles/browser
+
+gcloud iam service-accounts create "$SA_NAME" --project="$PROJECT_ID" \
+  --display-name="$SA_DISPLAY_NAME"
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" --project="$PROJECT_ID" \
+  --role=roles/iam.workloadIdentityUser --member="$PRINCIPAL"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" \
+  --role="$ROLE"
+```
+
+`gcloud iam service-accounts create` prints the email of the service account. A new role binding
+may take a few minutes to apply.
+
+## 6. On the machine
+
+The machine needs to reach `serve`; Google does not. `request-token`, which the release archives
+of simple-ca hold, makes the requests. Put its settings in `federation.json` of its working
+directory:
 
 ```json
 {
   "ca_url": "https://pki.example.com/gcp-wif",
   "token_file": "build-01.token",
-  "provider": "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca"
+  "provider": "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca",
+  "service_account": "build-01@lab-project.iam.gserviceaccount.com"
 }
 ```
 
+- `ca_url` is the URL of the issuing CA at `serve`, as the machine reaches it.
+- `token_file` is the file of the token of step 4, here beside `federation.json`.
+- `provider` is `//iam.googleapis.com/` and the resource name of step 2. It starts with `//`,
+  unlike the audience of step 3.
+- `service_account` is the email of the service account of step 5. Leave it out for a machine
+  that acts as the principal.
+
+A machine that got a setup code in step 4 exchanges it once; `request-token api` writes the token
+to `token_file`, a new file of mode 0600:
+
 ```sh
-ACCESS_TOKEN=$(request-jwt)
+SETUP_CODE=K7QF-M2XA-JP4D-W5ZR
+
+request-token api "$SETUP_CODE"
 ```
 
-The same with curl and jq, step by step:
+A machine that acts as the principal gets its federated access token with `google-wif`:
 
 ```sh
-CA_URL=https://pki.example.com/gcp-wif
-TOKEN_FILE=build-01.token
-PROVIDER=//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca
-
-JWT=$(curl -sS -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
-  "$CA_URL/api/federation-token" | jq -r .token)
-jq -n --arg token "$JWT" --arg audience "$PROVIDER" \
-  '{grantType: "urn:ietf:params:oauth:grant-type:token-exchange", audience: $audience,
-    scope: "https://www.googleapis.com/auth/cloud-platform",
-    requestedTokenType: "urn:ietf:params:oauth:token-type:access_token",
-    subjectTokenType: "urn:ietf:params:oauth:token-type:jwt", subjectToken: $token}' |
-  curl -sS -H 'Content-Type: application/json' --data @- https://sts.googleapis.com/v1/token |
-  jq -r .access_token
+ACCESS_TOKEN=$(request-token google-wif)
 ```
 
-The `audience` of this request is the provider's name with `//iam.googleapis.com/`, unlike the
-`aud` claim of the JWT, which has `https://`. Each JWT lasts an hour, and the machine asks for a
-new one when it needs one.
+A machine that acts as the service account gets the access token of the service account with
+`google-access-token`:
+
+```sh
+ACCESS_TOKEN=$(request-token google-access-token)
+```
+
+Each command prints the access token alone. A JWT lasts an hour, and the access token of a
+service account an hour by default, so the machine runs the command again when it needs a new
+one. [Appendix A](#appendix-a-the-requests-of-request-token) shows the requests the commands
+make, and [Appendix B](#appendix-b-a-test-call) a call that tests the access token.
+
+## Application Default Credentials and gcloud
+
+Google's client libraries and `gcloud` get their access tokens themselves, from a credential file
+that names the provider and where to read the JWT. `request-token google-cred-config` writes it
+from `federation.json` of step 6: the provider, and the service account to impersonate when
+`service_account` is set. It writes a new file, `cred.json` or that of `--output-file`, and never
+replaces one. The JWT comes from one of two sources; choose one.
+
+### The JWT from request-token
+
+By default, the credential file holds the command
+`request-token jwt --google-executable --config FILE`, with the absolute paths of `request-token`
+and of `federation.json`, and Google's client libraries run it whenever they need a JWT. They run
+it only with `GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1`. A program that uses Application
+Default Credentials finds the credential file with `GOOGLE_APPLICATION_CREDENTIALS`:
+
+```sh
+CRED_FILE=$PWD/cred.json
+
+request-token google-cred-config --output-file "$CRED_FILE"
+export GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1
+export GOOGLE_APPLICATION_CREDENTIALS="$CRED_FILE"
+```
+
+### The JWT from a file
+
+With `--credential-source file`, the credential file names a file of the JWT, which
+`request-token jwt --output` writes. The JWT lasts an hour, so a systemd timer or cron runs that
+command again well within the hour:
+
+```sh
+CRED_FILE=$PWD/cred.json
+JWT_FILE=/var/lib/build-01/simple-ca.jwt
+
+request-token jwt --output "$JWT_FILE"
+request-token google-cred-config --credential-source file --jwt-file "$JWT_FILE" \
+  --output-file "$CRED_FILE"
+export GOOGLE_APPLICATION_CREDENTIALS="$CRED_FILE"
+```
+
+`gcloud` signs in with this credential file:
+
+```sh
+CRED_FILE=$PWD/cred.json
+PROJECT_ID=lab-project
+
+gcloud auth login --cred-file="$CRED_FILE"
+gcloud projects describe "$PROJECT_ID"
+```
 
 ## Later
 
@@ -164,4 +278,51 @@ new one when it needs one.
 - Each JWT issued is a `token.issue` record of the audit log:
   `simple-ca audit list --ca-dir /etc/simple-ca --event token.issue --ca gcp-wif`.
 - When the key of the CA changes, upload the new key set with
-  `gcloud iam workload-identity-pools providers update-oidc --jwk-json-path`.
+  `gcloud iam workload-identity-pools providers update-oidc --jwk-json-path`; the provider holds
+  at most 8 keys.
+
+## Appendix A: the requests of request-token
+
+`request-token google-access-token` makes three requests, and `google-wif` the first two:
+
+1. the JWT, from `/api/federation-token` of `serve`, with the api token as the bearer token;
+2. the federated access token, from Google's Security Token Service, for the JWT, with the
+   provider as the `audience`;
+3. the access token of the service account, from `generateAccessToken` of the IAM Service Account
+   Credentials API, with the federated access token as the bearer token.
+
+The same with curl and jq, with the settings of `federation.json` of step 6:
+
+```sh
+CA_URL=https://pki.example.com/gcp-wif
+TOKEN_FILE=build-01.token
+PROVIDER=//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca
+SA_EMAIL=build-01@lab-project.iam.gserviceaccount.com
+
+JWT=$(curl -sS -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
+  "$CA_URL/api/federation-token" | jq -r .token)
+FEDERATED_TOKEN=$(jq -n --arg token "$JWT" --arg audience "$PROVIDER" \
+  '{grantType: "urn:ietf:params:oauth:grant-type:token-exchange", audience: $audience,
+    scope: "https://www.googleapis.com/auth/cloud-platform",
+    requestedTokenType: "urn:ietf:params:oauth:token-type:access_token",
+    subjectTokenType: "urn:ietf:params:oauth:token-type:jwt", subjectToken: $token}' |
+  curl -sS -H 'Content-Type: application/json' --data @- https://sts.googleapis.com/v1/token |
+  jq -r .access_token)
+ACCESS_TOKEN=$(jq -n '{scope: ["https://www.googleapis.com/auth/cloud-platform"]}' |
+  curl -sS -H "Authorization: Bearer $FEDERATED_TOKEN" -H 'Content-Type: application/json' \
+    --data @- "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${SA_EMAIL}:generateAccessToken" |
+  jq -r .accessToken)
+```
+
+## Appendix B: a test call
+
+With the role `roles/browser` of step 5, the access token of step 6 reads the project from the
+Resource Manager API:
+
+```sh
+PROJECT_NUMBER=123456789
+ACCESS_TOKEN=$(request-token google-access-token)
+
+curl -sS -H "Authorization: Bearer $ACCESS_TOKEN" \
+  "https://cloudresourcemanager.googleapis.com/v3/projects/${PROJECT_NUMBER}"
+```

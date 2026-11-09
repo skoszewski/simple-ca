@@ -145,67 +145,102 @@ and the container image hold it too. With Go installed, it is also installed on 
 go install github.com/skoszewski/simple-ca/cmd/token-setup@latest
 ```
 
-## Requesting a JWT of workload identity federation
+## Requesting tokens with request-token
 
-The Go command `request-jwt`, in `cmd/request-jwt/`, gets a JWT of
-[workload identity federation](workload-identity.md) from `/api/federation-token` with an api
-token with the scope `federate`, and prints it. With a provider of Google, it exchanges the JWT
-at Google's Security Token Service and prints the access token instead; with a tenant of
-Microsoft Entra ID, it gets an access token of Entra ID by the client credentials flow, with the
-JWT as the client assertion. Only the JWT or the access token goes to the standard output; an
-error goes to the standard error, and the program exits with status 1, or 2 for a wrong usage.
+The Go command `request-token`, in `cmd/request-token/`, gets the tokens of a machine for
+[workload identity federation](workload-identity.md), one kind per subcommand,
+`request-token SUBCOMMAND [options]`:
+
+| Subcommand | Prints | Requests |
+|---|---|---|
+| `api CODE` | the api token of a [one-time setup code](signing-api.md#one-time-setup-codes) | `/api/token-setup` |
+| `jwt` | the JWT of the api token with the scope `federate` | `/api/federation-token` |
+| `google-wif` | the federated access token of Google | the JWT, then Google's Security Token Service |
+| `google-access-token` | the access token of a Google service account | the federated access token, then `generateAccessToken` of the service account |
+| `entra-id` | the access token of a Microsoft Entra ID application | the JWT as the client assertion of the client credentials flow |
+| `google-cred-config` | nothing: it writes the credential file of Google's client libraries and gcloud | none |
+
+Only the token goes to the standard output; an error goes to the standard error, and the program
+exits with status 1, or 2 for a wrong usage. `request-token SUBCOMMAND -h` lists the options of a
+subcommand.
 
 It runs on the machine, so its settings come from three sources. Each setting is read from a JSON
 file, `--config FILE`, or else `federation.json` of the working directory when it exists; an
 environment variable replaces it, and an option replaces both:
 
-| JSON key | Environment variable | Option | Setting |
-|---|---|---|---|
-| `ca_url` | `SIMPLE_CA_URL` | `--ca-url` | the URL of the CA, such as `https://pki.example.com/gcp-wif`; required |
-| `token` | `SIMPLE_CA_TOKEN` | | the api token itself |
-| `token_file` | `SIMPLE_CA_TOKEN_FILE` | `--token-file` | the file holding the api token |
-| `provider` | `SIMPLE_CA_PROVIDER` | `--provider` | Google: the provider's name, `//iam.googleapis.com/projects/NUMBER/locations/global/workloadIdentityPools/POOL/providers/ID` |
-| `tenant_id` | `SIMPLE_CA_TENANT_ID` | `--tenant-id` | Entra ID: the tenant |
-| `client_id` | `SIMPLE_CA_CLIENT_ID` | `--client-id` | Entra ID: the application (client) ID |
-| `scope` | `SIMPLE_CA_SCOPE` | `--scope` | Entra ID: the scope, `https://graph.microsoft.com/.default` by default |
+| JSON key | Environment variable | Option | Setting | Subcommands |
+|---|---|---|---|---|
+| `ca_url` | `SIMPLE_CA_URL` | `--ca-url` | the URL of the CA, such as `https://pki.example.com/gcp-wif` | all but `google-cred-config`; required |
+| `token` | `SIMPLE_CA_TOKEN` | | the api token itself | those of the JWT |
+| `token_file` | `SIMPLE_CA_TOKEN_FILE` | `--token-file` | the file holding the api token | those of the JWT, and `api`, which writes it |
+| `provider` | `SIMPLE_CA_PROVIDER` | `--provider` | Google: the provider's name, `//iam.googleapis.com/projects/NUMBER/locations/global/workloadIdentityPools/POOL/providers/ID` | `google-*`; required |
+| `service_account` | `SIMPLE_CA_SERVICE_ACCOUNT` | `--service-account` | Google: the email of the service account impersonated | `google-access-token`, required; `google-cred-config` |
+| `google_scope` | `SIMPLE_CA_GOOGLE_SCOPE` | `--google-scope` | Google: the scope of the service account's access token, `https://www.googleapis.com/auth/cloud-platform` by default | `google-access-token` |
+| `tenant_id` | `SIMPLE_CA_TENANT_ID` | `--tenant-id` | Entra ID: the tenant | `entra-id`; required |
+| `client_id` | `SIMPLE_CA_CLIENT_ID` | `--client-id` | Entra ID: the application (client) ID | `entra-id`; required |
+| `scope` | `SIMPLE_CA_SCOPE` | `--scope` | Entra ID: the scope, `https://graph.microsoft.com/.default` by default | `entra-id` |
 
+- The JWT subcommands are `jwt`, `google-wif`, `google-access-token` and `entra-id`.
+- One file serves every subcommand: each one reads the keys it uses and leaves the others.
+  A subcommand takes its own options only.
 - The token is given by `token` or `token_file`, not both in one source; a higher source replaces
   either. It has no option, so it never shows in the list of processes.
 - A relative `token_file` of the file is read relative to the file. A key the table does not name
   is refused, and so is a `--config` file that does not exist.
-- `provider` and `tenant_id` exclude each other, `tenant_id` needs `client_id`, and `client_id` and
-  `scope` need `tenant_id`; they are checked before anything is sent.
-- `--setup-code CODE` exchanges a [one-time setup code](signing-api.md#one-time-setup-codes) for
-  the token first, and writes it to `token_file`, mode 0600, a file that does not exist yet.
+- `api` writes the token to `token_file`, mode 0600, a file that does not exist yet, and prints it
+  without one.
 
 ```json
 {
   "ca_url": "https://pki.example.com/gcp-wif",
   "token_file": "build-01.token",
-  "provider": "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca"
+  "provider": "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca",
+  "service_account": "build-01@lab-project.iam.gserviceaccount.com"
 }
 ```
 
 ```sh
-CONFIG=/etc/request-jwt/federation.json
+CONFIG=/etc/request-token/federation.json
 TENANT_ID=11111111-1111-1111-1111-111111111111
 CLIENT_ID=00000000-0000-0000-0000-000000000000
 
-ACCESS_TOKEN=$(request-jwt --config "$CONFIG")
-JWT=$(request-jwt --config "$CONFIG" --provider "")
-ACCESS_TOKEN=$(request-jwt --config "$CONFIG" --provider "" --tenant-id "$TENANT_ID" --client-id "$CLIENT_ID")
+JWT=$(request-token jwt --config "$CONFIG")
+FEDERATED_TOKEN=$(request-token google-wif --config "$CONFIG")
+ACCESS_TOKEN=$(request-token google-access-token --config "$CONFIG")
+ACCESS_TOKEN=$(request-token entra-id --config "$CONFIG" --tenant-id "$TENANT_ID" --client-id "$CLIENT_ID")
 ```
 
-The first prints the Google access token of the file's provider, the second the JWT, an empty
-option replacing the provider of the file, and the third an access token of Entra ID. An empty
-environment variable replaces nothing.
+An empty environment variable replaces nothing.
 
-`--version` prints its version. `./build.mjs` builds it as `bin/request-jwt` beside
+### The JWT for Google's client libraries
+
+`jwt` has two more outputs, the two credential sources of Google's credential file:
+
+- `--output FILE` writes the JWT alone, without a newline, to the file, mode 0600, replacing it
+  in one step, for a systemd timer or cron to keep it fresh;
+- `--google-executable` prints the JWT as the answer of an executable source:
+  `{"version": 1, "success": true, "token_type": "urn:ietf:params:oauth:token-type:jwt",
+  "id_token": JWT, "expiration_time": SECONDS}`, or on an error
+  `{"version": 1, "success": false, "code": "request-token", "message": ...}` with status 1.
+
+`google-cred-config` writes the credential file, `cred.json`, or the new file of `--output-file`,
+mode 0600, for the provider, impersonating `service_account` when it is set:
+
+- `--credential-source executable`, the default, makes Google run
+  `request-token jwt --google-executable --config FILE` for each JWT, with the absolute paths of
+  this program and of the configuration file, which must exist;
+- `--credential-source file --jwt-file FILE` makes Google read the JWT of the file, which
+  `jwt --output` keeps fresh.
+
+[Application Default Credentials and gcloud](workload-identity/google.md#application-default-credentials-and-gcloud)
+uses the file.
+
+`--version` prints its version. `./build.mjs` builds it as `bin/request-token` beside
 `bin/simple-ca`, and the release archives and the container image hold it too. With Go installed,
 it is also installed on its own:
 
 ```sh
-go install github.com/skoszewski/simple-ca/cmd/request-jwt@latest
+go install github.com/skoszewski/simple-ca/cmd/request-token@latest
 ```
 
 ## HTTPS with the CA's own certificate

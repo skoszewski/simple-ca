@@ -11,7 +11,7 @@ override_dh_auto_build:
 	$(GO_BUILD) -o debian/bin/simple-ca .
 	$(GO_BUILD) -o debian/bin/request-cert ./cmd/request-cert
 	$(GO_BUILD) -o debian/bin/token-setup ./cmd/token-setup
-	$(GO_BUILD) -o debian/bin/request-jwt ./cmd/request-jwt
+	$(GO_BUILD) -o debian/bin/request-token ./cmd/request-token
 	$(GO_BUILD) -o debian/bin/simple-ca-trust ./cmd/simple-ca-trust
 	sed 's|/usr/local/bin/|/usr/bin/|' systemd/simple-ca.service > debian/simple-ca.service
 	sed 's|/usr/local/bin/|/usr/bin/|' systemd/simple-ca-crl.service > debian/simple-ca.simple-ca-crl.service

@@ -1,7 +1,7 @@
 # Publishes a GitHub release for a pushed tag vX.Y.Z or vX.Y.Z-PRE; a tag vX.Y.Z-N is not built.
 #
 # - check: gofmt and go vet.
-# - build: for each platform, simple-ca, request-cert, token-setup, request-jwt and
+# - build: for each platform, simple-ca, request-cert, token-setup, request-token and
 #   simple-ca-trust, versioned with the tag, in one archive, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz,
 #   .zip for Windows.
 # - release: refuses a tag that is not semver, not on main, or not the newest CHANGELOG.md entry;
@@ -85,7 +85,7 @@ jobs:
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/simple-ca$exe" .
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-cert$exe" ./cmd/request-cert
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/token-setup$exe" ./cmd/token-setup
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-jwt$exe" ./cmd/request-jwt
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-token$exe" ./cmd/request-token
           # simple-ca-trust is the Go program on Linux, the Swift one on macOS, the .NET one on Windows.
           case "$GOOS" in
             linux)

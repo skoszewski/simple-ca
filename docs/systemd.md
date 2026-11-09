@@ -43,7 +43,7 @@ the port, are changed with `systemctl edit simple-ca.service`.
 The package that `./build.mjs deb` writes to `dist/`, described in
 [Development](development.md#building), installs:
 
-- `simple-ca`, `request-cert`, `token-setup`, `request-jwt` and `simple-ca-trust` in `/usr/bin`;
+- `simple-ca`, `request-cert`, `token-setup`, `request-token` and `simple-ca-trust` in `/usr/bin`;
 - `simple-ca.service`, `simple-ca-crl.service` and `simple-ca-crl.timer`, the units above, with
   `/usr/bin/simple-ca`; they are neither enabled nor started;
 - the system user and group `simple-ca`;

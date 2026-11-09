@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.15.0
+
+feat: request-jwt becomes request-token, with a subcommand for each token, the access token of a Google service account and the credential file of Google's client libraries and gcloud, and the workload identity guides no longer repeat each other.
+
+- `request-jwt` is renamed `request-token`, in `cmd/request-token/`, the release archives, the
+  container image and the Debian package, and takes a subcommand: `api CODE` exchanges a setup
+  code for the api token, `jwt` prints the JWT, `google-wif` the federated access token of Google,
+  `google-access-token` the access token of a service account, and `entra-id` the access token of
+  Entra ID. `--setup-code` is replaced by `api`, and the options of another cloud are no longer
+  accepted; `federation.json` keeps its keys, and each subcommand reads those it uses.
+- `request-token google-access-token` impersonates the service account of `service_account`,
+  `SIMPLE_CA_SERVICE_ACCOUNT` or `--service-account` with the federated access token, with the
+  scope of `google_scope`, `cloud-platform` by default.
+- `request-token google-cred-config` writes `cred.json`, the credential file of
+  `GOOGLE_APPLICATION_CREDENTIALS` and `gcloud auth login --cred-file`, for the provider and the
+  service account. Its JWT comes from `request-token jwt --google-executable`, the answer of an
+  executable source, or with `--credential-source file` from the file `request-token jwt --output`
+  renews.
+- [Workload identity federation](docs/workload-identity.md) links the two cloud guides at its
+  start, and no longer has the sections Google Cloud and Microsoft Entra, whose commands repeated
+  those of the cloud guides.
+- [Google Cloud](docs/workload-identity/google.md) is rewritten in six steps with `request-token`.
+  It describes the principal of a subject template, the mapping of a claim to an attribute and
+  the limit of 8 uploaded keys. The new step 5 gives the roles to the principal of the machine,
+  or to a service account it impersonates with `roles/iam.workloadIdentityUser`. Step 6 shows the
+  one `federation.json`, exchanges a setup code with `request-token api` and gets both access
+  tokens. The section Application Default Credentials and gcloud uses `google-cred-config`, with
+  each credential source on its own. Appendix A shows the requests of `request-token` with curl
+  and jq, and Appendix B a test call.
+- [Microsoft Entra ID](docs/workload-identity/entra.md) links the static files of the general
+  guide instead of repeating their commands, and says that Microsoft does not trust a certificate
+  of the CA itself. Its step 5 uses `request-token api` and `request-token entra-id`, and an
+  appendix shows their requests with curl and jq.
+- The general guide says that `federation` is a section of `simple-ca.json` of the root CA, whose
+  issuing CAs share its token types.
+
 ## 1.14.2
 
 fix: a validity is given in minutes, hours, days, months or years, such as 30, 8h, 180d, 6m or 1y, and ./build.mjs deb builds a Debian package of simple-ca.

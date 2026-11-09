@@ -18,7 +18,7 @@ Description: Small certificate authority with an HTTP server, ACME and a signing
  tokens, and pages for tokens, certificates and the audit log.
  .
  The package installs simple-ca, the signing API clients request-cert,
- token-setup and request-jwt, and simple-ca-trust, which adds a root CA to
+ token-setup and request-token, and simple-ca-trust, which adds a root CA to
  the trust store. The units simple-ca.service, simple-ca-crl.service and
  simple-ca-crl.timer run as the user simple-ca on the CA in /etc/simple-ca;
  they are not enabled on install.

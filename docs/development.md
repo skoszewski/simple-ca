@@ -8,10 +8,10 @@ title: Development
 executables to `bin/`, which `.gitignore` leaves out.
 
 ```sh
-./build.mjs                    # build simple-ca, request-cert, token-setup and request-jwt for
-                               # the host, and simple-ca-trust on Linux
+./build.mjs                    # build simple-ca, request-cert, token-setup and request-token
+                               # for the host, and simple-ca-trust on Linux
 ./build.mjs build linux/arm64  # build simple-ca-linux-arm64, request-cert-linux-arm64,
-                               # token-setup-linux-arm64, request-jwt-linux-arm64 and
+                               # token-setup-linux-arm64, request-token-linux-arm64 and
                                # simple-ca-trust-linux-arm64
 ./build.mjs trust              # build simple-ca-trust for the host with its own toolchain
 ./build.mjs trust darwin/amd64 # build simple-ca-trust-darwin-amd64, on macOS only
@@ -29,7 +29,7 @@ executables to `bin/`, which `.gitignore` leaves out.
 ```
 
 `./build.mjs deb` builds the package of `debian-package/` with `docker buildx`: the image of
-`debian-package/Dockerfile` compiles `simple-ca`, `request-cert`, `token-setup`, `request-jwt`
+`debian-package/Dockerfile` compiles `simple-ca`, `request-cert`, `token-setup`, `request-token`
 and `simple-ca-trust` and runs `dpkg-buildpackage`, and buildx writes
 `simple-ca_<version>_<arch>.deb` to `dist/`. The version is `X.Y.Z-1` for the newest
 `CHANGELOG.md` entry `X.Y.Z`, and `X.Y.Z-N` for an entry `X.Y.Z-N`, whose programs are those of
@@ -72,7 +72,7 @@ version for `linux/amd64` and `linux/arm64`, the macOS version for `darwin/amd64
 `darwin/arm64` on GitHub's Xcode 27 image, and the Windows version for `windows/amd64` and
 `windows/arm64`, running on the installed .NET runtime, with `build.mjs trust`, and packs each
 into the archive of its platform, `simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` for Windows,
-with `simple-ca`, `request-cert`, `token-setup` and `request-jwt`; [Trust stores](trust.md) has the commands for
+with `simple-ca`, `request-cert`, `token-setup` and `request-token`; [Trust stores](trust.md) has the commands for
 building it by hand.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they

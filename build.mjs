@@ -5,10 +5,10 @@
 //
 // The executables are written to bin/, which clean removes. The build action writes simple-ca,
 // request-cert, the Go client of the signing API in cmd/request-cert, token-setup, which exchanges
-// a setup code, in cmd/token-setup, request-jwt, the client of /api/federation-token, in
-// cmd/request-jwt, and on Linux simple-ca-trust of cmd/simple-ca-trust. The platform defaults to
-// the host's. Naming one builds for it instead, writing simple-ca-<goos>-<goarch>,
-// request-cert-<goos>-<goarch>, token-setup-<goos>-<goarch> and request-jwt-<goos>-<goarch>, and
+// a setup code, in cmd/token-setup, request-token, the client of /api/federation-token and of the
+// clouds, in cmd/request-token, and on Linux simple-ca-trust of cmd/simple-ca-trust. The platform
+// defaults to the host's. Naming one builds for it instead, writing simple-ca-<goos>-<goarch>,
+// request-cert-<goos>-<goarch>, token-setup-<goos>-<goarch> and request-token-<goos>-<goarch>, and
 // for linux simple-ca-trust-linux-<goarch>. While the newest CHANGELOG.md entry is not tagged, the Go
 // programs report its release candidate, vX.Y.Z-rc, as their version. Releases are made by
 // release.mjs.
@@ -214,7 +214,7 @@ switch (action) {
     goBuild(`simple-ca${nameSuffix}`, ".");
     goBuild(`request-cert${nameSuffix}`, "./cmd/request-cert");
     goBuild(`token-setup${nameSuffix}`, "./cmd/token-setup");
-    goBuild(`request-jwt${nameSuffix}`, "./cmd/request-jwt");
+    goBuild(`request-token${nameSuffix}`, "./cmd/request-token");
     if (platform !== "" ? env.GOOS === "linux" : process.platform === "linux") {
       goBuild(`simple-ca-trust${nameSuffix}`, "./cmd/simple-ca-trust");
     }

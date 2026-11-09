@@ -18,8 +18,8 @@ requests.
 Download the archive for your platform from the
 [releases](https://github.com/skoszewski/simple-ca/releases) and put `simple-ca` on your `PATH`;
 the archive also holds `request-cert`, the Go client of the signing API, `token-setup`, which
-exchanges a setup code for its token, `request-jwt`, which gets the JWTs of workload identity
-federation, and `simple-ca-trust`, which adds the CAs to the trust store.
+exchanges a setup code for its token, `request-token`, which gets the JWTs of workload identity
+federation and the access tokens of Google Cloud and Microsoft Entra ID, and `simple-ca-trust`, which adds the CAs to the trust store.
 With Go installed:
 
 ```sh
@@ -63,7 +63,7 @@ command of its own;
 - [Audit log](docs/audit.md) - what changed a CA and who changed it, in `audit.log`, the systemd
   journal and container logs.
 - [Signing API clients](docs/examples.md) - the clients in `examples/`, `cmd/request-cert/`,
-  `cmd/token-setup/` and `cmd/request-jwt/`, in Python, Node.js, Go and the shell.
+  `cmd/token-setup/` and `cmd/request-token/`, in Python, Node.js, Go and the shell.
 - [Trust stores](docs/trust.md) - `simple-ca-trust`, which adds the CAs to the trust store of
   Windows, macOS or Linux.
 - [systemd](docs/systemd.md) - units for `serve` and the daily CRLs.

@@ -5,8 +5,8 @@ title: Docker
 The `Dockerfile` builds an image of `simple-ca`: the static executable on
 `gcr.io/distroless/static-debian13`, run as the user and group 1000, the first user of Ubuntu, with
 `request-cert`, the Go [client of the signing API](examples.md), `token-setup`, which exchanges
-a setup code for its token, and `request-jwt`, which gets the JWTs of workload identity
-federation, beside it. The CA
+a setup code for its token, and `request-token`, which gets the JWTs of workload identity
+federation and the access tokens of the clouds, beside it. The CA
 directory is `/data`, a volume, and `SIMPLE_CA_DIR` points at it, so every command works with the
 CA there. Without arguments the container runs `serve` on all interfaces, port 8080; with
 arguments it runs them as a command. `VERSION` sets the version `--version` prints. The build
