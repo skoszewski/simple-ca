@@ -17,6 +17,7 @@
 - A request starting with `feat:`, `fix:` or `gap:` is a change to make.
 - A request starting with `bug:` is a report: analyze it, give the cause and a fix or options, and
   wait for the decision before changing anything.
+- A request prepended with `do` is a task to complete. For example, `do fix: ...` is a request to fix something, and `do feat: ...` is a request to add a feature.
 
 ## Code
 

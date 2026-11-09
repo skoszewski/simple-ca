@@ -15,8 +15,9 @@ downloads the browser files of the `/help/` and `/docs/` pages from the serve-ma
 
 `./build.mjs docker` builds it with `docker buildx build`, as `simple-ca:X.Y.Z`, the version of
 the newest `CHANGELOG.md` entry, and `simple-ca:latest`, with `VERSION` set to `vX.Y.Z`;
-`--registry REGISTRY` puts both below the registry, as `REGISTRY/simple-ca:X.Y.Z`, and a platform
-such as `linux/arm64` builds for it. `--push` pushes the image too.
+`--registry REGISTRY`, or else `SIMPLE_CA_REGISTRY` when it is set, puts both below the registry,
+as `REGISTRY/simple-ca:X.Y.Z`, and a platform such as `linux/arm64` builds for it. `--push` pushes
+the image too.
 
 ```sh
 ./build.mjs docker

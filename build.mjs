@@ -22,7 +22,8 @@
 //
 // The docker action builds the image of the Dockerfile with docker buildx, for the platform named
 // or the host's, as simple-ca:<version>, the version of the newest CHANGELOG.md entry, and
-// simple-ca:latest, below the registry --registry names, and pushes it with --push.
+// simple-ca:latest, below the registry --registry names, else SIMPLE_CA_REGISTRY when it is set,
+// and pushes it with --push.
 //
 // The assets action downloads the browser files of serve-markdown's page, for the version of
 // serve-markdown in go.mod, from its GitHub release into assets/markdown, which serve embeds
@@ -57,6 +58,10 @@ for (let i = 2; i < process.argv.length; i++) {
   }
 }
 const [action = "build", platform = ""] = positional;
+// The registry of the docker action is SIMPLE_CA_REGISTRY without --registry.
+if (registry === null && action === "docker" && process.env.SIMPLE_CA_REGISTRY) {
+  registry = process.env.SIMPLE_CA_REGISTRY;
+}
 const markdownAssets = join(root, "assets", "markdown");
 const versionFile = join(markdownAssets, ".version");
 const requiredTag = readFileSync(join(root, "go.mod"), "utf8")

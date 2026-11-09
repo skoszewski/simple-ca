@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.12.2
+
+fix: ./build.mjs docker takes its registry from SIMPLE_CA_REGISTRY when --registry is not given.
+
+- `./build.mjs docker` puts the image below the registry of `SIMPLE_CA_REGISTRY` when it is set
+  and `--registry` is not given; `--registry` replaces it.
+
 ## 1.12.1
 
 gap: tokens-db.json holds api tokens alone, a token with the new scope federate gets unstored JWTs from /api/federation-token, which request-jwt exchanges for Google and Entra ID access tokens, and a CA with an EC P-256 key signs ES256.

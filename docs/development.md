@@ -23,7 +23,8 @@ executables to `bin/`, which `.gitignore` leaves out.
                                # trust/windows
 ./build.mjs assets             # download the browser files of the /help/ and /docs/ pages
 ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]
-                               # build simple-ca:<version> and simple-ca:latest; --push pushes them
+                               # build simple-ca:<version> and simple-ca:latest; --push pushes them;
+                               # the registry defaults to SIMPLE_CA_REGISTRY
 ```
 
 The `/help/` page, `help/index.md`, and the `/docs/` pages of `serve --docs`, the files of
