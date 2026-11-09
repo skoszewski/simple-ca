@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.14.1
+
+fix: the /help/ and /docs/ pages are drawn by serve-markdown 3.5.4, whose page bundles DOMPurify 3.4.17.
+
+- serve-markdown 3.5.4 in place of 3.5.2; its page bundles DOMPurify 3.4.17, which fixes the
+  advisories GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr and GHSA-c6gr-qvv4-5v3f.
+- `assets/markdown.sha256` holds the SHA-256 of its assets archive.
+
 ## 1.14.0
 
 feat: the findings of a security review are fixed, with limits of the ACME server in simple-ca.json and simple-ca-trust add --fingerprint.
