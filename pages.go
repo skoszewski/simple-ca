@@ -53,8 +53,9 @@ var docsPages embed.FS
 // docsMenu is the menu of the guides, in the order of the README.
 var docsMenu = []render.MenuEntry{{Path: "usage.md"}, {Path: "directory-layout.md"},
 	{Path: "configuration.md"}, {Path: "serve.md"}, {Path: "acme.md"}, {Path: "signing-api.md"},
-	{Path: "oidc.md"}, {Path: "workload-identity.md"}, {Path: "workload-identity/google.md"},
-	{Path: "workload-identity/entra.md"}, {Path: "audit.md"}, {Path: "examples.md"}, {Path: "trust.md"}, {Path: "systemd.md"}, {Path: "docker.md"}, {Path: "simple-ca-mini.md"},
+	{Path: "oidc.md"}, {Label: "Workload identity federation", Entries: []render.MenuEntry{
+		{Label: "Overview", Path: "workload-identity.md"}, {Label: "Google Cloud", Path: "workload-identity/google.md"},
+		{Label: "Microsoft Entra ID", Path: "workload-identity/entra.md"}}}, {Path: "audit.md"}, {Path: "examples.md"}, {Path: "trust.md"}, {Path: "systemd.md"}, {Path: "docker.md"}, {Path: "simple-ca-mini.md"},
 	{Path: "development.md"}}
 
 // markdownAssets holds the browser files of serve-markdown's page, which ./build.mjs assets

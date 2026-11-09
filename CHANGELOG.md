@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.12.5
+
+fix: the menu of the guides groups the overview and the Google Cloud and Microsoft Entra ID walkthroughs of workload identity federation under one entry.
+
+- The menu of `serve --docs` and of the repository's pages shows Workload identity federation as a
+  group of Overview, Google Cloud and Microsoft Entra ID, in place of three entries of its own.
+
 ## 1.12.4
 
 fix: the Google Cloud and Microsoft Entra ID walkthroughs of workload identity federation are guides in docs/workload-identity/, shown by serve --docs.
