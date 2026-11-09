@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+
+# The version the programs report, vX.Y.Z or vX.Y.Z-rc, from the VERSION of the builder image.
+GO_BUILD = CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=$(SIMPLE_CA_VERSION)"
+
+%:
+	dh $@
+
+# The programs, and the units of systemd/ with the executable in /usr/bin.
+override_dh_auto_build:
+	$(GO_BUILD) -o debian/bin/simple-ca .
+	$(GO_BUILD) -o debian/bin/request-cert ./cmd/request-cert
+	$(GO_BUILD) -o debian/bin/token-setup ./cmd/token-setup
+	$(GO_BUILD) -o debian/bin/request-jwt ./cmd/request-jwt
+	$(GO_BUILD) -o debian/bin/simple-ca-trust ./cmd/simple-ca-trust
+	sed 's|/usr/local/bin/|/usr/bin/|' systemd/simple-ca.service > debian/simple-ca.service
+	sed 's|/usr/local/bin/|/usr/bin/|' systemd/simple-ca-crl.service > debian/simple-ca.simple-ca-crl.service
+	sed 's|/usr/local/bin/|/usr/bin/|' systemd/simple-ca-crl.timer > debian/simple-ca.simple-ca-crl.timer
+
+override_dh_auto_clean:
+	rm -rf debian/bin
+	rm -f debian/simple-ca.service debian/simple-ca.simple-ca-crl.service debian/simple-ca.simple-ca-crl.timer
+
+# The tests are run with ./build.mjs test.
+override_dh_auto_test:
+
+# The Go programs are static executables.
+override_dh_strip:
+
+override_dh_dwz:
+
+# The units need a CA in /etc/simple-ca, so they are neither enabled nor started.
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start --name=simple-ca
+	dh_installsystemd --no-enable --no-start --name=simple-ca-crl

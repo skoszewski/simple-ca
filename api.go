@@ -165,7 +165,7 @@ func newTokenSetup(valid, setupValid time.Duration, setupClients []string) (*tok
 	rand.Read(b)
 	s := base32.StdEncoding.EncodeToString(b)
 	code := s[0:4] + "-" + s[4:8] + "-" + s[8:12] + "-" + s[12:16]
-	return &tokenSetup{Code: setupCodeHash(code), Clients: prefixes, Valid: valid.String()}, code, nil
+	return &tokenSetup{Code: setupCodeHash(code), Clients: prefixes, Valid: durationText(valid)}, code, nil
 }
 
 // toPrefixes returns the addresses and prefixes of values, what they are named in its error, as
@@ -616,8 +616,8 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 	case valid != 0:
 	case old.pending():
 		// The expiry of a pending token is that of its code; the validity of the token is kept apart.
-		if valid, err = time.ParseDuration(old.Setup.Valid); err != nil {
-			return "", fmt.Errorf("token '%s': '%s' is not a validity such as 8h", name, old.Setup.Valid)
+		if valid, err = old.Setup.valid(); err != nil {
+			return "", fmt.Errorf("token '%s': %w", name, err)
 		}
 	case !old.revoked():
 		valid = old.Expires.Sub(old.Issued)
@@ -630,8 +630,8 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 		}
 		valid = time.Hour
 		if cfg.Tokens.Valid != "" {
-			if valid, err = time.ParseDuration(cfg.Tokens.Valid); err != nil {
-				return "", fmt.Errorf("tokens.valid of %s: '%s' is not a duration such as 8h", cfg.path, cfg.Tokens.Valid)
+			if valid, err = parseDuration(cfg.Tokens.Valid); err != nil {
+				return "", fmt.Errorf("tokens.valid of %s: %w", cfg.path, err)
 			}
 		}
 	}
@@ -698,17 +698,16 @@ func listTokens(w io.Writer, caDir string) error {
 	return tw.Flush()
 }
 
-// durationText returns d as a duration is given to the options, without the zero minutes and
-// seconds Go adds: 8h for 8h0m0s, 15m for 15m0s.
-func durationText(d time.Duration) string {
-	s := d.String()
-	if strings.HasSuffix(s, "m0s") {
-		s = strings.TrimSuffix(s, "0s")
+// valid returns the validity a pending token gets at the exchange of its setup code, stored
+// as parseDuration reads it, or as Go writes a duration, such as 1h0m0s, by earlier releases.
+func (s *tokenSetup) valid() (time.Duration, error) {
+	d, err := parseDuration(s.Valid)
+	if err != nil {
+		if d, goErr := time.ParseDuration(s.Valid); goErr == nil {
+			return d, nil
+		}
 	}
-	if strings.HasSuffix(s, "h0m") {
-		s = strings.TrimSuffix(s, "0m")
-	}
-	return s
+	return d, err
 }
 
 // describeToken returns the attributes of the token name, each a label and a value, as
@@ -751,7 +750,7 @@ func describeToken(name string, t *apiToken, limits bool) [][2]string {
 	attributes = append(attributes, [2]string{"Used from", list(showPrefixes(t.Clients), "any client")})
 	if t.pending() {
 		valid := t.Setup.Valid
-		if d, err := time.ParseDuration(valid); err == nil {
+		if d, err := t.Setup.valid(); err == nil {
 			valid = durationText(d)
 		}
 		attributes = append(attributes, [2]string{"Code usable from", list(showPrefixes(t.Setup.Clients), "any client")},
@@ -834,9 +833,9 @@ func exchangeSetupCode(rootDir, code string, client netip.Addr) (caID, name, jwt
 				if !(&apiToken{Clients: t.Setup.Clients}).clientAllowed(client) {
 					return "", "", "", apiErr(http.StatusForbidden, "the setup code is not usable from %s", client)
 				}
-				valid, err := time.ParseDuration(t.Setup.Valid)
+				valid, err := t.Setup.valid()
 				if err != nil {
-					return "", "", "", fmt.Errorf("token '%s': '%s' is not a validity such as 8h", name, t.Setup.Valid)
+					return "", "", "", fmt.Errorf("token '%s': %w", name, err)
 				}
 				caKey, err := loadKey(filepath.Join(dir, "ca_key.pem"))
 				if err != nil {

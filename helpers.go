@@ -40,15 +40,19 @@ import (
 	"encoding/asn1"
 	"encoding/pem"
 	"errors"
+	"flag"
 	"fmt"
 	"hash"
+	"math"
 	"math/big"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -69,6 +73,72 @@ func dirExists(path string) bool {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// durationUnits are the units of a duration, largest first: y of 365 days, m of 30 days, d of 24
+// hours and h; a number without a unit is minutes.
+var durationUnits = []struct {
+	unit string
+	size time.Duration
+}{
+	{"y", 365 * 24 * time.Hour},
+	{"m", 30 * 24 * time.Hour},
+	{"d", 24 * time.Hour},
+	{"h", time.Hour},
+}
+
+// durationRE matches a duration: a whole number, then optional spaces and one unit.
+var durationRE = regexp.MustCompile(`^([0-9]+)\s*([ymdh]?)$`)
+
+// parseDuration returns the duration s gives, such as 30 for 30 minutes, 8h, 180d, 6m or 1y.
+func parseDuration(s string) (time.Duration, error) {
+	m := durationRE.FindStringSubmatch(strings.TrimSpace(s))
+	if m == nil {
+		return 0, fmt.Errorf("'%s' is not a duration such as 30 (minutes), 8h, 180d, 6m or 1y", s)
+	}
+	size := time.Minute
+	for _, u := range durationUnits {
+		if u.unit == m[2] {
+			size = u.size
+		}
+	}
+	n, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil || n > math.MaxInt64/int64(size) {
+		return 0, fmt.Errorf("'%s' is longer than a duration can be", s)
+	}
+	return time.Duration(n) * size, nil
+}
+
+// durationText returns d as parseDuration reads it, in the largest unit holding it whole, or in
+// minutes, a part of a minute rounded: 1y, 6m, 2d, 8h, 15.
+func durationText(d time.Duration) string {
+	d = d.Round(time.Minute)
+	for _, u := range durationUnits {
+		if d >= u.size && d%u.size == 0 {
+			return strconv.FormatInt(int64(d/u.size), 10) + u.unit
+		}
+	}
+	return strconv.FormatInt(int64(d/time.Minute), 10)
+}
+
+// durationFlag is a flag.Value of a duration in the form parseDuration reads.
+type durationFlag time.Duration
+
+func (f *durationFlag) String() string { return durationText(time.Duration(*f)) }
+
+func (f *durationFlag) Set(s string) error {
+	d, err := parseDuration(s)
+	if err == nil {
+		*f = durationFlag(d)
+	}
+	return err
+}
+
+// durationVar defines the duration flag name of fs, with the default value, and returns where
+// it is stored.
+func durationVar(fs *flag.FlagSet, name string, value time.Duration, usage string) *time.Duration {
+	fs.Var((*durationFlag)(&value), name, usage)
+	return &value
 }
 
 // randomSerial returns a random positive certificate serial number of at most 159 bits.

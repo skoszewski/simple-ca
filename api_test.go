@@ -663,7 +663,7 @@ func TestTokenDefaults(t *testing.T) {
 	}
 
 	// An option replaces its default; --network replaces hosts and networks together.
-	if err := run([]string{"token", "create", "--ca-dir", caDir, "--valid", "30m", "--domain", "example.com",
+	if err := run([]string{"token", "create", "--ca-dir", caDir, "--valid", "30", "--domain", "example.com",
 		"--network", "10.1.0.0/16", "--localhost=false", "options"}); err != nil {
 		t.Fatalf("token create with options: %v", err)
 	}

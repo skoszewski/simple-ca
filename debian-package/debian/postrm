@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        # The account goes; /etc/simple-ca, the keys and certificates of the CA, is left in place.
+        if command -v deluser >/dev/null 2>&1 && getent passwd simple-ca >/dev/null; then
+            deluser --system simple-ca || true
+            delgroup --system --only-if-empty simple-ca || true
+        fi
+        ;;
+esac
+
+#DEBHELPER#

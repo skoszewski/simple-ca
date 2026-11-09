@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.14.2
+
+fix: a validity is given in minutes, hours, days, months or years, such as 30, 8h, 180d, 6m or 1y, and ./build.mjs deb builds a Debian package of simple-ca.
+
+- Every duration, the `--valid` and `--otc-valid` options of the token commands, the Valid for
+  fields of the token page, and `valid`, `max_valid` and `keep_expired` of `simple-ca.json` and
+  `oidc-users.json`, is a whole number of minutes, or a whole number with one unit, `h`, `d`, `m`
+  of 30 days or `y` of 365 days, with optional spaces before the unit. `m` is months, no longer
+  minutes, and Go durations such as `1h30m` or `90s` are refused; a value in minutes is written
+  without a unit, such as `15`.
+- Durations are shown in the largest unit that holds them whole, such as `1y`, `2d`, `8h` or
+  `15` for 15 minutes. The validity a pending token keeps for its setup code is stored the same
+  way; one stored by an earlier release is still read.
+- `./build.mjs deb` builds `dist/simple-ca_X.Y.Z-N_<arch>.deb` in Docker, for the architecture
+  of the Docker host: `N` is 1 for an entry `X.Y.Z` and `N` for an entry `X.Y.Z-N`, with the
+  programs of `vX.Y.Z`; it is `X.Y.Z~rc-N` while `vX.Y.Z` is not tagged. The build fails when
+  the page's browser files cannot be downloaded.
+- The package installs `simple-ca`, `request-cert`, `token-setup`, `request-jwt` and
+  `simple-ca-trust` in `/usr/bin`, and `simple-ca.service`, `simple-ca-crl.service` and
+  `simple-ca-crl.timer`, which are not enabled on install.
+- It makes the system user `simple-ca` and `/etc/simple-ca`; purge removes the user and leaves
+  the CA directory.
+
 ## 1.14.1
 
 fix: the /help/ and /docs/ pages are drawn by serve-markdown 3.5.4, whose page bundles DOMPurify 3.4.17.

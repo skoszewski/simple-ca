@@ -113,8 +113,8 @@ func runServe(args []string) error {
 	}
 	var kept time.Duration
 	if cfg.Tokens.KeepExpired != "" {
-		if kept, err = time.ParseDuration(cfg.Tokens.KeepExpired); err != nil || kept < 0 {
-			return fmt.Errorf("tokens.keep_expired of %s: '%s' is not a duration such as 720h", cfg.path, cfg.Tokens.KeepExpired)
+		if kept, err = parseDuration(cfg.Tokens.KeepExpired); err != nil {
+			return fmt.Errorf("tokens.keep_expired of %s: %w", cfg.path, err)
 		}
 	}
 	requestLog = cfg.Serve.RequestLog

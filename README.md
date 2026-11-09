@@ -28,6 +28,9 @@ go install github.com/skoszewski/simple-ca@latest
 
 An executable installed with `go install` has no `/help/` page of `serve`; the releases have it.
 
+`./build.mjs deb` builds a Debian package with the programs and the systemd units, installed with
+`dpkg -i`; [systemd](docs/systemd.md#debian-package) describes it.
+
 ## Quick start
 
 ```sh

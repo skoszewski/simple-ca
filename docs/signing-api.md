@@ -48,8 +48,10 @@ multiple times. A request from any other address gets `403 Forbidden`. Without t
 may use the token. Behind a trusted proxy, the client is the address in the `X-Forwarded-For`
 header; see [serve](serve.md).
 
-`--valid` is how long the token is valid, such as `30m`, `8h` or `720h`: one hour by default, and
-at least one second. `NAME` is **kebab-case**: lower-case letters and digits joined by hyphens,
+`--valid` is how long the token is valid: one hour by default, and not zero. A
+duration, here and in every validity of simple-ca, is a whole number of minutes, or a whole number
+followed by one unit, `h` for hours, `d` for days, `m` for months of 30 days or `y` for years of
+365 days, with optional spaces between: `30`, `8h`, `180d`, `6m` or `1y`. `NAME` is **kebab-case**: lower-case letters and digits joined by hyphens,
 such as `web-deploy`. A name is used by one token of a CA at a time.
 
 Options not given default to the `tokens` section of [simple-ca.json](configuration.md). For

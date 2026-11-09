@@ -1,0 +1,20 @@
+# The build of the Debian package needs the files of the root Dockerfile's build, the source of
+# simple-ca-trust, the units of systemd/, the package sources, the licence and the README.
+*
+!go.mod
+!go.sum
+!*.go
+!cmd/request-cert
+!cmd/token-setup
+!cmd/request-jwt
+!cmd/simple-ca-trust
+!assets
+!templates
+!help
+!docs/*.md
+!docs/workload-identity/*.md
+!systemd/*.service
+!systemd/*.timer
+!debian-package/debian
+!LICENSE
+!README.md

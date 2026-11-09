@@ -126,8 +126,12 @@ writes it, and it can be written or edited by hand. A setting not described here
   prefixes. `--host` and `--network` together replace both `hosts` and `networks`. `types`,
   `domains` and `ips` apply only to tokens with the scope `sign`; `--localhost` has no default.
   `scopes` and `types` may be `["*"]`, every scope or every type. `keep_expired`, a duration such
-  as `720h`, is how long `serve` keeps an expired or revoked token before removing it; without it,
+  as `30d`, is how long `serve` keeps an expired or revoked token before removing it; without it,
   such tokens stay until `token purge` removes them.
+
+  A duration is a whole number of minutes, such as `30`, or a whole number with one unit: `h`
+  hours, `d` days, `m` months of 30 days or `y` years of 365 days, such as `8h`, `180d`, `6m` or
+  `1y`.
 - `types` - certificate types for `cert create --type` and `cert sign --type`, by **kebab-case**
   name: words of lower-case letters and digits joined by hyphens, such as `web-server`. A type
   named `server`, `user` or `none` redefines the built-in type, and any other name defines a new

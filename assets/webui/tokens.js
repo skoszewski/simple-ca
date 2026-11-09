@@ -90,9 +90,9 @@ async function renew(t, ended) {
   const name = t.name;
   const field = (attributes) => element("input", { autocorrect: "off", autocapitalize: "off", spellcheck: false,
     className: "w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono", ...attributes });
-  const valid = field({ value: t.valid || info.defaults.valid, placeholder: "1h, 8h, 720h" });
+  const valid = field({ value: t.valid || info.defaults.valid, placeholder: "30, 8h, 180d, 1y" });
   const otc = element("input", { type: "checkbox" });
-  const otcValid = field({ value: info.defaults.otc_valid, placeholder: "15m, 1h" });
+  const otcValid = field({ value: info.defaults.otc_valid, placeholder: "15, 1h" });
   const otcNetworks = field({ placeholder: "192.168.1.0/24" });
   const label = (text, input) => element("label", { className: "block space-y-1 text-sm" },
     element("span", { className: "block font-medium", textContent: text }), input);

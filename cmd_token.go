@@ -61,7 +61,8 @@ func runTokenCreate(args []string) error {
 			"claims; the request sets nothing else. Without --federate-type, it gets no JWTs, and grants\n"+
 			"the scope federate on the /tokens/ page.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
-	valid := fs.Duration("valid", time.Hour, "validity `period` of the token, such as 30m, 8h or 720h")
+	valid := durationVar(fs, "valid", time.Hour, "validity `period` of the token: minutes, or a number with h, d, m (30 days) or y\n"+
+		"(365 days), such as 30, 8h, 180d or 1y")
 	localhost := fs.Bool("localhost", false, "allow the name localhost and the IP address 127.0.0.1")
 	var fed tokenFederate
 	fs.StringVar(&fed.Type, "federate-type", "", "token `type` of the JWTs of the scope federate: google, azure or a type of\n"+
@@ -116,8 +117,8 @@ func runTokenCreate(args []string) error {
 	// The options not given take the defaults of tokens in simple-ca.json.
 	defaults := cfg.Tokens
 	if !given["valid"] && defaults.Valid != "" {
-		if *valid, err = time.ParseDuration(defaults.Valid); err != nil {
-			return fmt.Errorf("tokens.valid of %s: '%s' is not a duration such as 8h", cfg.path, defaults.Valid)
+		if *valid, err = parseDuration(defaults.Valid); err != nil {
+			return fmt.Errorf("tokens.valid of %s: %w", cfg.path, err)
 		}
 	}
 	if !given["scope"] {
@@ -200,8 +201,8 @@ func runTokenIssue(args []string) error {
 	fs.StringVar(&fed.Type, "token-type", "", "token `type`: google, azure or a type of federation.types of simple-ca.json")
 	fs.StringVar(&fed.Audience, "audience", "", "`audience` of the JWT, in place of that of the token type")
 	fs.Func("claim", "`name=value` claim of the JWT, a string; may be specified multiple times", claimFlag(&fed.Claims))
-	valid := fs.Duration("valid", 0, "validity `period` of the JWT, at most the max_valid of the type (default: the\n"+
-		"valid of the type)")
+	valid := durationVar(fs, "valid", 0, "validity `period` of the JWT, such as 30 (minutes) or 8h, at most the max_valid of\n"+
+		"the type (default: the valid of the type)")
 	rest, _, err := parseArgs(fs, args, 1, 1)
 	if err != nil {
 		return err
@@ -266,7 +267,7 @@ func prefixList(list *[]string) func(string) error {
 // the clients it is exchanged from.
 func setupFlags(fs *flag.FlagSet) func(given map[string]bool) (time.Duration, []string, error) {
 	otc := fs.Bool("otc", false, "print a one-time setup code, exchanged for the token, instead of the token")
-	valid := fs.Duration("otc-valid", tokenSetupValid, "validity `period` of the setup code, such as 15m or 1h")
+	valid := durationVar(fs, "otc-valid", tokenSetupValid, "validity `period` of the setup code, such as 15 (minutes) or 1h")
 	var clients []string
 	fs.Func("otc-network", "comma-separated client `prefixes` the setup code is exchanged from; may be\n"+
 		"specified multiple times (default: any)", prefixList(&clients))
@@ -435,7 +436,8 @@ func runTokenRenew(args []string) error {
 			"With --otc, it prints a one-time setup code instead, as token create does: the old JWT\n"+
 			"stops working at once, and the new one is made when the code is exchanged.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
-	valid := fs.Duration("valid", 0, "validity `period` of the token, such as 30m, 8h or 720h (default: the period it had)")
+	valid := durationVar(fs, "valid", 0, "validity `period` of the token, such as 30 (minutes), 8h, 180d, 6m or 1y (default:\n"+
+		"the period it had)")
 	setup := setupFlags(fs)
 	rest, given, err := parseArgs(fs, args, 1, 1)
 	if err != nil {

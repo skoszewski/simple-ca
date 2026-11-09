@@ -38,6 +38,31 @@ sudo systemctl enable --now simple-ca.service simple-ca-crl.timer
 The CRL is renewed daily, well within `days.crl`, 30 days by default. Other settings, such as
 the port, are changed with `systemctl edit simple-ca.service`.
 
+## Debian package
+
+The package that `./build.mjs deb` writes to `dist/`, described in
+[Development](development.md#building), installs:
+
+- `simple-ca`, `request-cert`, `token-setup`, `request-jwt` and `simple-ca-trust` in `/usr/bin`;
+- `simple-ca.service`, `simple-ca-crl.service` and `simple-ca-crl.timer`, the units above, with
+  `/usr/bin/simple-ca`; they are neither enabled nor started;
+- the system user and group `simple-ca`;
+- `/etc/simple-ca`, owned by `simple-ca` with mode 750, when it does not exist.
+
+The CA is created as above, and then the units are enabled:
+
+```sh
+DEB=dist/simple-ca_1.14.2-1_amd64.deb
+CA_URL=http://ca.example.com:8080
+sudo dpkg -i "$DEB"
+sudo -u simple-ca simple-ca ca create --ca-dir /etc/simple-ca --ca-url "$CA_URL" "My Root CA"
+sudo -u simple-ca simple-ca ca create --ca-dir /etc/simple-ca --issuing-ca servers "My Servers CA"
+sudo systemctl enable --now simple-ca.service simple-ca-crl.timer
+```
+
+`dpkg --purge simple-ca` removes the user and group `simple-ca` but leaves `/etc/simple-ca`, with
+the keys and certificates of the CA.
+
 ## Encrypted keys
 
 With [encrypted private keys](usage.md#encrypted-private-keys), both services need the

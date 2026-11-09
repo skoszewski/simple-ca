@@ -25,7 +25,18 @@ executables to `bin/`, which `.gitignore` leaves out.
 ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]
                                # build simple-ca:<version> and simple-ca:latest; --push pushes them;
                                # the registry defaults to SIMPLE_CA_REGISTRY
+./build.mjs deb                # build the Debian package for the architecture of the Docker host
 ```
+
+`./build.mjs deb` builds the package of `debian-package/` with `docker buildx`: the image of
+`debian-package/Dockerfile` compiles `simple-ca`, `request-cert`, `token-setup`, `request-jwt`
+and `simple-ca-trust` and runs `dpkg-buildpackage`, and buildx writes
+`simple-ca_<version>_<arch>.deb` to `dist/`. The version is `X.Y.Z-1` for the newest
+`CHANGELOG.md` entry `X.Y.Z`, and `X.Y.Z-N` for an entry `X.Y.Z-N`, whose programs are those of
+`vX.Y.Z`; while `vX.Y.Z` is not tagged it is `X.Y.Z~rc-N`, which dpkg orders before `X.Y.Z-N`. `debian-package/debian/changelog`, which `.gitignore` leaves out, is written from that
+entry for each build, and the units are those of `systemd/` with `/usr/bin` paths. The page's
+browser files are downloaded first when `assets/markdown/` holds another release, and the build
+fails when that fails. [systemd](systemd.md#debian-package) describes the installed package.
 
 The `/help/` page, `help/index.md`, and the `/docs/` pages of `serve --docs`, the files of
 `docs/`, are drawn by the `render` package of

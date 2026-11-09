@@ -206,6 +206,24 @@ and contacts of an account, the names of an order and the unused nonces have lim
 check follows a redirect only to the same name on the ports of HTTP and HTTPS, and tells the
 client that a fetch failed, not why, so it cannot be used to probe the network of the server.
 
+## A duration is a whole number with at most one unit
+
+Tokens live for minutes to years, and Go's durations stop at hours, so a year had to be written
+as `8760h`. A duration is a whole number of minutes, or a whole number with one unit, `h`, `d`,
+`m` or `y`; a month is 30 days and a year 365 days, fixed lengths, so a duration does not depend
+on the date it starts. One unit and no fractions keep each value readable at a glance, and the
+same form is read everywhere: the options, the pages and the configuration files.
+
+## The Debian package is built in Docker for the host's architecture
+
+The package is built by `dpkg-buildpackage` in the Go image, which compiles the programs, so the
+host needs Docker and Node.js only, and the package is for the architecture the Docker host runs.
+Its `debian/changelog` is written from the newest `CHANGELOG.md` entry, which stays the one
+history, and its units are those of `systemd/` with `/usr/bin` in place of `/usr/local/bin`, so
+the units are kept in one place. The units are neither enabled nor started on install, since
+they need a CA that `ca create` makes first. Purge removes the user `simple-ca` but leaves
+`/etc/simple-ca`, since it holds the keys of the CA.
+
 ## The audit log is slog lines in one file, copied to the journal or stderr by serve
 
 The audit records are written by the standard library's `log/slog` with its `TextHandler`, which

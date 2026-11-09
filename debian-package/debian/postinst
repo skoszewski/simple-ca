@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # The account the units run as, which owns the CA directory.
+        adduser --system --group --home /etc/simple-ca --no-create-home simple-ca
+        # An existing CA directory keeps its owner and mode.
+        if [ ! -d /etc/simple-ca ]; then
+            install -d -o simple-ca -g simple-ca -m 750 /etc/simple-ca
+        fi
+        ;;
+esac
+
+#DEBHELPER#

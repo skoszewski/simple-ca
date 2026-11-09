@@ -1,0 +1,24 @@
+Source: simple-ca
+Section: admin
+Priority: optional
+Maintainer: Slawomir Koszewski <slawek@koszewscy.waw.pl>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://github.com/skoszewski/simple-ca
+
+Package: simple-ca
+Architecture: any
+Depends: ${misc:Depends},
+         adduser
+Description: Small certificate authority with an HTTP server, ACME and a signing API
+ simple-ca keeps a root CA and its issuing CAs in a directory, issues and
+ revokes certificates and publishes CRLs. Its serve command publishes the CA
+ certificates and CRLs over HTTP, with an ACME server, a signing API for
+ tokens, and pages for tokens, certificates and the audit log.
+ .
+ The package installs simple-ca, the signing API clients request-cert,
+ token-setup and request-jwt, and simple-ca-trust, which adds a root CA to
+ the trust store. The units simple-ca.service, simple-ca-crl.service and
+ simple-ca-crl.timer run as the user simple-ca on the CA in /etc/simple-ca;
+ they are not enabled on install.

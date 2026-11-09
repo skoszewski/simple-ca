@@ -148,7 +148,7 @@ func newWebuiToken(name string, t *apiToken, now time.Time) webuiToken {
 	valid := ""
 	switch {
 	case t.pending():
-		if d, err := time.ParseDuration(t.Setup.Valid); err == nil {
+		if d, err := t.Setup.valid(); err == nil {
 			valid = durationText(d)
 		}
 	case !t.revoked():
@@ -390,8 +390,8 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 	// A token created or renewed with a setup code gets the code in place of its JWT.
 	var setupValid time.Duration
 	if req.OTC {
-		if setupValid, err = time.ParseDuration(strings.TrimSpace(req.OTCValid)); err != nil {
-			webuiFail(w, http.StatusBadRequest, "otc_valid: '"+req.OTCValid+"' is not a duration such as 15m")
+		if setupValid, err = parseDuration(req.OTCValid); err != nil {
+			webuiFail(w, http.StatusBadRequest, "otc_valid: "+err.Error())
 			return
 		}
 	}
@@ -405,8 +405,8 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 	// A validity is given for a token created or renewed, as token create and token renew take it.
 	var valid time.Duration
 	if r.URL.Path == "/api/tokens" || r.URL.Path == "/api/tokens/renew" {
-		if valid, err = time.ParseDuration(strings.TrimSpace(req.Valid)); err != nil {
-			webuiFail(w, http.StatusBadRequest, "valid: '"+req.Valid+"' is not a duration such as 8h")
+		if valid, err = parseDuration(req.Valid); err != nil {
+			webuiFail(w, http.StatusBadRequest, "valid: "+err.Error())
 			return
 		}
 	}

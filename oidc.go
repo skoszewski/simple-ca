@@ -353,8 +353,8 @@ func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiTok
 	valid := time.Hour
 	if v := cmp.Or(t.Valid, defaults.Valid); v != "" {
 		var err error
-		if valid, err = time.ParseDuration(v); err != nil {
-			return nil, nil, fmt.Errorf("'%s' is not a duration such as 8h", v)
+		if valid, err = parseDuration(v); err != nil {
+			return nil, nil, err
 		}
 	}
 	scopes := slices.Clone(t.Scopes)

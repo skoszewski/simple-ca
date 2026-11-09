@@ -56,7 +56,7 @@ new one, which starts from the built-in type of `base`:
         "base": "google",
         "audience": "https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca",
         "subject": "simple-ca:{ca}:{name}",
-        "valid": "30m",
+        "valid": "30",
         "max_valid": "8h",
         "claims": {"env": "lab"}
       }

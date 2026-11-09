@@ -25,6 +25,13 @@
 // simple-ca:latest, below the registry --registry names, else SIMPLE_CA_REGISTRY when it is set,
 // and pushes it with --push.
 //
+// The deb action builds the Debian package of debian-package/ with docker buildx, for the platform
+// of the Docker host, compiling the programs in the image of debian-package/Dockerfile, and writes
+// simple-ca_<version>_<arch>.deb to dist/. Its version is X.Y.Z-1 for the newest CHANGELOG.md
+// entry X.Y.Z, or X.Y.Z-N for an entry X.Y.Z-N, with the programs of vX.Y.Z, and X.Y.Z~rc-N
+// while vX.Y.Z is not tagged; debian-package/debian/changelog is written from the entry. It downloads the browser files of serve-markdown's page first when assets/markdown
+// holds another version, and fails when that fails.
+//
 // The assets action downloads the browser files of serve-markdown's page, for the version of
 // serve-markdown in go.mod, from its GitHub release into assets/markdown, which serve embeds
 // for its /help/ and /docs/ pages. build, test and check download them first when assets/markdown holds
@@ -38,7 +45,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]\n" +
-  "       ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]";
+  "       ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]\n" +
+  "       ./build.mjs deb";
 const root = dirname(fileURLToPath(import.meta.url));
 let selfContained = false;
 let push = false;
@@ -148,9 +156,9 @@ const goBuild = (output, pkg) => {
     join(binDir, output), pkg], { env });
 };
 
-if (!["build", "trust", "test", "check", "clean", "assets", "docker"].includes(action) ||
+if (!["build", "trust", "test", "check", "clean", "assets", "docker", "deb"].includes(action) ||
   (selfContained && action !== "trust") || (push && action !== "docker") ||
-  (registry !== null && (action !== "docker" || registry === ""))) {
+  (registry !== null && (action !== "docker" || registry === "")) || (action === "deb" && platform !== "")) {
   console.error(usage);
   process.exit(2);
 }
@@ -173,8 +181,9 @@ if (platform !== "") {
   nameSuffix = `-${goos}-${goarch}${goos === "windows" ? ".exe" : ""}`;
 }
 
-// The page's browser files are fetched again once go.mod requires another serve-markdown.
-if (["build", "test", "check"].includes(action)) {
+// The page's browser files are fetched again once go.mod requires another serve-markdown; the
+// package is not built without them.
+if (["build", "test", "check", "deb"].includes(action)) {
   let held = "";
   try {
     held = readFileSync(versionFile, "utf8").trim();
@@ -183,6 +192,10 @@ if (["build", "test", "check"].includes(action)) {
     try {
       await fetchMarkdownAssets();
     } catch (error) {
+      if (action === "deb") {
+        console.error(error.message);
+        process.exit(1);
+      }
       console.error(`warning: ${error.message}; simple-ca is built without the /help/ and /docs/ pages`);
     }
   }
@@ -268,6 +281,30 @@ switch (action) {
     run("docker", ["buildx", "build", ...(push ? ["--push"] : []), "--build-arg", `VERSION=v${version}`,
       ...(platform === "" ? [] : ["--platform", platform]),
       "-t", `${image}:${version}`, "-t", `${image}:latest`, "."]);
+    break;
+  }
+  case "deb": {
+    if (!changelogVersion) {
+      console.error("CHANGELOG.md has no \"## x.y.z\" entry");
+      process.exit(1);
+    }
+    // debian/changelog holds the newest CHANGELOG.md entry: its summary line, then its items.
+    const lines = readFileSync(join(root, "CHANGELOG.md"), "utf8").split(/^## /m)[1].split("\n").slice(1);
+    const summary = lines.find((line) => line.trim() !== "");
+    const items = lines.filter((line) => /^(- |  \S)/.test(line))
+      .map((line) => line.startsWith("- ") ? `  * ${line.slice(2)}` : `    ${line.trim()}`);
+    // An entry x.y.z-N is the code of vx.y.z, packaged again as the Debian revision N.
+    const [, upstream, revision = "1"] = changelogVersion.match(/^(.*?)(?:-([0-9]+))?$/);
+    const upstreamTag = spawnSync("git", ["tag", "--list", `v${upstream}`], { cwd: root, encoding: "utf8" });
+    const prerelease = upstreamTag.status === 0 && upstreamTag.stdout.trim() === "";
+    const debVersion = prerelease ? `${upstream}~rc-${revision}` : `${upstream}-${revision}`;
+    const date = new Date().toUTCString().replace(/GMT$/, "+0000");
+    writeFileSync(join(root, "debian-package", "debian", "changelog"),
+      `simple-ca (${debVersion}) unstable; urgency=medium\n\n  ${summary}\n\n${items.join("\n")}\n\n` +
+      ` -- Slawomir Koszewski <slawek@koszewscy.waw.pl>  ${date}\n`);
+    run("docker", ["buildx", "build", "-f", "debian-package/Dockerfile",
+      "--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`,
+      "--output", "type=local,dest=dist", "."]);
     break;
   }
   case "test":

@@ -134,9 +134,12 @@ func (c *config) tokenTypes() (map[string]tokenTypeDef, error) {
 			def.subject = t.Subject
 		}
 		if t.MaxValid != "" {
-			d, err := time.ParseDuration(t.MaxValid)
-			if err != nil || d < time.Second {
-				return nil, fmt.Errorf("%s: max_valid '%s' is not a duration of at least 1s, such as 24h", where, t.MaxValid)
+			d, err := parseDuration(t.MaxValid)
+			if err == nil && d == 0 {
+				err = errors.New("max_valid must be at least 1 minute")
+			}
+			if err != nil {
+				return nil, fmt.Errorf("%s: max_valid: %w", where, err)
 			}
 			if def.maxValid > 0 && d > def.maxValid {
 				return nil, fmt.Errorf("%s: max_valid %s is longer than the %s its base allows", where, t.MaxValid,
@@ -145,9 +148,12 @@ func (c *config) tokenTypes() (map[string]tokenTypeDef, error) {
 			def.maxValid = d
 		}
 		if t.Valid != "" {
-			d, err := time.ParseDuration(t.Valid)
-			if err != nil || d < time.Second {
-				return nil, fmt.Errorf("%s: valid '%s' is not a duration of at least 1s, such as 1h", where, t.Valid)
+			d, err := parseDuration(t.Valid)
+			if err == nil && d == 0 {
+				err = errors.New("valid must be at least 1 minute")
+			}
+			if err != nil {
+				return nil, fmt.Errorf("%s: valid: %w", where, err)
 			}
 			def.valid = d
 		}
