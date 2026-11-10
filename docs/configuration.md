@@ -87,6 +87,26 @@ writes it, and it can be written or edited by hand. A setting not described here
   - `days` - the validity of its certificates, 90 days by default;
   - `max_accounts`, `max_orders`, `max_names`, `max_contacts`, `max_nonces` - its
     [limits](acme.md#limits).
+- `context` - the option values of the [contexts](usage.md#contexts) of a session, which a
+  command on the CA takes for the options it is not given, on the command line too:
+  - `values` - those of the root CA;
+  - `cas` - those of each issuing CA, by name, each with its `values`;
+  - each key is the option name in snake_case, `otc_valid` for `--otc-valid`, with a list of
+    values, one for each time the option would be given. The `context` commands of a session
+    write them.
+
+  An option on the command line wins over its value, and the value over the default of the
+  option, or of this file, and over its environment variable:
+
+  ```json
+  {
+    "context": {
+      "values": {"valid": ["45d"]},
+      "cas": {"servers": {"values": {"domain": ["example.com", "example.org"]}}}
+    }
+  }
+  ```
+
 - `days` - defaults for `--days`: `ca`, `cert`, `crl`.
 - `audit` - the [audit log](audit.md):
   - `file` - its path, absolute or relative to the root CA directory; `audit.log` by default.

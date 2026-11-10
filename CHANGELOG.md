@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.16.0
+
+feat: simple-ca without arguments runs a session of commands, at a prompt with history and completion on a terminal or as a script from stdin, whose contexts switch the CA and keep option values for each CA in simple-ca.json.
+
+- `simple-ca` without arguments runs the commands of a session in one process. On a terminal it
+  reads them at a prompt with line editing, a history in `~/.simple-ca_history` (or
+  `SIMPLE_CA_HISTORY`) and Tab completion; otherwise it runs the lines of stdin as a script,
+  stopping at the first failing line with its exit status. A line is split as a shell splits it,
+  and every command but `serve` is accepted. The passphrase of encrypted keys is asked once per
+  session, and the commands of a script read no stdin.
+- Each CA of the hierarchy is a context: a session started in a root CA directory works on the
+  root CA, one started in an issuing CA directory on that issuing CA, and the prompt names it.
+  The group `context`, known in a session alone, lists the CAs (`list`), switches the CA of the
+  commands (`use`), and keeps option values for each CA (`set`, `add`, `delete`, `show`).
+- The option values of a CA are kept in the new section `context` of `simple-ca.json`, `values`
+  for the root CA and `cas` for each issuing CA. A command on that CA takes them for the options
+  it is not given, in a session and on the command line alike; an option on the line wins.
+- `release.mjs --push` takes the name of a git remote, any that `git remote` lists, or `all` for
+  every remote, in place of the fixed `github`, `gitea` and `all`; a name that is not a remote is
+  refused with the list of remotes.
+
 ## 1.15.3
 
 fix: the Gitea workflow publishes the Debian package in the Debian registry of Gitea, in noble/main and resolute/main.

@@ -336,7 +336,7 @@ func runTokenDescribe(args []string) error {
 	} else {
 		var b []byte
 		if *stdin {
-			b, err = io.ReadAll(os.Stdin)
+			b, err = io.ReadAll(commandInput)
 		} else {
 			b, err = os.ReadFile(*tokenFile)
 		}

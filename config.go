@@ -355,6 +355,47 @@ func (t themeConfig) css(path string) (template.CSS, error) {
 	return template.CSS(b.String()), nil
 }
 
+// contextConfig is the context section of simple-ca.json: the option values of the commands of
+// the root CA, by the snake_case name of the option, and those of each issuing CA under cas.
+type contextConfig struct {
+	Values map[string][]string  `json:"values,omitempty"`
+	CAs    map[string]contextCA `json:"cas,omitempty"`
+}
+
+// contextCA holds the option values of the commands of one issuing CA.
+type contextCA struct {
+	Values map[string][]string `json:"values,omitempty"`
+}
+
+// contextValues returns the option values of the CA caID, the root CA for "", and nil without
+// any.
+func (c *config) contextValues(caID string) map[string][]string {
+	if caID == "" {
+		return c.Context.Values
+	}
+	return c.Context.CAs[caID].Values
+}
+
+// setContextValues replaces the option values of the CA caID, the root CA for "", removing its
+// entry when values is empty.
+func (c *config) setContextValues(caID string, values map[string][]string) {
+	if len(values) == 0 {
+		values = nil
+	}
+	if caID == "" {
+		c.Context.Values = values
+		return
+	}
+	if values == nil {
+		delete(c.Context.CAs, caID)
+		return
+	}
+	if c.Context.CAs == nil {
+		c.Context.CAs = map[string]contextCA{}
+	}
+	c.Context.CAs[caID] = contextCA{Values: values}
+}
+
 // config is the simple-ca.json file of a root CA directory, the settings of the root CA and its
 // issuing CAs.
 type config struct {
@@ -368,6 +409,7 @@ type config struct {
 	Tokens           tokensConfig          `json:"tokens,omitzero"`
 	OIDC             oidcConfig            `json:"oidc,omitzero"`
 	Audit            auditConfig           `json:"audit,omitzero"`
+	Context          contextConfig         `json:"context,omitzero"`
 }
 
 // loadConfig reads simple-ca.json of caDir, refusing unknown settings, or returns an empty config

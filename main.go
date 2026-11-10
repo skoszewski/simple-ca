@@ -23,11 +23,14 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -53,10 +56,14 @@ func version() string {
 
 // ---- CLI --------------------------------------------------------------------
 
-// resolveCADir returns the --ca-dir value, else $SIMPLE_CA_DIR, else the working directory.
+// resolveCADir returns the --ca-dir value, else the CA of the active context of the REPL, else
+// $SIMPLE_CA_DIR, else the working directory.
 func resolveCADir(flagVal string) string {
 	if flagVal != "" {
 		return flagVal
+	}
+	if sessionRoot != "" {
+		return filepath.Join(sessionRoot, sessionCA)
 	}
 	if env := os.Getenv("SIMPLE_CA_DIR"); env != "" {
 		return env
@@ -138,7 +145,8 @@ var commands = []command{
 
 // printUsage writes the usage of simple-ca to w, or of the group g when it is not nil.
 func printUsage(w io.Writer, g *command) {
-	list, usage, what := commands, "simple-ca GROUP COMMAND [options] [ARGS]\n       simple-ca serve [options]",
+	list, usage, what := commands, "simple-ca GROUP COMMAND [options] [ARGS]\n       simple-ca serve [options]\n"+
+		"       simple-ca                 the commands of a session on a terminal, else of stdin",
 		"Create and manage a simple Certificate Authority."
 	if g != nil {
 		list, usage, what = g.sub, "simple-ca "+g.name+" COMMAND [options] [ARGS]", g.summary
@@ -181,8 +189,9 @@ func newFlagSet(name, arguments, summary string) *flag.FlagSet {
 }
 
 // parseArgs parses the options of a subcommand, which come before its arguments, and checks that
-// it was given from minArgs to maxArgs arguments, maxArgs -1 for any number. It returns the
-// arguments and the names of the options given.
+// it was given from minArgs to maxArgs arguments, maxArgs -1 for any number. An option not given
+// takes the values of the context of its CA in simple-ca.json. It returns the arguments and the
+// names of the options given or taken from the context.
 func parseArgs(fs *flag.FlagSet, args []string, minArgs, maxArgs int) ([]string, map[string]bool, error) {
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -195,9 +204,47 @@ func parseArgs(fs *flag.FlagSet, args []string, minArgs, maxArgs int) ([]string,
 		fs.Usage()
 		return nil, nil, errUsage
 	}
+	if err := applyContext(fs); err != nil {
+		return nil, nil, err
+	}
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	return fs.Args(), given, nil
+}
+
+// applyContext sets each option of fs not given that the context of its CA holds, the CA of its
+// --ca-dir, once for each value; a command without --ca-dir, or outside a CA, takes none.
+func applyContext(fs *flag.FlagSet) error {
+	caDirFlag := fs.Lookup("ca-dir")
+	if caDirFlag == nil {
+		return nil
+	}
+	rootDir, caID, err := locateCA(resolveCADir(caDirFlag.Value.String()))
+	if err != nil {
+		return nil
+	}
+	cfg, err := loadConfig(rootDir)
+	if err != nil {
+		return err
+	}
+	values := cfg.contextValues(caID)
+	if len(values) == 0 {
+		return nil
+	}
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	for _, key := range slices.Sorted(maps.Keys(values)) {
+		name := strings.ReplaceAll(key, "_", "-")
+		if name == "ca-dir" || given[name] || fs.Lookup(name) == nil {
+			continue
+		}
+		for _, value := range values[key] {
+			if err := fs.Set(name, value); err != nil {
+				return fmt.Errorf("context value '%s' of the option '%s' of %s: %w", value, name, cmp.Or(caID, "root"), err)
+			}
+		}
+	}
+	return nil
 }
 
 // run runs the command named by args, a group and one of its commands or serve, or prints the
@@ -244,11 +291,18 @@ func run(args []string) error {
 }
 
 func main() {
-	err := run(os.Args[1:])
+	var err error
+	if len(os.Args) == 1 {
+		err = runREPL()
+	} else {
+		err = run(os.Args[1:])
+	}
 	switch {
 	case err == nil, errors.Is(err, flag.ErrHelp):
 	case errors.Is(err, errUsage):
 		os.Exit(2)
+	case errors.Is(err, errReported):
+		os.Exit(1)
 	default:
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		os.Exit(1)

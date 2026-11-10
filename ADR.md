@@ -107,6 +107,29 @@ that does not allow executable sources; the user chooses with `--credential-sour
 executable source runs the absolute paths of the program and of the configuration file, since
 the libraries run it from any directory.
 
+## The session of simple-ca builds on x/term, and its contexts hold option values per CA
+
+`simple-ca` without arguments runs a session, so a sequence of commands shares one process and
+asks for the passphrase of encrypted keys once. Its line editing, history and completion are the
+`Terminal` of `golang.org/x/term`, a dependency already, instead of a readline library; reverse
+search and multi-line input are left out with it. The terminal is raw only while a line is
+edited, so the commands that read stdin, such as the question of `cert sign` and the passphrase
+prompt, work as on the command line.
+
+Each CA of the hierarchy is a context, and the session starts on the CA of the directory it is
+started in, so its commands name no `--ca-dir`. A context also holds option values, which
+`parseArgs` gives a command for the options it is not given, so no command has code of its own
+for them, and they count as given, for the checks that look at which options were given. The
+values are kept in the root CA's `simple-ca.json`, since an issuing CA has no file of its own,
+and they apply wherever the command runs, also on the command line, so a session and a shell
+script of the same CA behave the same. A value is checked by the option that takes it, as the
+group cannot know which command will take it.
+
+`serve` is not run in a session: it blocks, and it sets process globals, the log stream, the
+default `slog` handler and the trusted proxies, which the next commands would inherit. A script
+stops at its first failing command, as a later line usually depends on an earlier one, and its
+commands read no stdin, which holds the script.
+
 ## The key of a CA is RSA or EC P-256, and its algorithms follow the key
 
 `ca create --key-type` gives a CA an RSA 4096 or an ECDSA P-256 key, chosen for each CA, so an

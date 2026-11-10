@@ -49,6 +49,7 @@ simple-ca serve        [--ca-dir DIR] [--address ADDRESS] [--port PORT]
                        [--tls-cert FILE --tls-key FILE] [--docs] [--webui]
                        [--trusted-proxy ADDRESS ...] [--request-log]
 simple-ca --version
+simple-ca
 ```
 
 The commands are in groups, `ca`, `cert`, `crl`, `token`, `key` and `audit`; `serve` is a command of
@@ -57,9 +58,11 @@ its own. The commands that change a CA write its [audit log](audit.md), which `a
 `simple-ca GROUP COMMAND -h` the options of a command. Options come before the arguments, and take
 one dash or two: `-days 30` and `--days 30` are the same.
 
-The CA directory is `--ca-dir`, else `SIMPLE_CA_DIR`, else the working directory. It must exist,
+The CA directory is `--ca-dir`, else the CA of the active context of a
+[session](#sessions-and-scripts), else `SIMPLE_CA_DIR`, else the working directory. It must exist,
 and it holds the CA a command works with. A CA whose certificate is self-signed is a root CA;
-any other is an issuing CA, and its root CA is in the directory above it.
+any other is an issuing CA, and its root CA is in the directory above it. An option a command is
+not given takes the values its CA's [context](#contexts) holds, if any.
 
 The certificate and the key of HTTPS of `serve` are `--tls-cert` and `--tls-key`, else
 `SIMPLE_CA_TLS_CERT` and `SIMPLE_CA_TLS_KEY`, given together. The key may be encrypted, as
@@ -430,6 +433,94 @@ fills in the defaults of the commands. A create whose certificate and key files 
 `409 Conflict`, as `cert create` refuses it; a sign replaces the `NAME_cert.pem` of an earlier
 certificate, as `cert sign` does, and refuses the name `ca`. A revoke of a certificate revoked
 already is `400 Bad Request`.
+
+## Sessions and scripts
+
+`simple-ca` without arguments runs a session of commands in one process. On a terminal, it reads
+them at a prompt, with line editing, history and Tab completion. Otherwise, it runs the lines of
+its standard input as a script, `simple-ca < commands.txt`.
+
+A line is a command line without `simple-ca`, which may also be left in front. It is split as a
+shell splits it, with `'...'`, `"..."` and `\` escapes, but without variables or wildcards. Blank
+lines and lines starting with `#` are skipped. Every command of the command line is accepted but
+`serve`, which runs on its own, and the session adds the group `context`. `help` lists the
+commands, and `exit` or `quit` ends the session.
+
+```text
+simple-ca:root> context use servers
+simple-ca:servers> cert create web.example.com
+simple-ca:servers> cert list
+simple-ca:servers> exit
+```
+
+### At the prompt
+
+- **Editing:** the arrow keys, Home and End move in the line, and up and down recall earlier
+  lines.
+- **History:** the lines are kept in `~/.simple-ca_history`, or the file of
+  `SIMPLE_CA_HISTORY`, mode 0600, the last 500 of them.
+- **Tab** completes the groups and their commands, and the issuing CAs and the option names of
+  the `context` commands; with several matches, it lists them.
+- **Ending:** Ctrl-D, Ctrl-C, `exit` and `quit` end the session. Ctrl-C while a command runs
+  ends simple-ca too.
+- **Errors:** a failing command prints its error, and the session goes on.
+- **Passphrase:** with [encrypted private keys](#encrypted-private-keys), the passphrase is asked
+  once, for the whole session.
+
+### Contexts
+
+Each CA of the hierarchy, the root CA and its issuing CAs, is a context, and the commands of a
+session work on the CA of the active one, without `--ca-dir`. The prompt names it,
+`simple-ca:root>` or `simple-ca:NAME>`.
+
+- **Start:** a session started in a root CA directory works on the root CA, and one started in an
+  issuing CA directory on that issuing CA; the directory is `SIMPLE_CA_DIR`, else the working
+  directory.
+- **Outside a CA:** the session has no hierarchy, with the prompt `simple-ca>`, until `ca create`
+  makes the root CA there. A CA directory holds `ca_cert.pem`, `ca_key.pem` and `index.txt`; a
+  directory with a copy of `ca_cert.pem` alone is not one.
+- **`--ca-dir`** given on a line names another CA for that line alone.
+
+A context also holds values of options, which a command on its CA takes for the options it is not
+given. They are kept in `simple-ca.json` of the root CA, as described in
+[configuration](configuration.md), and apply on the command line too.
+
+```text
+context list                       # the CAs of the hierarchy, the active one marked *
+context use servers                # work on the issuing CA servers
+context use                        # work on the root CA
+context use --ca-dir DIR [NAME]    # work in the hierarchy of another CA directory
+context set valid 45d              # --valid 45d for the commands of this CA
+context add domain example.org     # one more --domain, for a repeated option
+context delete domain example.org  # one value, or the option without values
+context show                       # the values, as --NAME VALUE
+```
+
+The `context` group is known in a session alone, not on the command line. An option name is the kebab-case name without the dashes, such as `valid` or `otc-valid`. A value
+is checked by the command that takes it, so `context set days abc` fails the next command with
+`--days`. `ca-dir` is not a value: `context use` switches the CA. An option on the line wins over
+the context, and the context over the option's default and its environment variable. A command
+without the option ignores the value.
+
+### Scripts
+
+A script runs its lines in order and stops at the first failing one, naming its line, with the
+exit status of that command: 2 for a wrong command line, else 1. Its commands read no standard
+input, which holds the script, so `cert sign` needs `--force`, and the passphrase comes from
+`SIMPLE_CA_KEY_PASSWORD` or `SIMPLE_CA_KEY_PASSWORD_FILE`.
+
+```sh
+CA_DIR=/tmp/ca
+
+cd "$CA_DIR"
+simple-ca <<'EOF'
+# Two server certificates of the issuing CA servers.
+context use servers
+context set days 30
+cert create web.example.com
+cert create mail.example.com
+EOF
+```
 
 ## Example
 

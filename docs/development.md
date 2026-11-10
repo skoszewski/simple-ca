@@ -92,8 +92,8 @@ the last release.
 everything with the entry's summary line as the message. Releases made this way stay on the
 machine; each next one needs a new entry, with a new version.
 
-`./release.mjs --push WHERE` publishes the newest entry on GitHub, the remote `origin`, with
-`github`, on Gitea, the remote `gitea`, with `gitea`, or on both with `all`:
+`./release.mjs --push REMOTE` publishes the newest entry on the git remote `REMOTE`, such as
+`origin` on GitHub, and `./release.mjs --push all` on every remote `git remote` lists:
 
 1. commits everything with the entry's summary line as the message, when the entry is not
    released yet;
@@ -107,14 +107,15 @@ machine; each next one needs a new entry, with a new version.
 
 ```sh
 ./release.mjs                  # release the newest CHANGELOG.md entry, but push nothing
-./release.mjs --push all       # publish the newest CHANGELOG.md entry on GitHub and Gitea
-./release.mjs --push gitea     # publish it on Gitea, also after an earlier --push github
+./release.mjs --push all       # publish the newest CHANGELOG.md entry on every remote
+./release.mjs --push origin    # publish it on the remote origin alone
 ./release.mjs -n --push all    # print the commands instead of running them
 ```
 
 It runs on `dev` only. It refuses to commit changes for a released entry, and to publish an entry
-whose tag is on every remote named; the next change needs a new entry. A tag pushed to one remote
-is pushed as it is to the other by a later `--push`. Only a tag is built: pushing `dev` or `main`
+whose tag is on every remote named; the next change needs a new entry. A `--push` naming a remote
+that `git remote` does not list is refused. A tag pushed to one remote is pushed as it is to the
+others by a later `--push`. Only a tag is built: pushing `dev` or `main`
 runs no workflow. An entry `x.y.z-N`, `N` from 2, is a later release of the same code with changes
 to the documentation or the packaging alone: `./release.mjs --push` fast-forwards `main` to `dev`
 and pushes both without a tag to the remotes named, so nothing is built and no release is made,

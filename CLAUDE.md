@@ -30,6 +30,9 @@
 - The command line uses the standard `flag` package, without a command framework.
 - Commands are grouped as `simple-ca GROUP COMMAND`: `ca`, `cert`, `crl`, `token`, `key` and `audit`, with the
   verb `create` for making things; `serve` stands alone. No flat commands are added.
+- REPL is started when `simple-ca` is run without arguments, and it accepts the same commands as
+  the command line, but `serve`, and the REPL-only group `context`, which switches the CA of the
+  commands and stores option values per CA in `simple-ca.json`.
 - The names of flags, issuing CAs, certificate types and tokens are kebab-case (`kebabCaseRE`); JSON keys
   and file names are snake_case.
 - `simple-ca-mini.py` uses the Python standard library and runs the `openssl` command for every

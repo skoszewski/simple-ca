@@ -129,7 +129,7 @@ func runCertSign(args []string) error {
 	if !given["days"] && cfg.Days.Cert > 0 {
 		*days = cfg.Days.Cert
 	}
-	cert, err := signCSR(rest[0], dir, *certDir, *certType, *days, *ekus, *kus, *force, os.Stdin)
+	cert, err := signCSR(rest[0], dir, *certDir, *certType, *days, *ekus, *kus, *force, commandInput)
 	if cert != nil {
 		auditIssued(dir, cert, *certType, "via", "cli", "actor", cliActor())
 	}

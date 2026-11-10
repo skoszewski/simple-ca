@@ -2,8 +2,8 @@
 
 // Releases the newest CHANGELOG.md entry: commits everything on dev with the entry's summary line,
 // and with --push tags dev vX.Y.Z with the entries since the last tag as the release notes, moves
-// main to it, and pushes dev, main and the tag together to GitHub, to Gitea, or to both. A release
-// X.Y.Z-N of the documentation or the packaging alone is pushed without a tag.
+// main to it, and pushes dev, main and the tag together to a git remote, or to every remote. A
+// release X.Y.Z-N of the documentation or the packaging alone is pushed without a tag.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,11 +13,11 @@ import { parseArgs } from 'node:util';
 
 const CHANGELOG = `${import.meta.dirname}/CHANGELOG.md`;
 
-const usage = `Usage: release.mjs [-h|--help] [-n|--dry-run] [--push all|github|gitea]
+const usage = `Usage: release.mjs [-h|--help] [-n|--dry-run] [--push REMOTE|all]
 
   -n, --dry-run  print the commands instead of running them
-  --push WHERE   also tag the release and push dev, main and the tag to the remote origin
-                 (github), to the remote gitea (gitea), or to both (all)
+  --push REMOTE  also tag the release and push dev, main and the tag to the git remote REMOTE,
+                 or to every remote of git remote with all
 
 Without --push, the changes are committed with the summary line of the newest CHANGELOG.md entry,
 the line between blank lines right after its "## x.y.z" heading; that commit marks the entry as
@@ -25,7 +25,7 @@ released, and the next change needs a new entry. With --push, the newest entry i
 is not yet, dev is tagged v and the version of the heading, x.y.z or a semver prerelease such as
 x.y.z-rc.1, main is moved to it, and dev, main and the tag are pushed in one atomic push to each
 remote named; the tag builds the release there. A tag made by an earlier --push is pushed to the
-remotes that do not have it yet, so --push gitea can follow --push github. The tag's message, and
+remotes that do not have it yet, so --push gitea can follow --push origin. The tag's message, and
 so the release notes, are the entries since the last tagged one. A version x.y.z-N, N a number, is
 a release of the documentation or the packaging alone: --push moves main to dev and pushes them
 without a tag, so nothing is built, and the entry goes into the notes of the next tagged release.`;
@@ -53,14 +53,6 @@ function fail(message) {
   console.error(`release: ${message}`);
   process.exit(1);
 }
-
-// The remotes of each --push target; without --push, a release counts as published on both.
-const targets = { all: ['origin', 'gitea'], github: ['origin'], gitea: ['gitea'] };
-if (values.push !== undefined && !Object.hasOwn(targets, values.push)) {
-  console.error(usage);
-  process.exit(2);
-}
-const remotes = targets[values.push ?? 'all'];
 
 // Runs a command in the repository, or prints it on a dry run; stops with its exit status when it fails.
 function run(command, ...args) {
@@ -104,6 +96,14 @@ const summary = above?.trim() === '' && below?.trim() === '' && line?.trim() && 
 if (!summary) fail(`put a summary line between blank lines right after the newest heading of ${CHANGELOG}`);
 
 if (read('git', 'branch', '--show-current') !== 'dev') fail('a release is made from dev');
+// The remotes --push names, one or all of git remote; without --push, a release counts as
+// published once every remote has its tag.
+const defined = read('git', 'remote').split('\n').filter(Boolean);
+if (defined.length === 0) fail('the repository has no git remote');
+if (values.push !== undefined && values.push !== 'all' && !defined.includes(values.push)) {
+  fail(`--push ${values.push}: not a git remote; the remotes are ${defined.join(', ')}, or all`);
+}
+const remotes = values.push === undefined || values.push === 'all' ? defined : [values.push];
 const localTags = new Set(read('git', 'tag', '--list').split('\n'));
 const remoteTags = new Map(remotes.map((remote) => [remote, new Set(read('git', 'ls-remote', '--tags', remote).split('\n')
   .map((ref) => ref.split('refs/tags/')[1]?.replace(/\^\{\}$/, '')).filter(Boolean))]));
