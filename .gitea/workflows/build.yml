@@ -4,7 +4,9 @@
 # - check: gofmt and go vet.
 # - deb: refuses a tag that is not semver, not on main, or not the newest CHANGELOG.md entry; builds
 #   the Debian package of ./build.mjs deb for amd64, simple-ca_X.Y.Z-1_amd64.deb, creates the
-#   release with the tag's message as notes, a prerelease for -PRE, and attaches the package.
+#   release with the tag's message as notes, a prerelease for -PRE, and attaches the package;
+#   publishes the package in the Debian registry of CI_OWNER at CI_URL, with the token CI_TOKEN,
+#   in noble/main and resolute/main.
 
 name: build
 
@@ -101,3 +103,27 @@ jobs:
           package="$(cd dist && ls simple-ca_*_amd64.deb)"
           curl -fsS -X POST -H "Authorization: token $TOKEN" -F "attachment=@dist/$package" \
             "$API/releases/$id/assets?name=$package"
+      # Publishes the package in the Debian registry of the owner, in the component main of each
+      # distribution; Gitea answers 409 for a version that is in the distribution already.
+      - name: Publish package
+        env:
+          SERVER_URL: ${{ secrets.CI_URL }}
+          OWNER: ${{ secrets.CI_OWNER }}
+          PACKAGES_TOKEN: ${{ secrets.CI_TOKEN }}
+          DISTRIBUTIONS: noble resolute
+        run: |
+          package="$(cd dist && ls simple-ca_*_amd64.deb)"
+          body="$(mktemp)"
+          for distribution in $DISTRIBUTIONS; do
+            status="$(curl -s -o "$body" -w '%{http_code}' --user "$OWNER:$PACKAGES_TOKEN" \
+              --upload-file "dist/$package" \
+              "$SERVER_URL/api/packages/$OWNER/debian/pool/$distribution/main/upload")"
+            case "$status" in
+              2??) echo "$package is published in $distribution/main" ;;
+              409) echo "$package is already in $distribution/main" ;;
+              *)
+                echo "the upload to $distribution/main answered HTTP $status: $(cat "$body")" >&2
+                exit 1
+                ;;
+            esac
+          done

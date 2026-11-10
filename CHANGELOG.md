@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.15.3
+
+fix: the Gitea workflow publishes the Debian package in the Debian registry of Gitea, in noble/main and resolute/main.
+
+- The new step Publish package of `.gitea/workflows/build.yml` uploads `simple-ca_X.Y.Z-1_amd64.deb`
+  to the Debian registry of the owner `CI_OWNER` at `CI_URL`, with the token `CI_TOKEN`, in the
+  component `main` of the distributions `noble` and `resolute`, so apt installs it from
+  `CI_URL/api/packages/CI_OWNER/debian`. A version already in a distribution is skipped.
+
 ## 1.15.2
 
 fix: the Gitea workflow builds the Debian package for amd64 and attaches it to a Gitea release of the tag, and release.mjs --push publishes on GitHub, Gitea or both.
