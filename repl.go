@@ -128,11 +128,16 @@ func runInteractive() error {
 		}
 		return complete(t, line, pos)
 	}
+	followTerminalSize(t)
 	for {
 		// The terminal is raw while a line is edited, and as usual while a command runs.
 		state, err := term.MakeRaw(fd)
 		if err != nil {
 			return err
+		}
+		// The line is edited in the width of the terminal at the time of the prompt.
+		if width, height, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
+			t.SetSize(width, height)
 		}
 		t.SetPrompt(prompt())
 		line, err := t.ReadLine()

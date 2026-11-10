@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.16.1
+
+fix: the prompt of the session edits the line in the width of the terminal instead of 80 columns.
+
+- The prompt of `simple-ca` without arguments takes the width and height of the terminal each
+  time it is shown, so a line wider than 80 columns no longer wraps at column 80. On Linux and
+  macOS it also follows a resize of the terminal while a line is edited.
+
 ## 1.16.0
 
 feat: simple-ca without arguments runs a session of commands, at a prompt with history and completion on a terminal or as a script from stdin, whose contexts switch the CA and keep option values for each CA in simple-ca.json.
