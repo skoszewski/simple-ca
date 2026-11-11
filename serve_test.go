@@ -21,6 +21,7 @@ import (
 	"testing/fstest"
 
 	"github.com/skoszewski/serve-markdown/v3/render"
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestServe(t *testing.T) {
@@ -57,11 +58,11 @@ func TestServe(t *testing.T) {
 		return resp.StatusCode, resp.Header.Get("Content-Type"), body
 	}
 
-	leaf, err := loadCert(filepath.Join(caDir, "issuing-ca", "web_cert.pem"))
+	leaf, err := simpleca.LoadCert(filepath.Join(caDir, "issuing-ca", "web_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
-	issuing, err := loadCert(filepath.Join(caDir, "issuing-ca", "ca_cert.pem"))
+	issuing, err := simpleca.LoadCert(filepath.Join(caDir, "issuing-ca", "ca_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}

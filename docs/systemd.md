@@ -45,7 +45,8 @@ The package that `./build.mjs deb` writes to `dist/`, described in
 [releases](https://github.com/skoszewski/simple-ca/releases) hold it for amd64 and arm64,
 `simple-ca_X.Y.Z-1_<arch>.deb`:
 
-- `simple-ca`, `request-cert`, `token-setup`, `request-token` and `simple-ca-trust` in `/usr/bin`;
+- `simple-ca`, `request-cert`, `token-setup`, `request-token`, `simple-ca-wif` and
+  `simple-ca-trust` in `/usr/bin`;
 - `simple-ca.service`, `simple-ca-crl.service` and `simple-ca-crl.timer`, the units above, with
   `/usr/bin/simple-ca`; they are neither enabled nor started;
 - the system user and group `simple-ca`;

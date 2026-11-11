@@ -35,6 +35,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 	"golang.org/x/term"
 )
 
@@ -86,8 +87,8 @@ func placeCA(dir string) error {
 // isCADir reports whether dir holds an initialized CA: its certificate, its key and its index.txt,
 // not a copy of a CA certificate alone.
 func isCADir(dir string) bool {
-	return fileExists(filepath.Join(dir, "ca_cert.pem")) && fileExists(filepath.Join(dir, "ca_key.pem")) &&
-		fileExists(filepath.Join(dir, "index.txt"))
+	return simpleca.FileExists(filepath.Join(dir, "ca_cert.pem")) && simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) &&
+		simpleca.FileExists(filepath.Join(dir, "index.txt"))
 }
 
 // findCA returns the root CA directory and the issuing CA name of the initialized CA in dir.
@@ -95,7 +96,7 @@ func findCA(dir string) (string, string, error) {
 	if !isCADir(dir) {
 		return "", "", fmt.Errorf("%s is not a CA directory: it has no ca_cert.pem, ca_key.pem and index.txt", dir)
 	}
-	return locateCA(dir)
+	return simpleca.LocateCA(dir)
 }
 
 // sessionCAs returns the IDs of the CAs of the hierarchy of the session, empty for the root CA.
@@ -329,8 +330,8 @@ func complete(t *term.Terminal, line string, pos int) (string, int, bool) {
 		candidates = slices.DeleteFunc(sessionCAs(), func(id string) bool { return id == "" })
 	case len(words) == 2 && words[0] == "context" && slices.Contains([]string{"set", "add", "delete"}, words[1]) &&
 		sessionRoot != "":
-		if cfg, err := loadConfig(sessionRoot); err == nil {
-			for key := range cfg.contextValues(sessionCA) {
+		if cfg, err := simpleca.LoadConfig(sessionRoot); err == nil {
+			for key := range cfg.ContextValues(sessionCA) {
 				candidates = append(candidates, strings.ReplaceAll(key, "_", "-"))
 			}
 		}
@@ -401,7 +402,7 @@ func runContextUse(args []string) error {
 		return err
 	}
 	if len(rest) == 1 {
-		if ca = rest[0]; ca == "" || !kebabCaseRE.MatchString(ca) || !isCADir(filepath.Join(root, ca)) {
+		if ca = rest[0]; ca == "" || !simpleca.KebabCaseRE.MatchString(ca) || !isCADir(filepath.Join(root, ca)) {
 			return fmt.Errorf("%s has no issuing CA '%s'", root, rest[0])
 		}
 	}
@@ -412,7 +413,7 @@ func runContextUse(args []string) error {
 // optionKey returns the key of simple-ca.json of the option name, or why it is refused.
 func optionKey(name string) (string, error) {
 	switch {
-	case !kebabCaseRE.MatchString(name):
+	case !simpleca.KebabCaseRE.MatchString(name):
 		return "", fmt.Errorf("option name '%s' is not a kebab-case name without dashes, such as valid or otc-valid", name)
 	case name == "ca-dir":
 		return "", errors.New("ca-dir is the CA of the context itself; switch it with context use")
@@ -425,19 +426,19 @@ func editContext(edit func(values map[string][]string) error) error {
 	if err := requireHierarchy(); err != nil {
 		return err
 	}
-	cfg, err := loadConfig(sessionRoot)
+	cfg, err := simpleca.LoadConfig(sessionRoot)
 	if err != nil {
 		return err
 	}
-	values := maps.Clone(cfg.contextValues(sessionCA))
+	values := maps.Clone(cfg.ContextValues(sessionCA))
 	if values == nil {
 		values = map[string][]string{}
 	}
 	if err := edit(values); err != nil {
 		return err
 	}
-	cfg.setContextValues(sessionCA, values)
-	return cfg.save()
+	cfg.SetContextValues(sessionCA, values)
+	return cfg.Save()
 }
 
 func runContextSet(args []string) error {
@@ -514,11 +515,11 @@ func runContextShow(args []string) error {
 	if err := requireHierarchy(); err != nil {
 		return err
 	}
-	cfg, err := loadConfig(sessionRoot)
+	cfg, err := simpleca.LoadConfig(sessionRoot)
 	if err != nil {
 		return err
 	}
-	values := cfg.contextValues(sessionCA)
+	values := cfg.ContextValues(sessionCA)
 	for _, key := range slices.Sorted(maps.Keys(values)) {
 		for _, v := range values[key] {
 			fmt.Printf("--%s %s\n", strings.ReplaceAll(key, "_", "-"), v)

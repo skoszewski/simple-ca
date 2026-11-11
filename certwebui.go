@@ -34,6 +34,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- the certificate page of serve ------------------------------------------
@@ -179,7 +181,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 		webuiReply(w, http.StatusCreated, map[string]string{"file": file})
 	case "/api/certs/pfx":
 		certPath, ok := certFiles(dir)[req.Serial]
-		if !ok || !fileExists(strings.TrimSuffix(certPath, "_cert.pem")+"_key.pem") {
+		if !ok || !simpleca.FileExists(strings.TrimSuffix(certPath, "_cert.pem")+"_key.pem") {
 			webuiFail(w, http.StatusNotFound, "no certificate file with a key of the CA directory holds the certificate "+req.Serial)
 			return
 		}
@@ -190,7 +192,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		file := strings.TrimSuffix(filepath.Base(certPath), "_cert.pem") + ".pfx"
-		audit(dir, "cert.pfx", append([]any{"file", filepath.Base(certPath)}, s.auditActor()...)...)
+		simpleca.Audit(dir, "cert.pfx", append([]any{"file", filepath.Base(certPath)}, s.auditActor()...)...)
 		webuiReply(w, http.StatusOK, map[string]any{"file": file, "password": password, "pfx": bundle})
 	case "/api/certs/revoke":
 		reason := ""
@@ -214,7 +216,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 		case !revoked:
 			webuiFail(w, http.StatusBadRequest, "certificate "+req.Serial+" is revoked already")
 		default:
-			audit(dir, "cert.revoke", append([]any{"serial", req.Serial, "reason", reason}, s.auditActor()...)...)
+			simpleca.Audit(dir, "cert.revoke", append([]any{"serial", req.Serial, "reason", reason}, s.auditActor()...)...)
 			webuiReply(w, http.StatusOK, map[string]string{"serial": req.Serial})
 		}
 	case "/api/crl":
@@ -254,7 +256,7 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 			c.Key = keyStatus(path)
 		}
 		if path, ok := files[e.serial]; ok {
-			c.HasKey = fileExists(strings.TrimSuffix(path, "_cert.pem") + "_key.pem")
+			c.HasKey = simpleca.FileExists(strings.TrimSuffix(path, "_cert.pem") + "_key.pem")
 		}
 		if e.revoked != "" {
 			if t, err := parseIndexTime(e.revoked); err == nil {
@@ -286,7 +288,7 @@ func keyFiles(dir string) map[string]string {
 	}
 	issuing, _ := filepath.Glob(filepath.Join(dir, "*", "ca_cert.pem"))
 	for _, path := range issuing {
-		if cert, err := loadCert(path); err == nil {
+		if cert, err := simpleca.LoadCert(path); err == nil {
 			keys[serialHex(cert.SerialNumber)] = filepath.Join(filepath.Dir(path), "ca_key.pem")
 		}
 	}
@@ -302,7 +304,7 @@ func certFiles(dir string) map[string]string {
 		if filepath.Base(path) == "ca_cert.pem" {
 			continue
 		}
-		if cert, err := loadCert(path); err == nil {
+		if cert, err := simpleca.LoadCert(path); err == nil {
 			files[serialHex(cert.SerialNumber)] = path
 		}
 	}

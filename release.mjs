@@ -3,7 +3,8 @@
 // Releases the newest CHANGELOG.md entry: commits everything on dev with the entry's summary line,
 // and with --push tags dev vX.Y.Z with the entries since the last tag as the release notes, moves
 // main to it, and pushes dev, main and the tag together to a git remote, or to every remote. A
-// release X.Y.Z-N of the documentation or the packaging alone is pushed without a tag.
+// release X.Y.Z-N of the documentation or the packaging alone is pushed without a tag, and an
+// internal release of --no-tag pushes dev alone.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,9 +14,11 @@ import { parseArgs } from 'node:util';
 
 const CHANGELOG = `${import.meta.dirname}/CHANGELOG.md`;
 
-const usage = `Usage: release.mjs [-h|--help] [-n|--dry-run] [--push REMOTE|all]
+const usage = `Usage: release.mjs [-h|--help] [-n|--dry-run] [--no-tag] [--push REMOTE|all]
 
   -n, --dry-run  print the commands instead of running them
+  --no-tag       make an internal release: with --push, push dev alone, without a tag and
+                 without moving main
   --push REMOTE  also tag the release and push dev, main and the tag to the git remote REMOTE,
                  or to every remote of git remote with all
 
@@ -28,7 +31,10 @@ remote named; the tag builds the release there. A tag made by an earlier --push 
 remotes that do not have it yet, so --push gitea can follow --push origin. The tag's message, and
 so the release notes, are the entries since the last tagged one. A version x.y.z-N, N a number, is
 a release of the documentation or the packaging alone: --push moves main to dev and pushes them
-without a tag, so nothing is built, and the entry goes into the notes of the next tagged release.`;
+without a tag, so nothing is built, and the entry goes into the notes of the next tagged release.
+With --no-tag, the entry of any version is an internal release: it is committed on dev as without
+--push, and --push pushes dev alone, so main and the builds stay at the last tagged release; the
+entry goes into the notes of the next tagged release.`;
 
 let values;
 try {
@@ -36,6 +42,7 @@ try {
     options: {
       'dry-run': { type: 'boolean', short: 'n', default: false },
       push: { type: 'string' },
+      'no-tag': { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
     },
   }));
@@ -123,6 +130,10 @@ if (!committed) {
   run('git', 'commit', '-m', summary);
 }
 if (values.push === undefined) process.exit(0);
+if (values['no-tag']) {
+  for (const remote of remotes) run('git', 'push', remote, 'dev');
+  process.exit(0);
+}
 if (untagged) {
   run('git', 'fetch', '.', 'dev:main');
   for (const remote of remotes) run('git', 'push', '--atomic', remote, 'dev', 'main');

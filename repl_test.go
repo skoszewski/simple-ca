@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // newHierarchy makes a root CA with the issuing CA servers in a new directory, and returns it with
@@ -121,7 +123,7 @@ func TestRunScript(t *testing.T) {
 			t.Errorf("runScript(%q) = %v, want %v", c.script, err, c.want)
 		}
 	}
-	if !fileExists(filepath.Join(caDir, "servers", "web_cert.pem")) {
+	if !simpleca.FileExists(filepath.Join(caDir, "servers", "web_cert.pem")) {
 		t.Fatal("cert create of the script did not issue from the issuing CA servers")
 	}
 	if err := run([]string{"context", "list"}); !errors.Is(err, errUsage) {
@@ -160,17 +162,17 @@ func TestContextCommands(t *testing.T) {
 	if sessionCA != "servers" {
 		t.Fatalf("an unknown issuing CA changed the context to %q", sessionCA)
 	}
-	cfg, err := loadConfig(caDir)
+	cfg, err := simpleca.LoadConfig(caDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.contextValues(""); !slices.Equal(got["otc_valid"], []string{"1h"}) || len(got) != 1 {
+	if got := cfg.ContextValues(""); !slices.Equal(got["otc_valid"], []string{"1h"}) || len(got) != 1 {
 		t.Fatalf("values of the root CA = %v", got)
 	}
-	if got := cfg.contextValues("servers"); !slices.Equal(got["domain"], []string{"a.example", "c.example"}) || len(got) != 1 {
+	if got := cfg.ContextValues("servers"); !slices.Equal(got["domain"], []string{"a.example", "c.example"}) || len(got) != 1 {
 		t.Fatalf("values of servers = %v", got)
 	}
-	b, err := os.ReadFile(filepath.Join(caDir, configFile))
+	b, err := os.ReadFile(filepath.Join(caDir, simpleca.ConfigFile))
 	if err != nil || !strings.Contains(string(b), `"otc_valid"`) || !strings.Contains(string(b), `"cas"`) {
 		t.Fatalf("simple-ca.json: %v\n%s", err, b)
 	}
@@ -183,14 +185,14 @@ func TestContextCommands(t *testing.T) {
 
 func TestContextValues(t *testing.T) {
 	caDir := newHierarchy(t)
-	cfg, err := loadConfig(caDir)
+	cfg, err := simpleca.LoadConfig(caDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.setContextValues("", map[string][]string{"valid": {"45d"}, "domain": {"a.example", "b.example"},
+	cfg.SetContextValues("", map[string][]string{"valid": {"45d"}, "domain": {"a.example", "b.example"},
 		"days": {"x"}})
-	cfg.setContextValues("servers", map[string][]string{"valid": {"8h"}})
-	if err := cfg.save(); err != nil {
+	cfg.SetContextValues("servers", map[string][]string{"valid": {"8h"}})
+	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.17.0
+
+feat: simple-ca-wif sets up Google workload identity federation from the CA host, with the pool, the provider, the token type, and the token, access and federation.json of a machine.
+
+- `simple-ca-wif google setup` creates the workload identity pool and the OIDC provider with the
+  issuer and the keys of the CA, through the Google REST APIs. It sets `federation.issuer` and
+  the token type in `simple-ca.json`. Run again, it leaves alone what exists and uploads the keys
+  of the CA when they differ.
+- `simple-ca-wif google machine NAME` gives the principal of the machine its roles, or creates a
+  service account that the principal may impersonate. It then makes the token of the machine, or
+  a one-time setup code, and writes `federation.json`.
+- `simple-ca-wif` calls Google with `--access-token`, `GOOGLE_OAUTH_ACCESS_TOKEN` or Application
+  Default Credentials. It is in the release archives, the Debian package and the image.
+- The CA core is the Go package `pkg/simpleca`, and the client code of `request-cert`,
+  `token-setup` and `request-token` is `pkg/client`.
+- `request-cert` and `token-setup` exchange a setup code as `request-token` does, with the same
+  error messages.
+- The example pool ID of the guides is `lab-pool`, since Google requires 4 to 32 characters.
+- `context delete` of the last values leaves no empty `context` section in `simple-ca.json`.
+- `release.mjs --no-tag` makes an internal release: it commits the newest entry on `dev`, and with
+  `--push` pushes `dev` alone, without a tag and without moving `main`.
+- `build.mjs dist` writes the archives of the release workflow for an internal release to
+  `dist/`, versioned with the newest entry, and with `--dpkg` its Debian package, built with the
+  `container` CLI on macOS when it is installed, else with `docker buildx`.
+
 ## 1.16.1
 
 fix: the prompt of the session edits the line in the width of the terminal instead of 80 columns.

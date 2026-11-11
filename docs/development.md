@@ -8,11 +8,11 @@ title: Development
 executables to `bin/`, which `.gitignore` leaves out.
 
 ```sh
-./build.mjs                    # build simple-ca, request-cert, token-setup and request-token
-                               # for the host, and simple-ca-trust on Linux
+./build.mjs                    # build simple-ca, request-cert, token-setup, request-token and
+                               # simple-ca-wif for the host, and simple-ca-trust on Linux
 ./build.mjs build linux/arm64  # build simple-ca-linux-arm64, request-cert-linux-arm64,
-                               # token-setup-linux-arm64, request-token-linux-arm64 and
-                               # simple-ca-trust-linux-arm64
+                               # token-setup-linux-arm64, request-token-linux-arm64,
+                               # simple-ca-wif-linux-arm64 and simple-ca-trust-linux-arm64
 ./build.mjs trust              # build simple-ca-trust for the host with its own toolchain
 ./build.mjs trust darwin/amd64 # build simple-ca-trust-darwin-amd64, on macOS only
 ./build.mjs trust --self-contained windows/arm64
@@ -26,11 +26,13 @@ executables to `bin/`, which `.gitignore` leaves out.
                                # build simple-ca:<version> and simple-ca:latest; --push pushes them;
                                # the registry defaults to SIMPLE_CA_REGISTRY
 ./build.mjs deb                # build the Debian package for the architecture of the Docker host
+./build.mjs dist [--dpkg]      # write the archives of an internal release to dist/, and with
+                               # --dpkg its Debian package
 ```
 
 `./build.mjs deb` builds the package of `debian-package/` with `docker buildx`: the image of
-`debian-package/Dockerfile` compiles `simple-ca`, `request-cert`, `token-setup`, `request-token`
-and `simple-ca-trust` and runs `dpkg-buildpackage`, and buildx writes
+`debian-package/Dockerfile` compiles `simple-ca`, `request-cert`, `token-setup`, `request-token`,
+`simple-ca-wif` and `simple-ca-trust` and runs `dpkg-buildpackage`, and buildx writes
 `simple-ca_<version>_<arch>.deb` to `dist/`. The version is `X.Y.Z-1` for the newest
 `CHANGELOG.md` entry `X.Y.Z`, and `X.Y.Z-N` for an entry `X.Y.Z-N`, whose programs are those of
 `vX.Y.Z`; while `vX.Y.Z` is not tagged it is `X.Y.Z~rc-N`, which dpkg orders before `X.Y.Z-N`. `debian-package/debian/changelog`, which `.gitignore` leaves out, is written from that
@@ -72,10 +74,22 @@ version for `linux/amd64` and `linux/arm64`, the macOS version for `darwin/amd64
 `darwin/arm64` on GitHub's Xcode 27 image, and the Windows version for `windows/amd64` and
 `windows/arm64`, running on the installed .NET runtime, with `build.mjs trust`, and packs each
 into the archive of its platform, `simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` for Windows,
-with `simple-ca`, `request-cert`, `token-setup` and `request-token`; [Trust stores](trust.md) has
+with `simple-ca`, `request-cert`, `token-setup`, `request-token` and `simple-ca-wif`;
+[Trust stores](trust.md) has
 the commands for building it by hand. It also builds the Debian package with `./build.mjs deb`
 for amd64 and arm64, each on a runner of its architecture with a `docker-container` builder of
 buildx, and adds `simple-ca_X.Y.Z-1_amd64.deb` and `simple-ca_X.Y.Z-1_arm64.deb` to the release.
+
+`./build.mjs dist` writes the archives of the release workflow to `dist/` for an internal release
+of [release.mjs --no-tag](#releasing): `simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` for
+Windows, for `linux`, `darwin` and `windows` on `amd64` and `arm64`, with the six programs built
+as the workflow builds them and versioned `vX.Y.Z` of the newest `CHANGELOG.md` entry. It refuses
+uncommitted changes, and an entry that no commit has the summary line of. A platform whose
+`simple-ca-trust` the host cannot build is skipped with a note: `darwin` needs macOS with Swift,
+and `windows` the .NET SDK. The programs of each platform are packed from
+`bin/pack-<goos>-<goarch>/`. With `--dpkg`, it also builds the Debian package `X.Y.Z-1` as
+`./build.mjs deb` does, for the platform of the container engine: with Apple's `container` CLI on
+macOS when it is installed, and with `docker buildx` otherwise.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
 are run with `./build.mjs test` or `./build.mjs check`. It refuses a tag that is not on `main` or
@@ -105,11 +119,17 @@ machine; each next one needs a new entry, with a new version.
    yet; the tag builds and publishes the release there, with the workflow of
    `.github/workflows/` on GitHub and that of `.gitea/workflows/` on Gitea.
 
+`./release.mjs --no-tag` makes an internal release: it commits the entry as `./release.mjs`
+does, and with `--push REMOTE` or `--push all` it pushes `dev` alone, without a tag, so `main`
+stays at the last tagged release and nothing is built. The entry goes into the notes of the next
+tagged release.
+
 ```sh
-./release.mjs                  # release the newest CHANGELOG.md entry, but push nothing
-./release.mjs --push all       # publish the newest CHANGELOG.md entry on every remote
-./release.mjs --push origin    # publish it on the remote origin alone
-./release.mjs -n --push all    # print the commands instead of running them
+./release.mjs                         # release the newest CHANGELOG.md entry, but push nothing
+./release.mjs --push all              # publish the newest CHANGELOG.md entry on every remote
+./release.mjs --push origin           # publish it on the remote origin alone
+./release.mjs --no-tag --push origin  # push it to origin as an internal release, on dev alone
+./release.mjs -n --push all           # print the commands instead of running them
 ```
 
 It runs on `dev` only. It refuses to commit changes for a released entry, and to publish an entry

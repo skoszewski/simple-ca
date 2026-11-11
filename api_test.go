@@ -26,6 +26,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestTokens(t *testing.T) {
@@ -33,18 +35,18 @@ func TestTokens(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	token, err := makeToken(caDir, "deploy", time.Hour, nil, []string{"server", "user"}, []string{"Example.COM."}, nil, nil)
+	token, err := simpleca.MakeToken(caDir, "deploy", time.Hour, nil, []string{"server", "user"}, []string{"Example.COM."}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
 	if strings.Count(token, ".") != 2 {
 		t.Fatalf("token %q is not a JWT", token)
 	}
-	info, err := os.Stat(filepath.Join(caDir, tokensFile))
+	info, err := os.Stat(filepath.Join(caDir, simpleca.TokensFile))
 	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("%s: %v, mode %v, want 0600", tokensFile, err, info.Mode().Perm())
+		t.Fatalf("%s: %v, mode %v, want 0600", simpleca.TokensFile, err, info.Mode().Perm())
 	}
-	db, err := loadTokens(caDir)
+	db, err := simpleca.LoadTokens(caDir)
 	if err != nil {
 		t.Fatalf("loadTokens: %v", err)
 	}
@@ -54,58 +56,17 @@ func TestTokens(t *testing.T) {
 		t.Fatalf("token entry %+v, want the domains, types and validity given", tok)
 	}
 
-	for _, c := range []struct {
-		name    string
-		types   []string
-		domains []string
-	}{
-		{"deploy", []string{"server"}, []string{"example.com"}},
-		{"bad name", []string{"server"}, []string{"example.com"}},
-		{"other", []string{"nosuch"}, []string{"example.com"}},
-		{"other", []string{"server"}, nil},
-		{"other", []string{"server"}, []string{"192.0.2.1"}},
-	} {
-		if _, err := makeToken(caDir, c.name, time.Hour, nil, c.types, c.domains, nil, nil); err == nil {
-			t.Fatalf("makeToken %q %v %v succeeded, want an error", c.name, c.types, c.domains)
-		}
-	}
-
-	// --ip takes addresses, kept as prefixes, prefixes, kept masked, and *.
-	for _, ips := range [][]string{{"300.1.2.3"}, {"10.0.0.0/33"}, {"fe80::1%en0"}, {"example.com"}} {
-		if _, err := makeToken(caDir, "ips", time.Hour, nil, []string{"server"}, nil, ips, nil); err == nil {
-			t.Fatalf("makeToken --ip %v succeeded, want an error", ips)
-		}
-		if _, err := makeToken(caDir, "ips", time.Hour, nil, []string{"server"}, []string{"*"}, nil, ips); err == nil {
-			t.Fatalf("makeToken --host %v succeeded, want an error", ips)
-		}
-	}
-	if _, err := makeToken(caDir, "ips", time.Hour, nil, []string{"server"}, []string{"*"}, nil, []string{"*"}); err == nil {
-		t.Fatal("makeToken --host * succeeded, want an error")
-	}
-	if _, err := makeToken(caDir, "scoped", time.Hour, []string{"admin"}, nil, nil, nil, nil); err == nil {
-		t.Fatal("makeToken with an unknown scope succeeded, want an error")
-	}
-	if _, err := makeToken(caDir, "scoped", time.Hour, []string{"tokens"}, nil, []string{"example.com"}, nil, nil); err == nil {
-		t.Fatal("makeToken with --domain without the scope sign succeeded, want an error")
-	}
-	for _, c := range []struct{ scopes, types []string }{
-		{[]string{"*", "tokens"}, nil}, {nil, []string{"*", "server"}}, {[]string{"*"}, nil},
-	} {
-		if _, err := makeToken(caDir, "all", time.Hour, c.scopes, c.types, nil, nil, nil); err == nil {
-			t.Fatalf("makeToken --scope %v --type %v succeeded, want an error", c.scopes, c.types)
-		}
-	}
-	if _, err := makeToken(caDir, "all", time.Hour, []string{"*"}, []string{"*"}, []string{"example.com"}, nil, nil); err != nil {
+	if _, err := simpleca.MakeToken(caDir, "all", time.Hour, []string{"*"}, []string{"*"}, []string{"example.com"}, nil, nil); err != nil {
 		t.Fatalf("makeToken --scope * --type *: %v", err)
 	}
-	if db, err := loadTokens(caDir); err != nil || !db.Tokens["all"].hasScope("certs") || !allows(db.Tokens["all"].Types, "user") {
+	if db, err := simpleca.LoadTokens(caDir); err != nil || !db.Tokens["all"].HasScope("certs") || !simpleca.Allows(db.Tokens["all"].Types, "user") {
 		t.Fatalf("the token all: %+v, %v, want every scope and every type", db.Tokens["all"], err)
 	}
-	if _, err := makeToken(caDir, "ips", time.Hour, nil, []string{"server"}, []string{"*"},
+	if _, err := simpleca.MakeToken(caDir, "ips", time.Hour, nil, []string{"server"}, []string{"*"},
 		[]string{"192.0.2.10", "10.1.2.3/8", "2001:db8::/32", "*"}, nil); err != nil {
 		t.Fatalf("makeToken with * and IP addresses: %v", err)
 	}
-	db, err = loadTokens(caDir)
+	db, err = simpleca.LoadTokens(caDir)
 	if err != nil {
 		t.Fatalf("loadTokens: %v", err)
 	}
@@ -144,17 +105,17 @@ func TestTokens(t *testing.T) {
 	if err := listTokens(&out, caDir); err != nil || !strings.Contains(out.String(), "deploy  revoked  ") {
 		t.Fatalf("token list output:\n%s\n%v, want the revoked token marked revoked, without a time", out.String(), err)
 	}
-	if db, err := loadTokens(caDir); err != nil || db.Tokens["deploy"] == nil || db.Tokens["deploy"].ID != "" ||
+	if db, err := simpleca.LoadTokens(caDir); err != nil || db.Tokens["deploy"] == nil || db.Tokens["deploy"].ID != "" ||
 		time.Now().Before(db.Tokens["deploy"].Expires) || time.Since(db.Tokens["deploy"].Expires) > time.Minute {
 		t.Fatalf("tokens after revoking: %v, want deploy kept without its JWT ID, expired when revoked", err)
 	}
-	if _, err := makeToken(caDir, "deploy", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil); err == nil {
+	if _, err := simpleca.MakeToken(caDir, "deploy", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil); err == nil {
 		t.Fatal("makeToken with the name of a revoked token succeeded, want an error")
 	}
 	if err := purgeToken(caDir, "deploy"); err != nil {
 		t.Fatalf("purgeToken of the revoked token: %v", err)
 	}
-	if _, err := makeToken(caDir, "deploy", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil); err != nil {
+	if _, err := simpleca.MakeToken(caDir, "deploy", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil); err != nil {
 		t.Fatalf("makeToken with the name of a purged token: %v", err)
 	}
 	if err := purgeToken(caDir, "deploy"); err == nil || !strings.Contains(err.Error(), "revoke it first") {
@@ -168,28 +129,25 @@ func TestTokens(t *testing.T) {
 	if _, err := renewToken(caDir, "deploy", 0); err != nil {
 		t.Fatalf("renewToken of the revoked token: %v", err)
 	}
-	if db, err := loadTokens(caDir); err != nil || db.Tokens["deploy"].revoked() ||
+	if db, err := simpleca.LoadTokens(caDir); err != nil || db.Tokens["deploy"].Revoked() ||
 		db.Tokens["deploy"].Expires.Sub(db.Tokens["deploy"].Issued) != time.Hour {
 		t.Fatalf("renewed revoked token %+v, %v, want it valid for an hour, not revoked", db.Tokens["deploy"], err)
 	}
-	if _, err := makeToken(caDir, "short", time.Millisecond, nil, []string{"server"}, []string{"example.com"}, nil, nil); err == nil {
-		t.Fatal("makeToken valid for 1ms succeeded, want an error")
-	}
 
 	// purgeTokens removes the expired and revoked tokens alone.
-	oldJWT, err := makeToken(caDir, "old", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
+	oldJWT, err := simpleca.MakeToken(caDir, "old", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken old: %v", err)
 	}
 	expire := func() string {
 		t.Helper()
-		db, err := loadTokens(caDir)
+		db, err := simpleca.LoadTokens(caDir)
 		if err != nil {
 			t.Fatalf("loadTokens: %v", err)
 		}
 		expired := time.Now().Add(-time.Minute)
 		db.Tokens["old"].Issued, db.Tokens["old"].Expires = expired.Add(-time.Hour), expired
-		if err := db.save(caDir); err != nil {
+		if err := db.Save(caDir); err != nil {
 			t.Fatalf("save: %v", err)
 		}
 		return db.Tokens["old"].ID
@@ -209,7 +167,7 @@ func TestTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renewToken: %v", err)
 	}
-	db, err = loadTokens(caDir)
+	db, err = simpleca.LoadTokens(caDir)
 	if err != nil {
 		t.Fatalf("loadTokens: %v", err)
 	}
@@ -224,7 +182,7 @@ func TestTokens(t *testing.T) {
 	if n, err := purgeTokens(caDir, 0); err != nil || n != 2 {
 		t.Fatalf("purgeTokens: %d, %v, want the expired token and the revoked ips removed", n, err)
 	}
-	if db, err := loadTokens(caDir); err != nil || !slices.Equal(slices.Sorted(maps.Keys(db.Tokens)), []string{"all", "deploy"}) {
+	if db, err := simpleca.LoadTokens(caDir); err != nil || !slices.Equal(slices.Sorted(maps.Keys(db.Tokens)), []string{"all", "deploy"}) {
 		t.Fatalf("tokens after purging: %v, %v, want all and deploy, the tokens still accepted", slices.Sorted(maps.Keys(db.Tokens)), err)
 	}
 	if n, err := purgeTokens(t.TempDir(), 0); err != nil || n != 0 {
@@ -232,17 +190,17 @@ func TestTokens(t *testing.T) {
 	}
 
 	// A held lock makes the commands wait and then fail, and its release lets them run.
-	lockPath := filepath.Join(caDir, tokensFile+".lock")
-	if fileExists(lockPath) {
+	lockPath := filepath.Join(caDir, simpleca.TokensFile+".lock")
+	if simpleca.FileExists(lockPath) {
 		t.Fatalf("%s left after the commands", lockPath)
 	}
-	unlock, err := lockTokens(caDir)
+	unlock, err := simpleca.LockTokens(caDir)
 	if err != nil {
 		t.Fatalf("lockTokens: %v", err)
 	}
-	wait := tokensLockWait
-	tokensLockWait = 200 * time.Millisecond
-	t.Cleanup(func() { tokensLockWait = wait })
+	wait := simpleca.TokensLockWait
+	simpleca.TokensLockWait = 200 * time.Millisecond
+	t.Cleanup(func() { simpleca.TokensLockWait = wait })
 	if err := revokeToken(caDir, "deploy"); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("locked by process %d", os.Getpid())) {
 		t.Fatalf("revokeToken while locked: %v, want a lock error naming this process", err)
 	}
@@ -267,46 +225,46 @@ func TestAPISign(t *testing.T) {
 		t.Fatalf("makeCA plain: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")
-	token, err := makeToken(issuingDir, "deploy", time.Hour, nil, []string{"server", "user"}, []string{"example.com"}, nil, nil)
+	token, err := simpleca.MakeToken(issuingDir, "deploy", time.Hour, nil, []string{"server", "user"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
-	rootToken, err := makeToken(caDir, "root", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
+	rootToken, err := simpleca.MakeToken(caDir, "root", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken root: %v", err)
 	}
-	serverOnly, err := makeToken(issuingDir, "server-only", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
+	serverOnly, err := simpleca.MakeToken(issuingDir, "server-only", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken server-only: %v", err)
 	}
-	expired, err := makeToken(issuingDir, "expired", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
+	expired, err := simpleca.MakeToken(issuingDir, "expired", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken expired: %v", err)
 	}
-	revoked, err := makeToken(issuingDir, "revoked", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
+	revoked, err := simpleca.MakeToken(issuingDir, "revoked", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken revoked: %v", err)
 	}
 	if err := revokeToken(issuingDir, "revoked"); err != nil {
 		t.Fatalf("revokeToken: %v", err)
 	}
-	webuiOnly, err := makeToken(issuingDir, "webui-only", time.Hour, []string{"tokens", "certs"}, nil, nil, nil, nil)
+	webuiOnly, err := simpleca.MakeToken(issuingDir, "webui-only", time.Hour, []string{"tokens", "certs"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken webui-only: %v", err)
 	}
-	anyType, err := makeToken(issuingDir, "any-type", time.Hour, nil, []string{"*"}, []string{"example.com"}, nil, nil)
+	anyType, err := simpleca.MakeToken(issuingDir, "any-type", time.Hour, nil, []string{"*"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken any-type: %v", err)
 	}
 	if _, err := renewToken(issuingDir, "revoked", 0); err != nil {
 		t.Fatalf("renewToken of the revoked token: %v", err)
 	}
-	db, err := loadTokens(issuingDir)
+	db, err := simpleca.LoadTokens(issuingDir)
 	if err != nil {
 		t.Fatalf("loadTokens: %v", err)
 	}
 	db.Tokens["expired"].Expires = time.Now().Add(-time.Hour)
-	if err := db.save(issuingDir); err != nil {
+	if err := db.Save(issuingDir); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	_, claims, _ := strings.Cut(token, ".")
@@ -370,7 +328,7 @@ func TestAPISign(t *testing.T) {
 		t.Fatal(err)
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
-	cert, err := loadCert(certPath)
+	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -383,7 +341,7 @@ func TestAPISign(t *testing.T) {
 	if entries, err := readIndex(issuingDir); err != nil || len(entries) != 1 || entries[0].serial != resp["serial"] {
 		t.Fatalf("index.txt %+v, %v, want the issued certificate", entries, err)
 	}
-	if db, err := loadTokens(issuingDir); err != nil || !slices.Equal(db.Tokens["deploy"].Certs, []string{resp["serial"]}) {
+	if db, err := simpleca.LoadTokens(issuingDir); err != nil || !slices.Equal(db.Tokens["deploy"].Certs, []string{resp["serial"]}) {
 		t.Fatalf("certs of the token: %v, want the issued certificate", err)
 	}
 
@@ -509,15 +467,15 @@ func TestAPISign(t *testing.T) {
 	}
 
 	// A domain * allows any name, and --ip prefixes or * allow IP addresses, of the SANs and the CN.
-	anyName, err := makeToken(issuingDir, "any-name", time.Hour, nil, []string{"server"}, []string{"*"}, nil, nil)
+	anyName, err := simpleca.MakeToken(issuingDir, "any-name", time.Hour, nil, []string{"server"}, []string{"*"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken any-name: %v", err)
 	}
-	ipRange, err := makeToken(issuingDir, "ip-range", time.Hour, nil, []string{"server"}, nil, []string{"10.0.0.0/8", "2001:db8::/32"}, nil)
+	ipRange, err := simpleca.MakeToken(issuingDir, "ip-range", time.Hour, nil, []string{"server"}, nil, []string{"10.0.0.0/8", "2001:db8::/32"}, nil)
 	if err != nil {
 		t.Fatalf("makeToken ip-range: %v", err)
 	}
-	lab, err := makeToken(issuingDir, "lab", time.Hour, nil, []string{"server"}, []string{"*"}, []string{"*"}, nil)
+	lab, err := simpleca.MakeToken(issuingDir, "lab", time.Hour, nil, []string{"server"}, []string{"*"}, []string{"*"}, nil)
 	if err != nil {
 		t.Fatalf("makeToken lab: %v", err)
 	}
@@ -558,7 +516,7 @@ func TestAPISign(t *testing.T) {
 			t.Fatalf("token create %v: %v", args, err)
 		}
 	}
-	db, err = loadTokens(issuingDir)
+	db, err = simpleca.LoadTokens(issuingDir)
 	if err != nil {
 		t.Fatalf("loadTokens: %v", err)
 	}
@@ -576,7 +534,7 @@ func TestAPISign(t *testing.T) {
 		{"here", []string{"127.0.0.1"}, http.StatusOK},
 		{"elsewhere", []string{"192.0.2.0/24"}, http.StatusForbidden},
 	} {
-		token, err := makeToken(issuingDir, c.name, time.Hour, nil, []string{"server"}, []string{"localhost"},
+		token, err := simpleca.MakeToken(issuingDir, c.name, time.Hour, nil, []string{"server"}, []string{"localhost"},
 			[]string{"127.0.0.1"}, c.clients)
 		if err != nil {
 			t.Fatalf("makeToken %s: %v", c.name, err)
@@ -589,7 +547,7 @@ func TestAPISign(t *testing.T) {
 
 	// Behind a trusted proxy, the client is the one its X-Forwarded-For names; the header of a
 	// peer that is not trusted is not read.
-	proxied, err := makeToken(issuingDir, "proxied", time.Hour, nil, []string{"server"}, []string{"localhost"},
+	proxied, err := simpleca.MakeToken(issuingDir, "proxied", time.Hour, nil, []string{"server"}, []string{"localhost"},
 		[]string{"127.0.0.1"}, []string{"192.0.2.50"})
 	if err != nil {
 		t.Fatalf("makeToken proxied: %v", err)
@@ -636,19 +594,19 @@ func TestTokenDefaults(t *testing.T) {
 	}
 	write := func(tokens string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(`{"tokens": `+tokens+`}`), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(caDir, simpleca.ConfigFile), []byte(`{"tokens": `+tokens+`}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	entry := func(name string) *apiToken {
+	entry := func(name string) *simpleca.APIToken {
 		t.Helper()
-		db, err := loadTokens(caDir)
+		db, err := simpleca.LoadTokens(caDir)
 		if err != nil || db.Tokens[name] == nil {
 			t.Fatalf("token %s: %v", name, err)
 		}
 		return db.Tokens[name]
 	}
-	write(`{"valid": "8h", "types": ["server"], "domains": ["*"], "ips": ["10.0.0.0/8"], "localhost": true,
+	write(`{"valid": "8h", "types": ["server"], "domains": ["*"], "ips": ["10.0.0.0/8"],
 		"hosts": ["192.168.1.4"], "networks": ["172.16.0.0/12"]}`)
 
 	// Without options, every setting is the default of simple-ca.json.
@@ -656,8 +614,8 @@ func TestTokenDefaults(t *testing.T) {
 		t.Fatalf("token create with the defaults: %v", err)
 	}
 	tok := entry("defaults")
-	if tok.Expires.Sub(tok.Issued) != 8*time.Hour || !slices.Equal(tok.Domains, []string{"*", "localhost"}) ||
-		!slices.Equal(tok.IPs, []string{"10.0.0.0/8", "127.0.0.1/32"}) ||
+	if tok.Expires.Sub(tok.Issued) != 8*time.Hour || !slices.Equal(tok.Domains, []string{"*"}) ||
+		!slices.Equal(tok.IPs, []string{"10.0.0.0/8"}) ||
 		!slices.Equal(tok.Clients, []string{"192.168.1.4/32", "172.16.0.0/12"}) {
 		t.Fatalf("token from the defaults %+v", tok)
 	}
@@ -695,19 +653,16 @@ func TestSetupCode(t *testing.T) {
 	issuingDir := filepath.Join(caDir, "issuing-ca")
 
 	// A token with a setup code is pending: it has no JWT, refuses renewal, and lists its code.
-	if _, err := addToken(issuingDir, "bad", nil, time.Hour, nil, nil, []string{"example.com"}, nil, nil, 0, []string{"10.0.0.0/8"}); err == nil {
-		t.Fatal("addToken with --otc-network without --otc succeeded, want an error")
-	}
-	code, err := addToken(issuingDir, "remote", nil, 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, nil)
+	code, err := simpleca.AddToken(issuingDir, "remote", nil, 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, nil)
 	if err != nil {
 		t.Fatalf("addToken --otc: %v", err)
 	}
 	if ok, _ := regexp.MatchString(`^[A-Z2-7]{4}(-[A-Z2-7]{4}){3}$`, code); !ok {
 		t.Fatalf("setup code %q, want four groups of four base32 characters", code)
 	}
-	db, err := loadTokens(issuingDir)
-	if err != nil || !db.Tokens["remote"].pending() || db.Tokens["remote"].revoked() || db.Tokens["remote"].ID != "" ||
-		db.Tokens["remote"].Setup.Code != setupCodeHash(code) {
+	db, err := simpleca.LoadTokens(issuingDir)
+	if err != nil || !db.Tokens["remote"].Pending() || db.Tokens["remote"].Revoked() || db.Tokens["remote"].ID != "" ||
+		db.Tokens["remote"].Setup.Code != simpleca.SetupCodeHash(code) {
 		t.Fatalf("the pending token: %+v, %v, want a setup code and no JWT ID", db.Tokens["remote"], err)
 	}
 	if _, err := renewToken(issuingDir, "remote", 0); err == nil {
@@ -737,12 +692,12 @@ func TestSetupCode(t *testing.T) {
 		fmt.Sprint(answer["scopes"]) != "[sign]" {
 		t.Fatalf("exchange: %d %v, want the token remote of issuing-ca, with the scope sign", status, answer)
 	}
-	caCert, err := loadCert(filepath.Join(issuingDir, "ca_cert.pem"))
+	caCert, err := simpleca.LoadCert(filepath.Join(issuingDir, "ca_cert.pem"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, _ = loadTokens(issuingDir)
-	if name, tok, err := checkToken(db, caCert, fmt.Sprint(answer["token"])); err != nil || name != "remote" || tok.pending() ||
+	db, _ = simpleca.LoadTokens(issuingDir)
+	if name, tok, err := checkToken(db, caCert, fmt.Sprint(answer["token"])); err != nil || name != "remote" || tok.Pending() ||
 		tok.Expires.Sub(tok.Issued) != 8*time.Hour {
 		t.Fatalf("the exchanged token: %s %+v %v, want remote, valid for 8h from the exchange", name, tok, err)
 	}
@@ -755,14 +710,14 @@ func TestSetupCode(t *testing.T) {
 
 	// A code is refused from a client outside its networks and once it has expired, and a pending
 	// token is no JWT of the signing API.
-	far, err := addToken(caDir, "far", nil, time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, []string{"10.0.0.0/8"})
+	far, err := simpleca.AddToken(caDir, "far", nil, time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour, []string{"10.0.0.0/8"})
 	if err != nil {
 		t.Fatalf("addToken --otc-network: %v", err)
 	}
 	if status, _ := exchange(far); status != http.StatusForbidden {
 		t.Errorf("exchanging from outside --otc-network: %d, want 403", status)
 	}
-	late, err := addToken(caDir, "late", nil, time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil)
+	late, err := simpleca.AddToken(caDir, "late", nil, time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil)
 	if err != nil {
 		t.Fatalf("addToken --otc-valid 1s: %v", err)
 	}
@@ -773,13 +728,13 @@ func TestSetupCode(t *testing.T) {
 	if n, err := purgeTokens(caDir, 0); err != nil || n != 1 {
 		t.Errorf("purgeTokens: %d, %v, want the expired setup code removed", n, err)
 	}
-	db, _ = loadTokens(caDir)
-	if _, _, err := lookupToken(db, &jwtClaims{Subject: "far"}); err == nil {
+	db, _ = simpleca.LoadTokens(caDir)
+	if _, _, err := lookupToken(db, &simpleca.JWTClaims{Subject: "far"}); err == nil {
 		t.Error("lookupToken of a pending token with an empty JWT ID succeeded, want an error")
 	}
 
 	// A token whose code has expired is renewed with a new code, keeping its own validity.
-	if _, err := addToken(caDir, "again", nil, 3*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil); err != nil {
+	if _, err := simpleca.AddToken(caDir, "again", nil, 3*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Second, nil); err != nil {
 		t.Fatalf("addToken --otc-valid 1s: %v", err)
 	}
 	time.Sleep(1100 * time.Millisecond)
@@ -790,7 +745,7 @@ func TestSetupCode(t *testing.T) {
 	if status, _ := exchange(fresh); status != http.StatusOK {
 		t.Errorf("exchanging the new code: %d, want 200", status)
 	}
-	db, _ = loadTokens(caDir)
+	db, _ = simpleca.LoadTokens(caDir)
 	if tok := db.Tokens["again"]; tok.Expires.Sub(tok.Issued) != 3*time.Hour {
 		t.Errorf("the token of the new code is valid for %s, want 3h", tok.Expires.Sub(tok.Issued))
 	}
@@ -804,8 +759,8 @@ func TestSetupCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reissueToken --otc: %v", err)
 	}
-	db, _ = loadTokens(issuingDir)
-	if _, _, err := checkToken(db, caCert, fmt.Sprint(answer["token"])); err == nil || !db.Tokens["remote"].pending() {
+	db, _ = simpleca.LoadTokens(issuingDir)
+	if _, _, err := checkToken(db, caCert, fmt.Sprint(answer["token"])); err == nil || !db.Tokens["remote"].Pending() {
 		t.Error("the JWT of a token renewed with a setup code is accepted, want it refused")
 	}
 	if status, again := exchange(renewed); status != http.StatusOK || again["name"] != "remote" || again["token"] == answer["token"] {
@@ -826,7 +781,7 @@ func TestSetupCode(t *testing.T) {
 		}
 		return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
 	}
-	once, err := addToken(issuingDir, "once", nil, time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil, time.Hour, nil)
+	once, err := simpleca.AddToken(issuingDir, "once", nil, time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil, time.Hour, nil)
 	if err != nil {
 		t.Fatalf("addToken --otc: %v", err)
 	}
@@ -841,8 +796,8 @@ func TestSetupCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("signWithToken of a setup code: %v", err)
 	}
-	db, _ = loadTokens(issuingDir)
-	if tok := db.Tokens["once"]; !tok.revoked() || !slices.Equal(tok.Certs, []string{serialHex(cert.SerialNumber)}) {
+	db, _ = simpleca.LoadTokens(issuingDir)
+	if tok := db.Tokens["once"]; !tok.Revoked() || !slices.Equal(tok.Certs, []string{serialHex(cert.SerialNumber)}) {
 		t.Errorf("the token of the setup code: %+v, want it revoked, with the certificate", tok)
 	}
 	if _, _, _, err := signWithToken(issuingDir, once, client, csrFor("web.example.com"), "", "", 0, nil, nil, true); err == nil {
@@ -850,7 +805,7 @@ func TestSetupCode(t *testing.T) {
 	}
 
 	// The setup code page exchanges a code once.
-	page, err := addToken(caDir, "page", nil, time.Hour, []string{"tokens"}, nil, nil, nil, nil, time.Hour, nil)
+	page, err := simpleca.AddToken(caDir, "page", nil, time.Hour, []string{"tokens"}, nil, nil, nil, nil, time.Hour, nil)
 	if err != nil {
 		t.Fatalf("addToken --otc: %v", err)
 	}
@@ -871,12 +826,12 @@ func TestSetupCode(t *testing.T) {
 
 	// A token is described with its limits from tokens-db.json, and a JWT read without its CA
 	// with what it holds alone.
-	pendingCode, err := addToken(caDir, "pending", nil, 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour,
+	pendingCode, err := simpleca.AddToken(caDir, "pending", nil, 8*time.Hour, nil, nil, []string{"example.com"}, nil, nil, time.Hour,
 		[]string{"10.0.0.0/8"})
 	if err != nil || pendingCode == "" {
 		t.Fatalf("addToken --otc: %v", err)
 	}
-	db, _ = loadTokens(caDir)
+	db, _ = simpleca.LoadTokens(caDir)
 	described := fmt.Sprint(describeToken("pending", db.Tokens["pending"], true))
 	for _, s := range []string{"[Status waits for its setup code", "[Domains example.com]", "[Code usable from 10.0.0.0/8]",
 		"[Valid after the exchange 8h]"} {
@@ -884,7 +839,7 @@ func TestSetupCode(t *testing.T) {
 			t.Errorf("describeToken of a pending token: %s, want %q", described, s)
 		}
 	}
-	jwt, err := makeToken(caDir, "held", time.Hour, []string{"certs"}, nil, nil, nil, nil)
+	jwt, err := simpleca.MakeToken(caDir, "held", time.Hour, []string{"certs"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
@@ -892,7 +847,7 @@ func TestSetupCode(t *testing.T) {
 	if err != nil || c.Subject != "held" || c.Scope != "certs" {
 		t.Fatalf("verifyJWT without a CA: %+v, %v, want the claims of held", c, err)
 	}
-	if described := fmt.Sprint(describeToken(c.Subject, &apiToken{Scopes: strings.Fields(c.Scope)}, false)); strings.Contains(described, "Used from") {
+	if described := fmt.Sprint(describeToken(c.Subject, &simpleca.APIToken{Scopes: strings.Fields(c.Scope)}, false)); strings.Contains(described, "Used from") {
 		t.Errorf("describeToken without limits: %s, want no limits", described)
 	}
 }
@@ -924,7 +879,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 	}
 	caCerts := map[string]*x509.Certificate{}
 	for _, id := range cas {
-		cert, err := loadCert(filepath.Join(rootDir, id, "ca_cert.pem"))
+		cert, err := simpleca.LoadCert(filepath.Join(rootDir, id, "ca_cert.pem"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -934,7 +889,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 	// Every CA has tokens of the same four names, so a name of one CA never opens another.
 	names := []string{"signer", "keeper", "operator", "master"}
 	scopesOf := map[string][]string{"signer": {"sign"}, "keeper": {"tokens"}, "operator": {"certs"}, "master": {"*"}}
-	has := func(name, scope string) bool { return allows(scopesOf[name], scope) }
+	has := func(name, scope string) bool { return simpleca.Allows(scopesOf[name], scope) }
 	jwts := map[string]map[string]string{}
 	for _, id := range cas {
 		jwts[id] = map[string]string{}
@@ -943,7 +898,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 			if has(name, "sign") {
 				types, domains = []string{"server"}, []string{"example.com"}
 			}
-			jwt, err := makeToken(filepath.Join(rootDir, id), name, time.Hour, scopesOf[name], types, domains, nil, nil)
+			jwt, err := simpleca.MakeToken(filepath.Join(rootDir, id), name, time.Hour, scopesOf[name], types, domains, nil, nil)
 			if err != nil {
 				t.Fatalf("makeToken %s of %s: %v", name, label(id), err)
 			}
@@ -1152,7 +1107,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 	// codes of that CA alone; the signing API and the pages take no code.
 	codes := map[string]string{}
 	for _, id := range cas[1:] {
-		code, err := addToken(filepath.Join(rootDir, id), "remote", nil, time.Hour, nil, []string{"server"}, []string{"example.com"},
+		code, err := simpleca.AddToken(filepath.Join(rootDir, id), "remote", nil, time.Hour, nil, []string{"server"}, []string{"example.com"},
 			nil, nil, time.Hour, nil)
 		if err != nil {
 			t.Fatalf("addToken --otc in %s: %v", id, err)
@@ -1193,7 +1148,7 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 	}
 
 	// A token used from a client it does not allow is refused by every path.
-	far, err := makeToken(filepath.Join(rootDir, "devices"), "far", time.Hour, []string{"*"}, []string{"server"},
+	far, err := simpleca.MakeToken(filepath.Join(rootDir, "devices"), "far", time.Hour, []string{"*"}, []string{"server"},
 		[]string{"example.com"}, nil, []string{"10.0.0.0/8"})
 	if err != nil {
 		t.Fatalf("makeToken --network: %v", err)
@@ -1237,16 +1192,16 @@ func TestTokenAccessAcrossCAs(t *testing.T) {
 
 	// An entry copied from the tokens of one CA into those of another does not make its JWT a
 	// token of the other CA: the JWT is still checked with the key of the CA.
-	serversDB, err := loadTokens(filepath.Join(rootDir, "servers"))
+	serversDB, err := simpleca.LoadTokens(filepath.Join(rootDir, "servers"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientsDB, err := loadTokens(filepath.Join(rootDir, "clients"))
+	clientsDB, err := simpleca.LoadTokens(filepath.Join(rootDir, "clients"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	clientsDB.Tokens["master"] = serversDB.Tokens["master"]
-	if err := clientsDB.save(filepath.Join(rootDir, "clients")); err != nil {
+	if err := clientsDB.Save(filepath.Join(rootDir, "clients")); err != nil {
 		t.Fatal(err)
 	}
 	if status := apiSignStatus(jwts["servers"]["master"], "clients"); status != http.StatusUnauthorized {
@@ -1283,11 +1238,11 @@ func TestAPISignStoresCertificates(t *testing.T) {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")
-	signer, err := makeToken(issuingDir, "deploy", time.Hour, nil, []string{"server"}, []string{"*"}, nil, nil)
+	signer, err := simpleca.MakeToken(issuingDir, "deploy", time.Hour, nil, []string{"server"}, []string{"*"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
-	viewer, err := makeToken(caDir, "viewer", time.Hour, []string{"certs"}, nil, nil, nil, nil)
+	viewer, err := simpleca.MakeToken(caDir, "viewer", time.Hour, []string{"certs"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken viewer: %v", err)
 	}
@@ -1331,7 +1286,7 @@ func TestAPISignStoresCertificates(t *testing.T) {
 	}
 	fileSerial := func(name string) string {
 		t.Helper()
-		cert, err := loadCert(filepath.Join(issuingDir, name))
+		cert, err := simpleca.LoadCert(filepath.Join(issuingDir, name))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

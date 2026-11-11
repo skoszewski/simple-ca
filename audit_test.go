@@ -11,15 +11,15 @@ import (
 	"encoding/pem"
 	"io"
 	"log"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestAudit(t *testing.T) {
@@ -33,7 +33,7 @@ func TestAudit(t *testing.T) {
 		t.Fatalf("makeCA servers: %v", err)
 	}
 	serversDir := filepath.Join(rootDir, "servers")
-	field := func(e auditEntry, key string) string {
+	field := func(e simpleca.AuditEntry, key string) string {
 		for _, p := range e.Fields {
 			if p[0] == key {
 				return p[1]
@@ -41,43 +41,14 @@ func TestAudit(t *testing.T) {
 		}
 		return ""
 	}
-	last := func() auditEntry {
+	last := func() simpleca.AuditEntry {
 		t.Helper()
-		entries, err := readAudit(rootDir)
+		entries, err := simpleca.ReadAudit(rootDir)
 		if err != nil || len(entries) == 0 {
 			t.Fatalf("readAudit: %d records, %v", len(entries), err)
 		}
 		return entries[len(entries)-1]
 	}
-
-	// The reader reads back what TextHandler wrote, quoted or not, and the stream gets the same.
-	var streamed []string
-	logStream = func(line string, pairs [][2]string, level slog.Level) error {
-		streamed = append(streamed, line)
-		return nil
-	}
-	t.Cleanup(func() { logStream = nil })
-	odd := []string{"two words", `a "quote"`, "k=v", "", `back\slash`, "line\nbreak"}
-	audit(serversDir, "test.event", "a", odd[0], "b", odd[1], "c", odd[2], "d", odd[3], "e", odd[4], "f", odd[5], "n", 42)
-	e := last()
-	if e.Event != "test.event" || e.CA != "servers" || time.Since(e.Time) > time.Minute {
-		t.Errorf("record %+v, want test.event of servers, now", e)
-	}
-	for i, key := range []string{"a", "b", "c", "d", "e", "f"} {
-		if got := field(e, key); got != odd[i] {
-			t.Errorf("%s = %q, want %q", key, got, odd[i])
-		}
-	}
-	if field(e, "n") != "42" || !strings.HasPrefix(e.Line, "time=") || strings.Contains(e.Line, "level=") {
-		t.Errorf("line %q, want time first, n=42 and no level", e.Line)
-	}
-	if len(streamed) != 1 || strings.TrimSuffix(streamed[0], "\n") != e.Line {
-		t.Errorf("stream %q, want the line of the file", streamed)
-	}
-	if info, err := os.Stat(filepath.Join(rootDir, auditFile)); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
-		t.Errorf("audit.log: %v, want mode 0600", err)
-	}
-	logStream = nil
 
 	// The commands record their changes with the OS user; what they print is dropped.
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
@@ -101,8 +72,8 @@ func TestAudit(t *testing.T) {
 		if err := run(c.args); err != nil {
 			t.Fatalf("run %q: %v", c.args, err)
 		}
-		if e := last(); e.Event != c.event || e.CA != "servers" || field(e, "via") != "cli" || field(e, "actor") != cliActor() {
-			t.Errorf("run %q: %s, want %s by cli and %s", c.args, e.Line, c.event, cliActor())
+		if e := last(); e.Event != c.event || e.CA != "servers" || field(e, "via") != "cli" || field(e, "actor") != simpleca.CLIActor() {
+			t.Errorf("run %q: %s, want %s by cli and %s", c.args, e.Line, c.event, simpleca.CLIActor())
 		}
 	}
 	os.Stdout = stdout
@@ -116,11 +87,11 @@ func TestAudit(t *testing.T) {
 	shared := guard
 	guard = newAuthGuard()
 	t.Cleanup(func() { authFreeFailures, guard = free, shared })
-	admin, err := makeToken(rootDir, "admin", time.Hour, []string{"*"}, nil, []string{"example.com"}, nil, nil)
+	admin, err := simpleca.MakeToken(rootDir, "admin", time.Hour, []string{"*"}, nil, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := makeToken(serversDir, "signer", time.Hour, []string{"sign", "audit"}, []string{"server"}, []string{"example.com"}, nil, nil)
+	signer, err := simpleca.MakeToken(serversDir, "signer", time.Hour, []string{"sign", "audit"}, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,19 +169,19 @@ func TestAudit(t *testing.T) {
 	if seen := cas(admin); !seen["servers"] || !seen[""] {
 		t.Errorf("the CAs of the records of a root CA token: %v, want the root CA and servers", seen)
 	}
-	if web, err := makeToken(serversDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
+	if web, err := simpleca.MakeToken(serversDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	} else if status, _ := call(web, "GET", "/audit/api/entries", nil); status != http.StatusForbidden {
 		t.Errorf("the audit page without the scope audit: %d, want 403", status)
 	}
 
-	// audit list filters the records, and audit.file moves the log.
+	// audit list filters the records.
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	os.Stdout = writer
-	err = run([]string{"audit", "list", "--ca-dir", rootDir, "--event", "token.", "--ca", "servers", "--actor", cliActor()})
+	err = run([]string{"audit", "list", "--ca-dir", rootDir, "--event", "token.", "--ca", "servers", "--actor", simpleca.CLIActor()})
 	os.Stdout = stdout
 	writer.Close()
 	printed, _ := io.ReadAll(reader)
@@ -220,13 +191,5 @@ func TestAudit(t *testing.T) {
 	out := string(printed)
 	if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) != 3 || !strings.Contains(lines[0], "event=token.create") {
 		t.Errorf("audit list --event token. --ca servers: %q, want the 3 token records of the commands", out)
-	}
-	moved := filepath.Join(t.TempDir(), "moved.log")
-	if err := os.WriteFile(filepath.Join(rootDir, configFile), []byte(`{"audit": {"file": "`+filepath.ToSlash(moved)+`"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	audit(rootDir, "test.moved")
-	if b, err := os.ReadFile(moved); err != nil || !strings.Contains(string(b), "event=test.moved") {
-		t.Errorf("audit.file: %q, %v, want the record in %s", b, err, moved)
 	}
 }

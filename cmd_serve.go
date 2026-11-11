@@ -31,6 +31,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- serve ------------------------------------------------------------------
@@ -76,11 +78,11 @@ func runServe(args []string) error {
 		return errors.New("--docs needs the browser files of serve-markdown's page, which this executable " +
 			"was built without; see docs/development.md")
 	}
-	rootDir, _, err := locateCA(resolveCADir(*caDir))
+	rootDir, _, err := simpleca.LocateCA(resolveCADir(*caDir))
 	if err != nil {
 		return err
 	}
-	cfg, err := loadConfig(rootDir)
+	cfg, err := simpleca.LoadConfig(rootDir)
 	if err != nil {
 		return err
 	}
@@ -94,7 +96,7 @@ func runServe(args []string) error {
 		}
 		keys = append(keys, filepath.Join(rootDir, id, "ca_key.pem"))
 	}
-	if err := readKeyPassphrase(keys...); err != nil {
+	if err := simpleca.ReadKeyPassphrase(keys...); err != nil {
 		return err
 	}
 	if err := checkOIDC(rootDir, cfg); err != nil {
@@ -102,10 +104,10 @@ func runServe(args []string) error {
 	}
 	option := "--trusted-proxy"
 	if !given["trusted-proxy"] {
-		proxies, option = cfg.Serve.TrustedProxies, "serve.trusted_proxies of "+cfg.path
+		proxies, option = cfg.Serve.TrustedProxies, "serve.trusted_proxies of "+cfg.Path
 	}
 	for _, s := range proxies {
-		prefix, ok := parsePrefix(s)
+		prefix, ok := simpleca.ParsePrefix(s)
 		if !ok {
 			return fmt.Errorf("%s: '%s' is not an IP address or a prefix such as 10.0.0.0/8", option, s)
 		}
@@ -113,8 +115,8 @@ func runServe(args []string) error {
 	}
 	var kept time.Duration
 	if cfg.Tokens.KeepExpired != "" {
-		if kept, err = parseDuration(cfg.Tokens.KeepExpired); err != nil {
-			return fmt.Errorf("tokens.keep_expired of %s: %w", cfg.path, err)
+		if kept, err = simpleca.ParseDuration(cfg.Tokens.KeepExpired); err != nil {
+			return fmt.Errorf("tokens.keep_expired of %s: %w", cfg.Path, err)
 		}
 	}
 	requestLog = cfg.Serve.RequestLog
@@ -124,9 +126,9 @@ func runServe(args []string) error {
 
 	// Every record of serve, of its log and the audit, goes to the systemd journal it runs under,
 	// else to stderr, as the lines of TextHandler; so do the lines of the log package.
-	logStream = streamStderr
+	simpleca.LogStream = streamStderr
 	if journalConnected() {
-		logStream = streamJournal
+		simpleca.LogStream = streamJournal
 	}
 	slog.SetDefault(slog.New(streamHandler{}))
 	log.SetFlags(0)
@@ -165,7 +167,7 @@ func runServe(args []string) error {
 				dirs := []string{rootDir}
 				entries, _ := os.ReadDir(rootDir)
 				for _, e := range entries {
-					if e.IsDir() && fileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
+					if e.IsDir() && simpleca.FileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
 						dirs = append(dirs, filepath.Join(rootDir, e.Name()))
 					}
 				}
@@ -174,7 +176,7 @@ func runServe(args []string) error {
 					if err != nil {
 						slog.Error("serve.error", "message", "could not remove the expired tokens", "dir", d, "error", err.Error())
 					} else if n > 0 {
-						audit(d, "token.purge", "count", n, "via", "serve")
+						simpleca.Audit(d, "token.purge", "count", n, "via", "serve")
 					}
 				}
 				time.Sleep(tokensPurgeInterval)

@@ -8,7 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // TestMain runs the tests without holding back refused clients; TestAuthGuard holds them back.
@@ -81,10 +82,6 @@ func TestKebabCaseNames(t *testing.T) {
 		if err := makeCA(caDir, "Bad CA", 3650, name, "", "rsa"); err == nil || !strings.Contains(err.Error(), "kebab-case") {
 			t.Fatalf("makeCA --issuing-ca %q: %v, want a kebab-case error", name, err)
 		}
-		if _, err := makeToken(caDir, name, time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil); err == nil ||
-			!strings.Contains(err.Error(), "kebab-case") {
-			t.Fatalf("makeToken %q: %v, want a kebab-case error", name, err)
-		}
 	}
 	if err := makeCA(caDir, "Lab Servers CA", 0, "lab-servers2", "", "rsa"); err != nil {
 		t.Fatalf("makeCA --issuing-ca lab-servers2: %v", err)
@@ -92,7 +89,7 @@ func TestKebabCaseNames(t *testing.T) {
 	issuingDir := filepath.Join(caDir, "lab-servers2")
 
 	// A kebab-case type works with cert create and with openssl ca through openssl.cnf.
-	if err := os.WriteFile(filepath.Join(caDir, configFile),
+	if err := os.WriteFile(filepath.Join(caDir, simpleca.ConfigFile),
 		[]byte(`{"types": {"web-server": {"key_usage": ["digitalSignature"], "ext_key_usage": ["serverAuth"]}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

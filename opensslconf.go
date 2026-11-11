@@ -30,6 +30,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- openssl ca configuration -----------------------------------------------
@@ -64,15 +66,15 @@ func writeOpenSSLConf(caDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	rootDir, issuingCA, err := locateCA(dir)
+	rootDir, issuingCA, err := simpleca.LocateCA(dir)
 	if err != nil {
 		return "", err
 	}
-	cfg, err := loadConfig(rootDir)
+	cfg, err := simpleca.LoadConfig(rootDir)
 	if err != nil {
 		return "", err
 	}
-	types, err := cfg.certTypes()
+	types, err := cfg.CertTypes()
 	if err != nil {
 		return "", err
 	}
@@ -131,16 +133,16 @@ func writeOpenSSLConf(caDir string) (string, error) {
 	}
 	for _, name := range slices.Sorted(maps.Keys(types)) {
 		def := types[name]
-		keyUsage, extKeyUsages, extKeyUsageOIDs, err := parseUsages(def.keyUsage, def.extKeyUsage)
+		keyUsage, extKeyUsages, extKeyUsageOIDs, err := simpleca.ParseUsages(def.KeyUsage, def.ExtKeyUsage)
 		if err != nil {
 			return "", fmt.Errorf("type '%s': %w", name, err)
 		}
 		fmt.Fprintf(&b, "\n[ ext_%s ]\n", name)
 		fmt.Fprintf(&b, "basicConstraints       = critical, CA:FALSE\n")
 		var usages []string
-		for _, u := range keyUsageNames {
-			if keyUsage&u.usage != 0 {
-				usages = append(usages, u.name)
+		for _, u := range simpleca.KeyUsageNames {
+			if keyUsage&u.Usage != 0 {
+				usages = append(usages, u.Name)
 			}
 		}
 		if len(usages) > 0 {

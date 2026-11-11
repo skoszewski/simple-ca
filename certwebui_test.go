@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestCertWebUI(t *testing.T) {
@@ -28,11 +30,11 @@ func TestCertWebUI(t *testing.T) {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")
-	key, err := makeToken(caDir, "operator", time.Hour, []string{"certs"}, nil, nil, nil, nil)
+	key, err := simpleca.MakeToken(caDir, "operator", time.Hour, []string{"certs"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
-	tokensOnly, err := makeToken(caDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	tokensOnly, err := simpleca.MakeToken(caDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
@@ -98,7 +100,7 @@ func TestCertWebUI(t *testing.T) {
 	if status, answer := call(key, "POST", "/api/certs", body); status != http.StatusCreated {
 		t.Fatalf("create: %d %v, want 201", status, answer)
 	}
-	if !fileExists(filepath.Join(issuingDir, "web_cert.pem")) || !fileExists(filepath.Join(issuingDir, "web_key.pem")) {
+	if !simpleca.FileExists(filepath.Join(issuingDir, "web_cert.pem")) || !simpleca.FileExists(filepath.Join(issuingDir, "web_key.pem")) {
 		t.Fatal("create wrote no certificate and key to the CA directory")
 	}
 	if status, _ := call(key, "POST", "/api/certs", body); status != http.StatusConflict {
@@ -118,7 +120,7 @@ func TestCertWebUI(t *testing.T) {
 	csr, _ := os.ReadFile(csrPath)
 	status, answer = call(key, "POST", "/api/certs/sign", map[string]any{"ca": "issuing-ca", "type": "server",
 		"name": "api server", "csr": string(csr), "days": 30})
-	if status != http.StatusCreated || answer["file"] != "api_server_cert.pem" || !fileExists(filepath.Join(issuingDir, "api_server_cert.pem")) {
+	if status != http.StatusCreated || answer["file"] != "api_server_cert.pem" || !simpleca.FileExists(filepath.Join(issuingDir, "api_server_cert.pem")) {
 		t.Fatalf("sign: %d %v, want api_server_cert.pem in the CA directory", status, answer)
 	}
 	if status, _ := call(key, "POST", "/api/certs/sign", map[string]any{"ca": "issuing-ca", "type": "server",

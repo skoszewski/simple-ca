@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestMakeCRLAll(t *testing.T) {
@@ -32,7 +34,7 @@ func TestMakeCRLAll(t *testing.T) {
 			t.Fatalf("crlnumber of %s is %q, %v, want 03 after the second CRL", dir, b, err)
 		}
 	}
-	if fileExists(filepath.Join(caDir, "other", "crl.pem")) {
+	if simpleca.FileExists(filepath.Join(caDir, "other", "crl.pem")) {
 		t.Fatal("crl create --all wrote a CRL in a directory without a CA")
 	}
 	if err := run([]string{"crl", "create", "--ca-dir", filepath.Join(caDir, "servers")}); err != nil {
@@ -80,11 +82,11 @@ func TestRevokeAndCRL(t *testing.T) {
 		}
 	}
 	alicePath := filepath.Join(caDir, "issuing-ca", "alice_cert.pem")
-	alice, err := loadCert(alicePath)
+	alice, err := simpleca.LoadCert(alicePath)
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
-	bob, err := loadCert(filepath.Join(caDir, "issuing-ca", "bob_cert.pem"))
+	bob, err := simpleca.LoadCert(filepath.Join(caDir, "issuing-ca", "bob_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -98,8 +100,8 @@ func TestRevokeAndCRL(t *testing.T) {
 	if err := revokeCert(alicePath, filepath.Join(caDir, "issuing-ca"), "SUPERSEDED"); err != nil {
 		t.Fatalf("revokeCert: %v", err)
 	}
-	if err := revokeCert(alicePath, filepath.Join(caDir, "issuing-ca"), ""); err != nil {
-		t.Fatalf("revokeCert second run: %v", err)
+	if err := revokeCert(alicePath, filepath.Join(caDir, "issuing-ca"), ""); err == nil || !strings.Contains(err.Error(), "revoked already") {
+		t.Fatalf("revokeCert second run: %v, want an error for the revoked certificate", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(caDir, "issuing-ca", indexFile)); err != nil || !strings.Contains(string(b), "Z,superseded\t") {
 		t.Fatalf("index.txt lacks the revocation reason superseded: %q, %v", b, err)

@@ -30,6 +30,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- key commands -----------------------------------------------------------
@@ -63,7 +65,7 @@ func convertKeys(args []string, encrypt bool) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
-	rootDir, _, err := locateCA(dir)
+	rootDir, _, err := simpleca.LocateCA(dir)
 	if err != nil {
 		return err
 	}
@@ -83,9 +85,9 @@ func convertKeys(args []string, encrypt bool) error {
 		paths = append(paths, keys[d]...)
 	}
 	if encrypt {
-		_, err = keyPassphrase(true)
+		_, err = simpleca.KeyPassphrase(true)
 	} else {
-		err = readKeyPassphrase(paths...)
+		err = simpleca.ReadKeyPassphrase(paths...)
 	}
 	if err != nil {
 		return err
@@ -107,7 +109,7 @@ func convertKeys(args []string, encrypt bool) error {
 			}
 		}
 		if len(done) > 0 {
-			audit(d, "key."+verb, "files", strings.Join(done, ","), "via", "cli", "actor", cliActor())
+			simpleca.Audit(d, "key."+verb, "files", strings.Join(done, ","), "via", "cli", "actor", simpleca.CLIActor())
 		}
 	}
 	return errors.Join(errs...)
@@ -116,10 +118,10 @@ func convertKeys(args []string, encrypt bool) error {
 // convertKey rewrites the private key in path as encrypted PKCS#8, with encrypt, or unencrypted
 // PKCS#8, and reports whether it did; a key already in that form is left as it is.
 func convertKey(path string, encrypt bool) (bool, error) {
-	if keyEncrypted(path) == encrypt {
+	if simpleca.KeyEncrypted(path) == encrypt {
 		return false, nil
 	}
-	key, err := loadKey(path)
+	key, err := simpleca.LoadKey(path)
 	if err != nil {
 		return false, err
 	}
@@ -129,11 +131,11 @@ func convertKey(path string, encrypt bool) (bool, error) {
 	}
 	blockType := "PRIVATE KEY"
 	if encrypt {
-		pass, err := keyPassphrase(false)
+		pass, err := simpleca.KeyPassphrase(false)
 		if err != nil {
 			return false, err
 		}
-		if der, err = encryptKeyDER(der, pass); err != nil {
+		if der, err = simpleca.EncryptKeyDER(der, pass); err != nil {
 			return false, err
 		}
 		blockType = "ENCRYPTED PRIVATE KEY"

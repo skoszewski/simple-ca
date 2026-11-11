@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestConfigTypes(t *testing.T) {
@@ -17,11 +19,11 @@ func TestConfigTypes(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(`{"types": {`+
+	if err := os.WriteFile(filepath.Join(caDir, simpleca.ConfigFile), []byte(`{"types": {`+
 		`"device": {"key_usage": ["digitalSignature"], "ext_key_usage": ["clientAuth", "1.3.6.1.4.1.99999.10"]}, `+
 		`"person": {"names": "user", "key_usage": ["digitalSignature", "keyEncipherment"], "ext_key_usage": []}, `+
 		`"user": {"key_usage": ["digitalSignature", "contentCommitment", "keyEncipherment"]}}}`), 0o644); err != nil {
-		t.Fatalf("write %s: %v", configFile, err)
+		t.Fatalf("write %s: %v", simpleca.ConfigFile, err)
 	}
 
 	for _, c := range []struct {
@@ -43,7 +45,7 @@ func TestConfigTypes(t *testing.T) {
 		if _, err := makeCert(c.args[0], c.args[1:], caDir, "", c.certType, 365, nil, nil, ""); err != nil {
 			t.Fatalf("makeCert %s: %v", c.certType, err)
 		}
-		cert, err := loadCert(filepath.Join(caDir, c.file+"_cert.pem"))
+		cert, err := simpleca.LoadCert(filepath.Join(caDir, c.file+"_cert.pem"))
 		if err != nil {
 			t.Fatalf("loadCert: %v", err)
 		}
@@ -56,24 +58,6 @@ func TestConfigTypes(t *testing.T) {
 		t.Fatalf("expected an unknown type error naming the types, got %v", err)
 	}
 
-	cfg, err := loadConfig(caDir)
-	if err != nil {
-		t.Fatalf("loadConfig: %v", err)
-	}
-	if err := cfg.save(); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	saved, err := loadConfig(caDir)
-	if err != nil {
-		t.Fatalf("loadConfig after save: %v", err)
-	}
-	if p := saved.Types["person"].ExtKeyUsage; p == nil || len(*p) != 0 {
-		t.Fatalf("the empty ext_key_usage of person did not survive a save: %v", p)
-	}
-	if saved.Types["user"].ExtKeyUsage != nil {
-		t.Fatal("the ext_key_usage left out of user was written by a save")
-	}
-
 	for _, types := range []string{
 		`{"types": {"Bad_Name": {"key_usage": ["digitalSignature"]}}}`,
 		`{"types": {"device": {"names": "robot"}}}`,
@@ -82,8 +66,8 @@ func TestConfigTypes(t *testing.T) {
 		`{"types": {"device": {"key_usages": ["digitalSignature"]}}}`,
 		"types:\n  device:\n    key_usage: [digitalSignature]\n",
 	} {
-		if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(types), 0o644); err != nil {
-			t.Fatalf("write %s: %v", configFile, err)
+		if err := os.WriteFile(filepath.Join(caDir, simpleca.ConfigFile), []byte(types), 0o644); err != nil {
+			t.Fatalf("write %s: %v", simpleca.ConfigFile, err)
 		}
 		if _, err := makeCert("y.example.com", nil, caDir, "", "server", 365, nil, nil, ""); err == nil {
 			t.Fatalf("expected an error for\n%s", types)

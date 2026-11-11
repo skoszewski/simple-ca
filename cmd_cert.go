@@ -31,6 +31,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- cert commands ----------------------------------------------------------
@@ -56,10 +58,10 @@ func runCertCreate(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
-	if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+	if err := simpleca.ReadKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
 		return err
 	}
-	cfg, err := loadRootConfig(dir)
+	cfg, err := simpleca.LoadRootConfig(dir)
 	if err != nil {
 		return err
 	}
@@ -71,7 +73,7 @@ func runCertCreate(args []string) error {
 		return err
 	}
 	out := cmp.Or(*certDir, dir)
-	auditIssued(dir, cert, *certType, "via", "cli", "actor", cliActor())
+	auditIssued(dir, cert, *certType, "via", "cli", "actor", simpleca.CLIActor())
 	fmt.Printf("The %s certificate and its key, written to %s:\n\n", *certType, out)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	writeCertFields(tw, cert, time.Now())
@@ -119,10 +121,10 @@ func runCertSign(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
-	if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+	if err := simpleca.ReadKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
 		return err
 	}
-	cfg, err := loadRootConfig(dir)
+	cfg, err := simpleca.LoadRootConfig(dir)
 	if err != nil {
 		return err
 	}
@@ -131,7 +133,7 @@ func runCertSign(args []string) error {
 	}
 	cert, err := signCSR(rest[0], dir, *certDir, *certType, *days, *ekus, *kus, *force, commandInput)
 	if cert != nil {
-		auditIssued(dir, cert, *certType, "via", "cli", "actor", cliActor())
+		auditIssued(dir, cert, *certType, "via", "cli", "actor", simpleca.CLIActor())
 	}
 	return err
 }
@@ -146,13 +148,13 @@ func runCertPFX(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
-	if err := readKeyPassphrase(strings.TrimSuffix(rest[0], "_cert.pem") + "_key.pem"); err != nil {
+	if err := simpleca.ReadKeyPassphrase(strings.TrimSuffix(rest[0], "_cert.pem") + "_key.pem"); err != nil {
 		return err
 	}
 	if err := makePFX(rest[0], dir, *password); err != nil {
 		return err
 	}
-	audit(dir, "cert.pfx", "file", rest[0], "via", "cli", "actor", cliActor())
+	simpleca.Audit(dir, "cert.pfx", "file", rest[0], "via", "cli", "actor", simpleca.CLIActor())
 	return nil
 }
 

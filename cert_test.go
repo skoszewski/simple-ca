@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestUserCert(t *testing.T) {
@@ -25,7 +27,7 @@ func TestUserCert(t *testing.T) {
 		t.Fatalf("makeCert user: %v", err)
 	}
 	certPath := filepath.Join(caDir, "issuing-ca", "Alice_Example_cert.pem")
-	if !fileExists(certPath) {
+	if !simpleca.FileExists(certPath) {
 		t.Fatal("Alice_Example_cert.pem not created")
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
@@ -45,7 +47,7 @@ func TestCertDirOverride(t *testing.T) {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(certDir, "test_cert.pem")
-	if !fileExists(certPath) {
+	if !simpleca.FileExists(certPath) {
 		t.Fatal("test_cert.pem not created in certDir override")
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
@@ -63,7 +65,7 @@ func TestServerSANs(t *testing.T) {
 	}
 	certPath := filepath.Join(caDir, "web_cert.pem")
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
-	cert, err := loadCert(certPath)
+	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -132,7 +134,7 @@ func TestUserSubjects(t *testing.T) {
 		}
 		certPath := filepath.Join(caDir, c.file+"_cert.pem")
 		verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
-		cert, err := loadCert(certPath)
+		cert, err := simpleca.LoadCert(certPath)
 		if err != nil {
 			t.Fatalf("loadCert %s: %v", certPath, err)
 		}
@@ -258,7 +260,7 @@ func TestShowCert(t *testing.T) {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "issuing-ca", "Alice_Example_cert.pem")
-	cert, err := loadCert(certPath)
+	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -312,7 +314,7 @@ func TestEKU(t *testing.T) {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "device01_cert.pem")
-	cert, err := loadCert(certPath)
+	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -333,7 +335,7 @@ func TestEKU(t *testing.T) {
 	if _, err := makeCert("Signer", nil, caDir, "", "user", 365, []string{"TIMESTAMPING", "codeSigning"}, nil, ""); err != nil {
 		t.Fatalf("makeCert user: %v", err)
 	}
-	signer, err := loadCert(filepath.Join(caDir, "Signer_cert.pem"))
+	signer, err := simpleca.LoadCert(filepath.Join(caDir, "Signer_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -374,7 +376,7 @@ func TestKeyUsageAndNone(t *testing.T) {
 		name, _, _ := strings.Cut(strings.ReplaceAll(c.cn, " ", "_"), ".")
 		certPath := filepath.Join(caDir, name+"_cert.pem")
 		verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
-		cert, err := loadCert(certPath)
+		cert, err := simpleca.LoadCert(certPath)
 		if err != nil {
 			t.Fatalf("loadCert %s: %v", certPath, err)
 		}
@@ -383,7 +385,7 @@ func TestKeyUsageAndNone(t *testing.T) {
 		}
 	}
 
-	bare, err := loadCert(filepath.Join(caDir, "bare_cert.pem"))
+	bare, err := simpleca.LoadCert(filepath.Join(caDir, "bare_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}

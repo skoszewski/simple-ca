@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestSign(t *testing.T) {
@@ -38,7 +40,7 @@ func TestSign(t *testing.T) {
 		if _, err := signCSR(csrPath, issuingDir, "", "server", 30, nil, nil, false, strings.NewReader(answer)); err == nil {
 			t.Fatalf("signCSR answered %q succeeded, want an error", answer)
 		}
-		if fileExists(certPath) {
+		if simpleca.FileExists(certPath) {
 			t.Fatalf("signCSR answered %q wrote %s", answer, certPath)
 		}
 		if entries, err := readIndex(issuingDir); err != nil || len(entries) != 0 {
@@ -49,7 +51,7 @@ func TestSign(t *testing.T) {
 		t.Fatalf("signCSR: %v", err)
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
-	cert, err := loadCert(certPath)
+	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -67,7 +69,7 @@ func TestSign(t *testing.T) {
 	if !strings.Contains(string(text), "Registered ID:1.3.6.1.4.1.99999.1") {
 		t.Fatalf("registeredID SAN of the request not copied:\n%s", text)
 	}
-	if cert.IsCA || cert.KeyUsage != x509.KeyUsageDigitalSignature|x509.KeyUsageKeyEncipherment {
+	if cert.IsCA || cert.KeyUsage != x509.KeyUsageDigitalSignature {
 		t.Fatalf("IsCA %v, key usage %v, want those of the server type", cert.IsCA, cert.KeyUsage)
 	}
 	if !slices.Equal(cert.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageCodeSigning}) {
@@ -84,8 +86,17 @@ func TestSign(t *testing.T) {
 		t.Fatalf("index.txt entries %+v, want the signed certificate", entries)
 	}
 
-	if _, err := signCSR(csrPath, issuingDir, "", "server", 30, nil, nil, true, nil); err == nil || !strings.Contains(err.Error(), "exists") {
-		t.Fatalf("signing again: %v, want an error for the existing certificate", err)
+	// Signing again replaces the file, and index.txt lists both certificates.
+	again, err := signCSR(csrPath, issuingDir, "", "server", 30, nil, nil, true, nil)
+	if err != nil {
+		t.Fatalf("signing again: %v", err)
+	}
+	if replaced, err := simpleca.LoadCert(certPath); err != nil || replaced.SerialNumber.Cmp(again.SerialNumber) != 0 ||
+		replaced.SerialNumber.Cmp(cert.SerialNumber) == 0 {
+		t.Fatalf("%s after signing again: %v, want the new certificate", certPath, err)
+	}
+	if entries, err := readIndex(issuingDir); err != nil || len(entries) != 2 {
+		t.Fatalf("index.txt after signing again: %+v, %v, want both certificates", entries, err)
 	}
 	if _, err := signCSR(certPath, issuingDir, t.TempDir(), "server", 30, nil, nil, true, nil); err == nil {
 		t.Fatal("signing a certificate file succeeded, want an error")

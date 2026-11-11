@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestStandaloneCA(t *testing.T) {
@@ -18,10 +20,10 @@ func TestStandaloneCA(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) {
+	if !simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) {
 		t.Fatal("ca_cert.pem not created")
 	}
-	if !fileExists(filepath.Join(caDir, "ca_bundle.pem")) {
+	if !simpleca.FileExists(filepath.Join(caDir, "ca_bundle.pem")) {
 		t.Fatal("ca_bundle.pem not created")
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(caDir, "ca_cert.pem"))
@@ -30,7 +32,7 @@ func TestStandaloneCA(t *testing.T) {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "test_cert.pem")
-	if !fileExists(certPath) {
+	if !simpleca.FileExists(certPath) {
 		t.Fatal("test_cert.pem not created in caDir")
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
@@ -48,7 +50,7 @@ func TestTwoLevelCA(t *testing.T) {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	issuingCert := filepath.Join(caDir, "issuing-ca", "ca_cert.pem")
-	if !fileExists(issuingCert) {
+	if !simpleca.FileExists(issuingCert) {
 		t.Fatal("issuing-ca/ca_cert.pem not created")
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), issuingCert)
@@ -57,7 +59,7 @@ func TestTwoLevelCA(t *testing.T) {
 		t.Fatalf("makeCert: %v", err)
 	}
 	certPath := filepath.Join(caDir, "issuing-ca", "test_cert.pem")
-	if !fileExists(certPath) {
+	if !simpleca.FileExists(certPath) {
 		t.Fatal("issuing-ca/test_cert.pem not created")
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
@@ -68,7 +70,7 @@ func TestTwoLevelCA(t *testing.T) {
 		t.Fatalf("makePFX: %v", err)
 	}
 	pfxPath := filepath.Join(caDir, "issuing-ca", "test.pfx")
-	if !fileExists(pfxPath) {
+	if !simpleca.FileExists(pfxPath) {
 		t.Fatal("issuing-ca/test.pfx not created")
 	}
 	out, err := exec.Command("openssl", "pkcs12", "-in", pfxPath, "-noout", "-info",
@@ -96,12 +98,12 @@ func TestPublishURLs(t *testing.T) {
 	if err := makeCA(caDir, "Test CA", 3650, "", base, "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	cfg, err := loadConfig(caDir)
+	cfg, err := simpleca.LoadConfig(caDir)
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
 	if cfg.CAPublishBaseURL != base {
-		t.Fatalf("%s holds base URL %q, want %q", configFile, cfg.CAPublishBaseURL, base)
+		t.Fatalf("%s holds base URL %q, want %q", simpleca.ConfigFile, cfg.CAPublishBaseURL, base)
 	}
 	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
@@ -110,7 +112,7 @@ func TestPublishURLs(t *testing.T) {
 		t.Fatalf("makeCert: %v", err)
 	}
 
-	issuing, err := loadCert(filepath.Join(caDir, "issuing-ca", "ca_cert.pem"))
+	issuing, err := simpleca.LoadCert(filepath.Join(caDir, "issuing-ca", "ca_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestPublishURLs(t *testing.T) {
 		t.Fatalf("issuing CA URLs: AIA %v CDP %v", issuing.IssuingCertificateURL, issuing.CRLDistributionPoints)
 	}
 
-	leaf, err := loadCert(filepath.Join(caDir, "issuing-ca", "test_cert.pem"))
+	leaf, err := simpleca.LoadCert(filepath.Join(caDir, "issuing-ca", "test_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -138,13 +140,6 @@ func TestCADirRoles(t *testing.T) {
 	}
 	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
-	}
-	rootDir, name, err := locateCA(issuingDir)
-	if err != nil || name != "issuing-ca" || filepath.Base(rootDir) != filepath.Base(caDir) {
-		t.Fatalf("locateCA(%s) = %q, %q, %v", issuingDir, rootDir, name, err)
-	}
-	if _, name, err := locateCA(caDir); err != nil || name != "" {
-		t.Fatalf("locateCA(%s) names an issuing CA %q, %v", caDir, name, err)
 	}
 	if err := makeCA(issuingDir, "Nested CA", 3650, "nested", "", "rsa"); err == nil {
 		t.Fatal("expected ca create to refuse an issuing CA directory")
@@ -166,8 +161,8 @@ func TestCADirRoles(t *testing.T) {
 func TestInitialCRL(t *testing.T) {
 	caDir := t.TempDir()
 
-	if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(`{"days": {"crl": 7}}`), 0o644); err != nil {
-		t.Fatalf("write %s: %v", configFile, err)
+	if err := os.WriteFile(filepath.Join(caDir, simpleca.ConfigFile), []byte(`{"days": {"crl": 7}}`), 0o644); err != nil {
+		t.Fatalf("write %s: %v", simpleca.ConfigFile, err)
 	}
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
@@ -176,7 +171,7 @@ func TestInitialCRL(t *testing.T) {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	for _, dir := range []string{caDir, filepath.Join(caDir, "issuing-ca")} {
-		ca, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
+		ca, err := simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem"))
 		if err != nil {
 			t.Fatalf("loadCert: %v", err)
 		}
@@ -216,7 +211,7 @@ func TestCAURLOption(t *testing.T) {
 		if err := run([]string{"ca", "create", "--ca-dir", caDir, option, "http://pki.example.com", "Test CA"}); err != nil {
 			t.Fatalf("ca create %s: %v", option, err)
 		}
-		cfg, err := loadConfig(caDir)
+		cfg, err := simpleca.LoadConfig(caDir)
 		if err != nil || cfg.CAPublishBaseURL != "http://pki.example.com" {
 			t.Fatalf("ca_publish_base_url after ca create %s: %q, %v", option, cfg.CAPublishBaseURL, err)
 		}

@@ -24,6 +24,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestOIDC(t *testing.T) {
@@ -75,7 +77,7 @@ func TestOIDC(t *testing.T) {
 		t.Helper()
 		now := time.Now().Unix()
 		c := map[string]any{"iss": idp.URL, "aud": "simple-ca", "sub": "subject-" + fmt.Sprint(claims["preferred_username"]),
-			"iat": now, "exp": now + 300, "nonce": randomID()}
+			"iat": now, "exp": now + 300, "nonce": simpleca.RandomID()}
 		maps.Copy(c, claims)
 		header, _ := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT", "kid": kid})
 		payload, _ := json.Marshal(c)
@@ -134,7 +136,7 @@ func TestOIDC(t *testing.T) {
 		t.Errorf("POST /api/oidc-token without oidc: %d, want 404", status)
 	}
 
-	write(configFile, `{"oidc": {"provider": "entra", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
+	write(simpleca.ConfigFile, `{"oidc": {"provider": "entra", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
 	write(oidcUsersFile, `{
   "profiles": [
     {"name": "ca-admin", "token": {"valid": "8h", "scopes": ["tokens", "certs"]}},
@@ -146,7 +148,7 @@ func TestOIDC(t *testing.T) {
     {"groups": ["web-team"], "profile": "web-signer"}
   ]
 }`)
-	cfg, err := loadConfig(rootDir)
+	cfg, err := simpleca.LoadConfig(rootDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +212,7 @@ func TestOIDC(t *testing.T) {
 	if status, _ := signInWith(again, map[string]any{"replace": true}); status != http.StatusUnauthorized {
 		t.Errorf("the ID token of the replacing sign-in again: %d, want 401", status)
 	}
-	write(configFile, `{"oidc": {"provider": "entra", "issuer": "`+idp.URL+`", "client_id": "simple-ca", "reuse_token": true}}`)
+	write(simpleca.ConfigFile, `{"oidc": {"provider": "entra", "issuer": "`+idp.URL+`", "client_id": "simple-ca", "reuse_token": true}}`)
 	if status, answer := do("GET", "/api/oidc", "", nil); status != http.StatusOK || answer["reuse_token"] != true {
 		t.Errorf("GET /api/oidc with reuse_token: %d %v, want reuse_token true", status, answer)
 	}
@@ -221,7 +223,7 @@ func TestOIDC(t *testing.T) {
 	if status, _ := do("GET", "/tokens/api/cas", second, nil); status != http.StatusOK {
 		t.Errorf("the reused token: %d, want 200", status)
 	}
-	write(configFile, `{"oidc": {"provider": "entra", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
+	write(simpleca.ConfigFile, `{"oidc": {"provider": "entra", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
 
 	// A revoked token of the user is replaced without asking.
 	if err := revokeToken(rootDir, "alice-example-com"); err != nil {
@@ -230,14 +232,14 @@ func TestOIDC(t *testing.T) {
 	if status, answer := signIn(idToken("k1", key1, user("alice@example.com", nil))); status != http.StatusOK {
 		t.Errorf("sign-in of alice with the token revoked: %d %v, want 200", status, answer)
 	}
-	db, _ := loadTokens(rootDir)
+	db, _ := simpleca.LoadTokens(rootDir)
 	if tok := db.Tokens["alice-example-com"]; tok.OIDC == nil || tok.Expires.Sub(tok.Issued) != 8*time.Hour {
 		t.Errorf("the token of alice: %+v, want the OIDC user, valid for 8h", tok)
 	}
 	if _, err := renewToken(rootDir, "alice-example-com", 0); err != nil {
 		t.Fatal(err)
 	}
-	if db, _ := loadTokens(rootDir); db.Tokens["alice-example-com"].OIDC == nil {
+	if db, _ := simpleca.LoadTokens(rootDir); db.Tokens["alice-example-com"].OIDC == nil {
 		t.Error("the renewed token of alice lost its OIDC user")
 	}
 
@@ -277,7 +279,7 @@ func TestOIDC(t *testing.T) {
 	if status, _ := signIn(idToken("k1", key1, user("erin@example.com", map[string]any{"roles": []string{"other"}}))); status != http.StatusForbidden {
 		t.Errorf("sign-in of erin without a profile: %d, want 403", status)
 	}
-	if _, err := makeToken(rootDir, "henry-example-com", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
+	if _, err := simpleca.MakeToken(rootDir, "henry-example-com", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if status, _ := signIn(idToken("k1", key1, user("henry@example.com", nil))); status != http.StatusConflict {
@@ -308,7 +310,7 @@ func TestOIDC(t *testing.T) {
 	before := fetches
 	mu.Unlock()
 	client := newOIDCClient(rootDir)
-	oc, _, _ := cfg.OIDC.resolved(cfg.path)
+	oc, _, _ := cfg.OIDC.Resolved(cfg.Path)
 	if _, err := client.checkIDToken(oc, idToken("k1", key1, user("alice@example.com", nil))); err != nil {
 		t.Fatalf("checkIDToken: %v", err)
 	}
@@ -327,7 +329,7 @@ func TestOIDC(t *testing.T) {
 	mu.Unlock()
 
 	// Keycloak realm and client roles.
-	write(configFile, `{"oidc": {"provider": "keycloak", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
+	write(simpleca.ConfigFile, `{"oidc": {"provider": "keycloak", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
 	status, answer = signIn(idToken("k1", key1, user("frank", map[string]any{"realm_access": map[string]any{"roles": []string{"web-signer"}}})))
 	if status != http.StatusOK || answer["ca"] != "clients" || answer["name"] != "frank" {
 		t.Errorf("sign-in of frank with the realm role web-signer: %d %v, want web-signer", status, answer)
@@ -344,7 +346,7 @@ func TestOIDC(t *testing.T) {
 		"no client ID":        `{"oidc": {"issuer": "https://idp.example.com"}}`,
 		"an issuer not a URL": `{"oidc": {"issuer": "idp.example.com", "client_id": "x"}}`,
 	} {
-		cfg := &config{path: configFile}
+		cfg := &simpleca.Config{Path: simpleca.ConfigFile}
 		if err := json.Unmarshal([]byte(c), cfg); err != nil {
 			t.Fatal(err)
 		}

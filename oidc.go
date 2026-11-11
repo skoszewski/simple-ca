@@ -42,6 +42,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- OIDC sign-in -----------------------------------------------------------
@@ -90,12 +92,12 @@ func newOIDCClient(rootDir string) *oidcClient {
 }
 
 // settings returns the resolved oidc section of simple-ca.json, and false when it is off.
-func (c *oidcClient) settings() (oidcConfig, bool, error) {
-	cfg, err := loadConfig(c.rootDir)
+func (c *oidcClient) settings() (simpleca.OIDCConfig, bool, error) {
+	cfg, err := simpleca.LoadConfig(c.rootDir)
 	if err != nil {
-		return oidcConfig{}, false, err
+		return simpleca.OIDCConfig{}, false, err
 	}
-	return cfg.OIDC.resolved(cfg.path)
+	return cfg.OIDC.Resolved(cfg.Path)
 }
 
 // fetch reads the JSON document at url into v, at most oidcMaxDocument bytes.
@@ -121,7 +123,7 @@ func (c *oidcClient) fetch(url string, v any) error {
 
 // discover returns the cached discovery document of the issuer of oc, fetching it first, without
 // c.mu held.
-func (c *oidcClient) discover(oc oidcConfig) (*oidcDiscovery, error) {
+func (c *oidcClient) discover(oc simpleca.OIDCConfig) (*oidcDiscovery, error) {
 	c.mu.Lock()
 	cached := c.discovery
 	if c.issuer != oc.Issuer {
@@ -154,7 +156,7 @@ func (c *oidcClient) discover(oc oidcConfig) (*oidcDiscovery, error) {
 
 // key returns the JWKS key kid of the provider of oc, or its only key for an empty kid, fetching
 // the keys without c.mu held.
-func (c *oidcClient) key(oc oidcConfig, kid string) (crypto.PublicKey, error) {
+func (c *oidcClient) key(oc simpleca.OIDCConfig, kid string) (crypto.PublicKey, error) {
 	d, err := c.discover(oc)
 	if err != nil {
 		return nil, err
@@ -206,7 +208,7 @@ func (c *oidcClient) key(oc oidcConfig, kid string) (crypto.PublicKey, error) {
 
 // checkIDToken verifies the ID token raw of the provider of oc and returns its claims, or an error
 // of status 401; it leaves the nonce unused.
-func (c *oidcClient) checkIDToken(oc oidcConfig, raw string) (map[string]any, error) {
+func (c *oidcClient) checkIDToken(oc simpleca.OIDCConfig, raw string) (map[string]any, error) {
 	invalid := func(reason string) error { return apiErr(http.StatusUnauthorized, "invalid ID token: %s", reason) }
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
@@ -294,7 +296,7 @@ func (c *oidcClient) useNonce(claims map[string]any) bool {
 }
 
 // claimValues returns the strings of claims at the dotted paths, CLIENT_ID replaced by clientID.
-func claimValues(claims map[string]any, paths claimPaths, clientID string) []string {
+func claimValues(claims map[string]any, paths simpleca.ClaimPaths, clientID string) []string {
 	var values []string
 	for _, path := range paths {
 		var v any = claims
@@ -343,9 +345,9 @@ func (u *oidcUsers) profileFor(user string, groups, roles []string) *oidcProfile
 	return nil
 }
 
-// prepare returns the token name of the profile from prepareToken, with the tokens defaults of cfg,
+// prepare returns the token name of the profile from simpleca.PrepareToken, with the tokens defaults of cfg,
 // and the key of its CA.
-func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiToken, crypto.Signer, error) {
+func (p *oidcProfile) prepare(rootDir string, cfg *simpleca.Config, name string) (*simpleca.APIToken, crypto.Signer, error) {
 	if p.CA != "" && !slices.Contains(caIDs(rootDir), p.CA) {
 		return nil, nil, fmt.Errorf("'%s' is not an issuing CA of %s", p.CA, rootDir)
 	}
@@ -353,7 +355,7 @@ func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiTok
 	valid := time.Hour
 	if v := cmp.Or(t.Valid, defaults.Valid); v != "" {
 		var err error
-		if valid, err = parseDuration(v); err != nil {
+		if valid, err = simpleca.ParseDuration(v); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -362,7 +364,7 @@ func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiTok
 		scopes = slices.Clone(defaults.Scopes)
 	}
 	var types, domains, ips []string
-	if len(scopes) == 0 || allows(scopes, "sign") {
+	if len(scopes) == 0 || simpleca.Allows(scopes, "sign") {
 		types, domains, ips = slices.Clone(t.Types), slices.Clone(t.Domains), slices.Clone(t.IPs)
 		if len(types) == 0 {
 			types = slices.Clone(defaults.Types)
@@ -384,12 +386,12 @@ func (p *oidcProfile) prepare(rootDir string, cfg *config, name string) (*apiTok
 	if len(clients) == 0 {
 		clients = append(slices.Clone(defaults.Hosts), defaults.Networks...)
 	}
-	return prepareToken(filepath.Join(rootDir, p.CA), name, nil, valid, scopes, types, domains, ips, clients)
+	return simpleca.PrepareToken(filepath.Join(rootDir, p.CA), name, nil, valid, scopes, types, domains, ips, clients)
 }
 
 // checkOIDC validates the oidc section of cfg and the profiles of oidc-users.json of rootDir.
-func checkOIDC(rootDir string, cfg *config) error {
-	if _, _, err := cfg.OIDC.resolved(cfg.path); err != nil {
+func checkOIDC(rootDir string, cfg *simpleca.Config) error {
+	if _, _, err := cfg.OIDC.Resolved(cfg.Path); err != nil {
 		return err
 	}
 	users, err := loadOIDCUsers(rootDir)
@@ -405,7 +407,7 @@ func checkOIDC(rootDir string, cfg *config) error {
 }
 
 // configured returns the OIDC settings, or answers with an error and returns false.
-func (c *oidcClient) configured(w http.ResponseWriter) (oidcConfig, bool) {
+func (c *oidcClient) configured(w http.ResponseWriter) (simpleca.OIDCConfig, bool) {
 	oc, on, err := c.settings()
 	switch {
 	case err != nil:
@@ -496,7 +498,7 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request) {
 			"the user is matched by none")
 	}
 	roles := claimValues(claims, oc.RolesClaim, oc.ClientID)
-	cfg, err := loadConfig(c.rootDir)
+	cfg, err := simpleca.LoadConfig(c.rootDir)
 	if err != nil {
 		fail(err)
 		return
@@ -512,7 +514,7 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.Trim(oidcNameRE.ReplaceAllString(strings.ToLower(user), "-"), "-")
-	if !kebabCaseRE.MatchString(name) {
+	if !simpleca.KebabCaseRE.MatchString(name) {
 		fail(apiErr(http.StatusForbidden, "the user %s makes no token name", user))
 		return
 	}
@@ -521,21 +523,21 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request) {
 		fail(fmt.Errorf("profile %s: %w", profile.Name, err))
 		return
 	}
-	if !tok.clientAllowed(client) {
+	if !tok.ClientAllowed(client) {
 		fail(apiErr(http.StatusForbidden, "the token of %s is not used from %s", user, client))
 		return
 	}
 	sub, _ := claims["sub"].(string)
-	tok.OIDC = &tokenOIDC{Issuer: oc.Issuer, Subject: sub, User: user}
+	tok.OIDC = &simpleca.TokenOIDC{Issuer: oc.Issuer, Subject: sub, User: user}
 	dir := filepath.Join(c.rootDir, profile.CA)
 
 	// Without replace or reuse, an active token of the user is reported instead.
-	db, err := loadTokens(dir)
+	db, err := simpleca.LoadTokens(dir)
 	if err != nil {
 		fail(err)
 		return
 	}
-	if old, ok := db.Tokens[name]; ok && old.ownedBy(tok.OIDC) && old.active(time.Now()) && !req.Replace && !req.Reuse {
+	if old, ok := db.Tokens[name]; ok && old.OwnedBy(tok.OIDC) && old.Active(time.Now()) && !req.Replace && !req.Reuse {
 		webuiReply(w, http.StatusConflict, map[string]any{"error": "the token " + name + " of this user is active",
 			"active": map[string]any{"ca": profile.CA, "name": name, "issued": old.Issued, "expires": old.Expires}})
 		return
@@ -556,14 +558,14 @@ func (c *oidcClient) apiToken(w http.ResponseWriter, r *http.Request) {
 	case req.Replace:
 		action = "replaced"
 	}
-	audit(dir, "token.oidc", "name", name, "user", user, "issuer", oc.Issuer, "profile", profile.Name, "action", action,
+	simpleca.Audit(dir, "token.oidc", "name", name, "user", user, "issuer", oc.Issuer, "profile", profile.Name, "action", action,
 		"via", "oidc", "actor", user, "client", client.String())
-	webuiReply(w, http.StatusOK, map[string]any{"ca": profile.CA, "name": name, "token": jwt, "scopes": given.scopes()})
+	webuiReply(w, http.StatusOK, map[string]any{"ca": profile.CA, "name": name, "token": jwt, "scopes": given.EffectiveScopes()})
 }
 
 // callbackPage serves the redirect URI page of the sign-in.
 func (c *oidcClient) callbackPage(w http.ResponseWriter, r *http.Request) {
-	caCert, err := loadCert(filepath.Join(c.rootDir, "ca_cert.pem"))
+	caCert, err := simpleca.LoadCert(filepath.Join(c.rootDir, "ca_cert.pem"))
 	if err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		http.Error(w, "could not read the CA", http.StatusInternalServerError)

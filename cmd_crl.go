@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- crl commands -----------------------------------------------------------
@@ -42,11 +44,11 @@ func runCRLCreate(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
-	rootDir, _, err := locateCA(dir)
+	rootDir, _, err := simpleca.LocateCA(dir)
 	if err != nil {
 		return err
 	}
-	cfg, err := loadConfig(rootDir)
+	cfg, err := simpleca.LoadConfig(rootDir)
 	if err != nil {
 		return err
 	}
@@ -54,13 +56,13 @@ func runCRLCreate(args []string) error {
 		*days = cfg.Days.CRL
 	}
 	if !*all {
-		if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+		if err := simpleca.ReadKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
 			return err
 		}
 		if err := makeCRL(dir, *days); err != nil {
 			return err
 		}
-		auditCRL(dir, "via", "cli", "actor", cliActor())
+		auditCRL(dir, "via", "cli", "actor", simpleca.CLIActor())
 		fmt.Printf("CRL written to %s\n", filepath.Join(dir, "crl.pem"))
 		return nil
 	}
@@ -73,7 +75,7 @@ func runCRLCreate(args []string) error {
 	dirs := []string{rootDir}
 	for _, e := range entries {
 		sub := filepath.Join(rootDir, e.Name())
-		if e.IsDir() && fileExists(filepath.Join(sub, "ca_cert.pem")) && fileExists(filepath.Join(sub, "ca_key.pem")) {
+		if e.IsDir() && simpleca.FileExists(filepath.Join(sub, "ca_cert.pem")) && simpleca.FileExists(filepath.Join(sub, "ca_key.pem")) {
 			dirs = append(dirs, sub)
 		}
 	}
@@ -81,7 +83,7 @@ func runCRLCreate(args []string) error {
 	for i, d := range dirs {
 		keys[i] = filepath.Join(d, "ca_key.pem")
 	}
-	if err := readKeyPassphrase(keys...); err != nil {
+	if err := simpleca.ReadKeyPassphrase(keys...); err != nil {
 		return err
 	}
 	var errs []error
@@ -90,7 +92,7 @@ func runCRLCreate(args []string) error {
 			errs = append(errs, fmt.Errorf("%s: %w", d, err))
 			continue
 		}
-		auditCRL(d, "via", "cli", "actor", cliActor())
+		auditCRL(d, "via", "cli", "actor", simpleca.CLIActor())
 		fmt.Printf("CRL written to %s\n", filepath.Join(d, "crl.pem"))
 	}
 	return errors.Join(errs...)

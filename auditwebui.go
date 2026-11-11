@@ -27,6 +27,8 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- the audit page of serve ------------------------------------------------
@@ -53,13 +55,13 @@ func (s *webuiServer) auditAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	all, err := readAudit(s.rootDir)
+	all, err := simpleca.ReadAudit(s.rootDir)
 	if err != nil {
 		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, "could not read the audit log")
 		return
 	}
-	entries, total := []auditEntry{}, 0
+	entries, total := []simpleca.AuditEntry{}, 0
 	for _, e := range slices.Backward(all) {
 		if s.userCA != "" && e.CA != s.userCA {
 			continue

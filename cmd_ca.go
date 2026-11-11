@@ -26,6 +26,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- ca commands ------------------------------------------------------------
@@ -46,11 +48,11 @@ func runCACreate(args []string) error {
 	}
 	dir := resolveCADir(*caDir)
 	if *issuingCA != "" {
-		if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+		if err := simpleca.ReadKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
 			return err
 		}
 	}
-	cfg, err := loadConfig(dir)
+	cfg, err := simpleca.LoadConfig(dir)
 	if err != nil {
 		return err
 	}
@@ -67,10 +69,10 @@ func runCACreate(args []string) error {
 	if *issuingCA != "" {
 		target = filepath.Join(dir, *issuingCA)
 	}
-	if cert, err := loadCert(filepath.Join(target, "ca_cert.pem")); *days == 0 && err == nil {
+	if cert, err := simpleca.LoadCert(filepath.Join(target, "ca_cert.pem")); *days == 0 && err == nil {
 		*days = int(cert.NotAfter.Sub(cert.NotBefore).Hours() / 24)
 	}
-	audit(target, "ca.create", "subject", rest[0], "days", *days, "key_type", *keyType, "via", "cli", "actor", cliActor())
+	simpleca.Audit(target, "ca.create", "subject", rest[0], "days", *days, "key_type", *keyType, "via", "cli", "actor", simpleca.CLIActor())
 	if !*writeConf {
 		return nil
 	}

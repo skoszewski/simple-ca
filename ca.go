@@ -32,6 +32,8 @@ import (
 	"path/filepath"
 	"slices"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- CA bundle --------------------------------------------------------------
@@ -42,7 +44,7 @@ func rebuildCABundle(caDir string) error {
 	var bundle []byte
 
 	rootPath := filepath.Join(caDir, "ca_cert.pem")
-	if fileExists(rootPath) {
+	if simpleca.FileExists(rootPath) {
 		data, err := os.ReadFile(rootPath)
 		if err != nil {
 			return err
@@ -56,7 +58,7 @@ func rebuildCABundle(caDir string) error {
 			continue
 		}
 		subCert := filepath.Join(caDir, e.Name(), "ca_cert.pem")
-		if !fileExists(subCert) {
+		if !simpleca.FileExists(subCert) {
 			continue
 		}
 		data, err := os.ReadFile(subCert)
@@ -88,14 +90,14 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 	if caName == "" {
 		return errors.New("CA name is required")
 	}
-	if issuingCA != "" && !kebabCaseRE.MatchString(issuingCA) {
+	if issuingCA != "" && !simpleca.KebabCaseRE.MatchString(issuingCA) {
 		return fmt.Errorf("issuing CA name '%s' is not a kebab-case name, such as servers or lab-servers", issuingCA)
 	}
 	if route := "/" + issuingCA + "/"; slices.Contains([]string{helpPath, docsPath, tokensPath, certsPath, auditPagePath}, route) {
 		return fmt.Errorf("issuing CA name '%s' is taken by the pages that serve shows at %s", issuingCA, route)
 	}
-	if fileExists(filepath.Join(caDir, "ca_cert.pem")) {
-		rootDir, name, err := locateCA(caDir)
+	if simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) {
+		rootDir, name, err := simpleca.LocateCA(caDir)
 		if err != nil {
 			return err
 		}
@@ -105,13 +107,13 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 		}
 	}
 
-	cfg, err := loadConfig(caDir)
+	cfg, err := simpleca.LoadConfig(caDir)
 	if err != nil {
 		return err
 	}
 	if baseURL != "" {
 		cfg.CAPublishBaseURL = baseURL
-		if err := cfg.save(); err != nil {
+		if err := cfg.Save(); err != nil {
 			return err
 		}
 	}
@@ -125,7 +127,7 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 	rootKeyPath := filepath.Join(caDir, "ca_key.pem")
 
 	// ---- root CA ----
-	if !fileExists(rootCertPath) || !fileExists(rootKeyPath) {
+	if !simpleca.FileExists(rootCertPath) || !simpleca.FileExists(rootKeyPath) {
 		if issuingCA != "" {
 			return fmt.Errorf(
 				"cannot create issuing CA '%s' without existing root CA. "+
@@ -181,18 +183,18 @@ func makeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 	issuingCACert := filepath.Join(issuingCADir, "ca_cert.pem")
 	issuingCAKey := filepath.Join(issuingCADir, "ca_key.pem")
 
-	if fileExists(issuingCACert) && fileExists(issuingCAKey) {
+	if simpleca.FileExists(issuingCACert) && simpleca.FileExists(issuingCAKey) {
 		fmt.Printf("Issuing CA '%s' already exists in %s, skipping.\n", issuingCA, issuingCADir)
 	} else {
 		fmt.Printf("Generating issuing CA certificate '%s' and key...\n", caName)
 		if err := os.MkdirAll(issuingCADir, 0o755); err != nil {
 			return err
 		}
-		rootCert, err := loadCert(rootCertPath)
+		rootCert, err := simpleca.LoadCert(rootCertPath)
 		if err != nil {
 			return err
 		}
-		rootKey, err := loadKey(rootKeyPath)
+		rootKey, err := simpleca.LoadKey(rootKeyPath)
 		if err != nil {
 			return err
 		}

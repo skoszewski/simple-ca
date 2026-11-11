@@ -41,45 +41,13 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- ca show, cert show and cert list ---------------------------------------
 
 const displayTimeFormat = "2006-01-02 15:04:05 MST"
-
-// keyUsageNames names the key usage bits in the order of RFC 5280.
-var keyUsageNames = []struct {
-	usage x509.KeyUsage
-	name  string
-}{
-	{x509.KeyUsageDigitalSignature, "digitalSignature"},
-	{x509.KeyUsageContentCommitment, "contentCommitment"},
-	{x509.KeyUsageKeyEncipherment, "keyEncipherment"},
-	{x509.KeyUsageDataEncipherment, "dataEncipherment"},
-	{x509.KeyUsageKeyAgreement, "keyAgreement"},
-	{x509.KeyUsageCertSign, "keyCertSign"},
-	{x509.KeyUsageCRLSign, "cRLSign"},
-	{x509.KeyUsageEncipherOnly, "encipherOnly"},
-	{x509.KeyUsageDecipherOnly, "decipherOnly"},
-}
-
-// extKeyUsageNames names the extended key usages crypto/x509 knows.
-var extKeyUsageNames = map[x509.ExtKeyUsage]string{
-	x509.ExtKeyUsageAny:                            "any",
-	x509.ExtKeyUsageServerAuth:                     "serverAuth",
-	x509.ExtKeyUsageClientAuth:                     "clientAuth",
-	x509.ExtKeyUsageCodeSigning:                    "codeSigning",
-	x509.ExtKeyUsageEmailProtection:                "emailProtection",
-	x509.ExtKeyUsageIPSECEndSystem:                 "ipsecEndSystem",
-	x509.ExtKeyUsageIPSECTunnel:                    "ipsecTunnel",
-	x509.ExtKeyUsageIPSECUser:                      "ipsecUser",
-	x509.ExtKeyUsageTimeStamping:                   "timeStamping",
-	x509.ExtKeyUsageOCSPSigning:                    "OCSPSigning",
-	x509.ExtKeyUsageMicrosoftServerGatedCrypto:     "msSGC",
-	x509.ExtKeyUsageNetscapeServerGatedCrypto:      "nsSGC",
-	x509.ExtKeyUsageMicrosoftCommercialCodeSigning: "msCodeCom",
-	x509.ExtKeyUsageMicrosoftKernelCodeSigning:     "msKernelCodeSigning",
-}
 
 // colonHex formats b as upper-case hex bytes separated by colons.
 func colonHex(b []byte) string {
@@ -168,13 +136,13 @@ func certDetails(cert *x509.Certificate, now time.Time) certInfo {
 	if c.CA && (cert.MaxPathLen > 0 || cert.MaxPathLenZero) {
 		c.PathLength = &cert.MaxPathLen
 	}
-	for _, u := range keyUsageNames {
-		if cert.KeyUsage&u.usage != 0 {
-			c.KeyUsage = append(c.KeyUsage, u.name)
+	for _, u := range simpleca.KeyUsageNames {
+		if cert.KeyUsage&u.Usage != 0 {
+			c.KeyUsage = append(c.KeyUsage, u.Name)
 		}
 	}
 	for _, u := range cert.ExtKeyUsage {
-		name, ok := extKeyUsageNames[u]
+		name, ok := simpleca.ExtKeyUsageNames[u]
 		if !ok {
 			name = fmt.Sprintf("unknown (%d)", u)
 		}
@@ -307,7 +275,7 @@ func showCert(w io.Writer, path string) error {
 // and for a root CA the names of its issuing CAs.
 func showInfo(w io.Writer, caDir string) error {
 	signingDir := caDir
-	rootDir, issuingCA, err := locateCA(caDir)
+	rootDir, issuingCA, err := simpleca.LocateCA(caDir)
 	if err != nil {
 		return err
 	}
@@ -315,7 +283,7 @@ func showInfo(w io.Writer, caDir string) error {
 	if issuingCA != "" {
 		kind = fmt.Sprintf("issuing CA '%s' of the root CA in %s", issuingCA, rootDir)
 	}
-	cert, err := loadCert(filepath.Join(signingDir, "ca_cert.pem"))
+	cert, err := simpleca.LoadCert(filepath.Join(signingDir, "ca_cert.pem"))
 	if err != nil {
 		return err
 	}
@@ -371,7 +339,7 @@ func showInfo(w io.Writer, caDir string) error {
 		var names []string
 		dirs, _ := os.ReadDir(caDir)
 		for _, d := range dirs {
-			if d.IsDir() && fileExists(filepath.Join(caDir, d.Name(), "ca_cert.pem")) {
+			if d.IsDir() && simpleca.FileExists(filepath.Join(caDir, d.Name(), "ca_cert.pem")) {
 				names = append(names, d.Name())
 			}
 		}

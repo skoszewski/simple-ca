@@ -24,7 +24,6 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -36,16 +35,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
-	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/client"
 )
 
 // buildVersion is the version a release build is given at link time with
@@ -54,11 +51,6 @@ var buildVersion string
 
 // errUsage reports wrong arguments, after the usage has been printed.
 var errUsage = errors.New("usage")
-
-// client sends the requests of request-cert, and maxAnswer is the most it reads of an answer.
-var client = &http.Client{Timeout: 30 * time.Second}
-
-const maxAnswer = 1 << 20
 
 func run() error {
 	flag.Usage = func() {
@@ -129,7 +121,7 @@ func run() error {
 				return fmt.Errorf("--token-file: %w; the token of --setup-code is written to a new file", err)
 			}
 		}
-		if token, err = exchange(flag.Arg(0), code); err != nil {
+		if token, err = client.Exchange(flag.Arg(0), code); err != nil {
 			if file != nil {
 				file.Close()
 				os.Remove(*tokenFile)
@@ -197,31 +189,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer))
-	if err != nil {
-		return err
-	}
-	var result struct{ Serial, Certificate, Chain, Error string }
-	if resp.StatusCode != http.StatusOK {
-		// The API answers with {"error": ...}; a URL that is not the API answers with text.
-		message := strings.TrimSpace(string(answer))
-		if json.Unmarshal(answer, &result) == nil && result.Error != "" {
-			message = result.Error
-		}
-		return fmt.Errorf("%s: %d %s", url, resp.StatusCode, message)
-	}
-	if err := json.Unmarshal(answer, &result); err != nil {
+	var result struct{ Serial, Certificate, Chain string }
+	if err := client.Post(url, "application/json", token, body, &result); err != nil {
 		return err
 	}
 
@@ -241,38 +210,6 @@ func run() error {
 	written = true
 	fmt.Printf("Certificate %s written to %s, its chain to %s and its key to %s\n", result.Serial, certPath, chainPath, keyPath)
 	return nil
-}
-
-// exchange exchanges the setup code at /api/token-setup of the server of the CA at caURL, and
-// returns the token.
-func exchange(caURL, code string) (string, error) {
-	u, err := url.Parse(caURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("%s is not a URL such as https://pki.example.com/servers", caURL)
-	}
-	setupURL := u.Scheme + "://" + u.Host + "/api/token-setup"
-	body, err := json.Marshal(map[string]string{"code": code})
-	if err != nil {
-		return "", err
-	}
-	resp, err := client.Post(setupURL, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer))
-	if err != nil {
-		return "", err
-	}
-	var result struct{ Token, Error string }
-	if err := json.Unmarshal(answer, &result); resp.StatusCode != http.StatusOK || err != nil || result.Token == "" {
-		message := strings.TrimSpace(string(answer))
-		if result.Error != "" {
-			message = result.Error
-		}
-		return "", fmt.Errorf("%s: %d %s", setupURL, resp.StatusCode, message)
-	}
-	return result.Token, nil
 }
 
 func main() {

@@ -19,7 +19,9 @@ Download the archive for your platform from the
 [releases](https://github.com/skoszewski/simple-ca/releases) and put `simple-ca` on your `PATH`;
 the archive also holds `request-cert`, the Go client of the signing API, `token-setup`, which
 exchanges a setup code for its token, `request-token`, which gets the JWTs of workload identity
-federation and the access tokens of Google Cloud and Microsoft Entra ID, and `simple-ca-trust`, which adds the CAs to the trust store.
+federation and the access tokens of Google Cloud and Microsoft Entra ID, `simple-ca-wif`, which
+sets up Google workload identity federation from the CA host, and `simple-ca-trust`, which adds
+the CAs to the trust store.
 With Go installed:
 
 ```sh

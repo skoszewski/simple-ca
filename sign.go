@@ -39,6 +39,8 @@ import (
 	"text/tabwriter"
 	"time"
 	"unicode"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- signing requests -------------------------------------------------------
@@ -48,7 +50,7 @@ import (
 //
 // Only the subject and the subjectAltName extension of the request are copied, as they are; the
 // key usages and extended key usages are those of the type with kus and ekus added, as parsed by
-// parseUsages, and the other extensions of the request are left out.
+// simpleca.ParseUsages, and the other extensions of the request are left out.
 func requestCert(caDir string, csrData []byte, certType string, days int, ekus, kus []string) (*x509.Certificate, error) {
 	if days < 1 {
 		return nil, errors.New("the validity in days must be a positive integer")
@@ -221,38 +223,38 @@ func leafKeyUsage(ku x509.KeyUsage, pub any) x509.KeyUsage {
 // extensions of tmpl are kept; the key usages and extended key usages are those of the type with
 // kus and ekus added, and the AIA and CRL Distribution Point URLs those of the CA.
 func issueLeaf(caDir, certType string, days int, ekus, kus []string, tmpl *x509.Certificate, pub any) (*x509.Certificate, error) {
-	rootDir, issuingCA, err := locateCA(caDir)
+	rootDir, issuingCA, err := simpleca.LocateCA(caDir)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := loadConfig(rootDir)
+	cfg, err := simpleca.LoadConfig(rootDir)
 	if err != nil {
 		return nil, err
 	}
-	types, err := cfg.certTypes()
+	types, err := cfg.CertTypes()
 	if err != nil {
 		return nil, err
 	}
 	def, ok := types[certType]
 	if !ok {
-		return nil, fmt.Errorf("unknown type '%s': must be one of %s", certType, typeNames(types))
+		return nil, fmt.Errorf("unknown type '%s': must be one of %s", certType, simpleca.TypeNames(types))
 	}
-	keyUsage, extKeyUsages, extKeyUsageOIDs, err := parseUsages(
-		append(slices.Clone(def.keyUsage), kus...), append(slices.Clone(def.extKeyUsage), ekus...))
+	keyUsage, extKeyUsages, extKeyUsageOIDs, err := simpleca.ParseUsages(
+		append(slices.Clone(def.KeyUsage), kus...), append(slices.Clone(def.ExtKeyUsage), ekus...))
 	if err != nil {
 		return nil, err
 	}
 
 	caCertPath := filepath.Join(caDir, "ca_cert.pem")
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
-	if !fileExists(caCertPath) || !fileExists(caKeyPath) {
+	if !simpleca.FileExists(caCertPath) || !simpleca.FileExists(caKeyPath) {
 		return nil, fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
 	}
-	caCert, err := loadCert(caCertPath)
+	caCert, err := simpleca.LoadCert(caCertPath)
 	if err != nil {
 		return nil, err
 	}
-	caKey, err := loadKey(caKeyPath)
+	caKey, err := simpleca.LoadKey(caKeyPath)
 	if err != nil {
 		return nil, err
 	}

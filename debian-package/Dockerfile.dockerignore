@@ -4,9 +4,11 @@
 !go.mod
 !go.sum
 !*.go
+!pkg
 !cmd/request-cert
 !cmd/token-setup
 !cmd/request-token
+!cmd/simple-ca-wif
 !cmd/simple-ca-trust
 !assets
 !templates

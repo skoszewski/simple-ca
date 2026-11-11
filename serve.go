@@ -44,6 +44,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- serve ------------------------------------------------------------------
@@ -140,7 +142,7 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 		if err != nil {
 			return fmt.Errorf("%s: %w", tlsCert, err)
 		}
-		key, err := loadKey(tlsKey)
+		key, err := simpleca.LoadKey(tlsKey)
 		if err != nil {
 			return err
 		}
@@ -216,7 +218,7 @@ type indexCA struct {
 // when it names none.
 func issuingCADir(rootDir string, r *http.Request) (string, bool) {
 	ca := r.PathValue("ca")
-	if !kebabCaseRE.MatchString(ca) || !fileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+	if !simpleca.KebabCaseRE.MatchString(ca) || !simpleca.FileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
 		return "", false
 	}
 	return filepath.Join(rootDir, ca), true
@@ -238,7 +240,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		var cas []indexCA
 		var title string
-		cfg, err := loadConfig(rootDir)
+		cfg, err := simpleca.LoadConfig(rootDir)
 		if err != nil {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			http.Error(w, "could not read the configuration", http.StatusInternalServerError)
@@ -251,13 +253,13 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		dirs := []string{""}
 		entries, _ := os.ReadDir(rootDir)
 		for _, e := range entries {
-			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") && fileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
+			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") && simpleca.FileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
 				dirs = append(dirs, e.Name())
 			}
 		}
 		for _, name := range dirs {
 			dir := filepath.Join(rootDir, name)
-			cert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
+			cert, err := simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem"))
 			if err != nil {
 				slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 				http.Error(w, "could not read the CA certificates", http.StatusInternalServerError)
@@ -290,13 +292,13 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			} else {
 				ca.Role, ca.Path, ca.ID = "Subordinate CA", "/"+name+"/", name
 			}
-			if len(cfg.ACME.Domains) > 0 && fileExists(filepath.Join(dir, "ca_key.pem")) {
+			if len(cfg.ACME.Domains) > 0 && simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.ACME = origin + ca.Path + "acme/directory"
 			}
-			if fileExists(filepath.Join(dir, tokensFile)) && fileExists(filepath.Join(dir, "ca_key.pem")) {
+			if simpleca.FileExists(filepath.Join(dir, simpleca.TokensFile)) && simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.API = origin + ca.Path + "api/sign"
 			}
-			if fileExists(filepath.Join(dir, "ca_key.pem")) {
+			if simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.SignForm = origin + ca.Path + "sign"
 			}
 			if b, err := os.ReadFile(filepath.Join(dir, "crl.pem")); err == nil {

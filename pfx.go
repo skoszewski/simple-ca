@@ -30,6 +30,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 	"software.sslmate.com/src/go-pkcs12"
 )
 
@@ -39,7 +40,7 @@ import (
 // in caDir that signed it next to the certificate.
 func makePFX(certPath, caDir, password string) error {
 	pfxPath := filepath.Join(filepath.Dir(certPath), strings.TrimSuffix(filepath.Base(certPath), "_cert.pem")+".pfx")
-	if fileExists(pfxPath) {
+	if simpleca.FileExists(pfxPath) {
 		return errors.New("PKCS#12 (PFX) file already exists, aborting generation")
 	}
 	if password == "" {
@@ -70,32 +71,32 @@ func encodePFX(certPath, caDir, password string) ([]byte, error) {
 	if !dirExists(caDir) {
 		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
 	}
-	if !fileExists(certPath) || !fileExists(keyPath) {
+	if !simpleca.FileExists(certPath) || !simpleca.FileExists(keyPath) {
 		return nil, errors.New("server certificate or key not found")
 	}
-	rootDir, issuingCA, err := locateCA(caDir)
+	rootDir, issuingCA, err := simpleca.LocateCA(caDir)
 	if err != nil {
 		return nil, err
 	}
 	rootCertPath := filepath.Join(rootDir, "ca_cert.pem")
-	if !fileExists(rootCertPath) {
+	if !simpleca.FileExists(rootCertPath) {
 		return nil, fmt.Errorf("root CA certificate not found in %s", rootDir)
 	}
-	cert, err := loadCert(certPath)
+	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		return nil, err
 	}
-	key, err := loadKey(keyPath)
+	key, err := simpleca.LoadKey(keyPath)
 	if err != nil {
 		return nil, err
 	}
-	root, err := loadCert(rootCertPath)
+	root, err := simpleca.LoadCert(rootCertPath)
 	if err != nil {
 		return nil, err
 	}
 	chain := []*x509.Certificate{root}
 	if issuingCA != "" {
-		issuing, err := loadCert(filepath.Join(caDir, "ca_cert.pem"))
+		issuing, err := simpleca.LoadCert(filepath.Join(caDir, "ca_cert.pem"))
 		if err != nil {
 			return nil, err
 		}

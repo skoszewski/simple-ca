@@ -31,6 +31,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- OpenSSL CA database ----------------------------------------------------
@@ -120,7 +122,7 @@ func entryStatus(e indexEntry, now time.Time) (string, error) {
 
 // recordIssued adds cert as a valid certificate to index.txt of the CA directory dir.
 func recordIssued(dir string, cert *x509.Certificate) error {
-	unlock, err := lockFile(filepath.Join(dir, indexFile))
+	unlock, err := simpleca.LockFile(filepath.Join(dir, indexFile))
 	if err != nil {
 		return err
 	}

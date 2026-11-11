@@ -26,14 +26,9 @@ import (
 	"bytes"
 	"cmp"
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/base32"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -43,7 +38,6 @@ import (
 	"io"
 	"log/slog"
 	"maps"
-	"math/big"
 	"mime"
 	"net/http"
 	"net/netip"
@@ -53,523 +47,94 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- signing API tokens -----------------------------------------------------
 
 const (
-	tokensFile          = "tokens-db.json"
 	tokensPurgeInterval = 5 * time.Minute
 )
-
-// tokensLockWait is how long a command or serve waits for the lock of tokens-db.json.
-var tokensLockWait = 10 * time.Second
-
-// tokenScopes are the scopes a token may have: sign for the signing API and the signing form,
-// tokens for the token page of serve --webui, certs for its certificate page, audit for its audit
-// page, and federate for the JWTs of a token type at /api/federation-token; the scope * is all of
-// them.
-var tokenScopes = []string{"sign", "tokens", "certs", "audit", "federate"}
-
-// allows reports whether values, the scopes or the certificate types of a token, hold value or *,
-// which stands for every value.
-func allows(values []string, value string) bool {
-	return slices.Contains(values, value) || slices.Contains(values, "*")
-}
-
-// checkAll returns an error, naming what values are, when values hold * with other values.
-func checkAll(what string, values []string) error {
-	if slices.Contains(values, "*") && len(values) > 1 {
-		return fmt.Errorf("the %s * stands for every %s and must be given alone", what, what)
-	}
-	return nil
-}
-
-// apiToken is a token of a CA: its JWT ID, its scopes, the certificate types, the domains and the
-// IP address prefixes it allows with the scope sign, each "*" for any, the prefixes of the client
-// addresses it is used from, any without them, its validity, the serial numbers of the
-// certificates issued with it, the setup code it waits for, the OIDC user it was made for, and the
-// JWT of a token type it gets with the scope federate. A token without a JWT ID and a setup code
-// is revoked: it expired when it was revoked, and is kept to be renewed until it is purged. A token
-// with a setup code is pending: it has no JWT until the code is exchanged, and expires with the
-// code.
-type apiToken struct {
-	ID       string         `json:"id,omitempty"`
-	Scopes   []string       `json:"scopes,omitempty"`
-	Types    []string       `json:"types,omitempty"`
-	Domains  []string       `json:"domains,omitempty"`
-	IPs      []string       `json:"ips,omitempty"`
-	Clients  []string       `json:"clients,omitempty"`
-	Issued   time.Time      `json:"issued"`
-	Expires  time.Time      `json:"expires"`
-	Certs    []string       `json:"certs,omitempty"`
-	Setup    *tokenSetup    `json:"setup,omitempty"`
-	OIDC     *tokenOIDC     `json:"oidc,omitempty"`
-	Federate *tokenFederate `json:"federate,omitempty"`
-}
-
-// tokenOIDC is the OIDC user a token was made for: issuer, subject and user claim.
-type tokenOIDC struct {
-	Issuer  string `json:"issuer"`
-	Subject string `json:"subject"`
-	User    string `json:"user"`
-}
-
-// tokenSetup is the one-time setup code a pending token waits for: the SHA-256 of the code, in
-// hex, the prefixes of the client addresses it is exchanged from, any without them, and the
-// validity of the token, a duration such as 8h, which starts at the exchange.
-type tokenSetup struct {
-	Code    string   `json:"code"`
-	Clients []string `json:"clients,omitempty"`
-	Valid   string   `json:"valid"`
-}
 
 // tokenSetupValid is the default validity of a setup code.
 const tokenSetupValid = 15 * time.Minute
 
-// revoked reports whether the token is revoked, having neither a JWT ID nor a setup code.
-func (t *apiToken) revoked() bool {
-	return t.ID == "" && t.Setup == nil
-}
-
-// pending reports whether the token waits for its setup code.
-func (t *apiToken) pending() bool {
-	return t.Setup != nil
-}
-
-// setupCodeHash returns the hex SHA-256 of the setup code, in upper case without dashes and
-// spaces, as it is stored.
-func setupCodeHash(code string) string {
-	code = strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(code)))
-	sum := sha256.Sum256([]byte(code))
-	return fmt.Sprintf("%x", sum)
-}
-
-// newTokenSetup returns, for a setupValid, the setup of a token valid for valid once its new
-// setup code is exchanged from the client addresses setupClients, any without them, and the code;
-// for no setupValid, nil and no code.
-func newTokenSetup(valid, setupValid time.Duration, setupClients []string) (*tokenSetup, string, error) {
-	switch {
-	case setupValid < 0 || (setupValid == 0 && len(setupClients) > 0):
-		return nil, "", errors.New("the validity and the networks of a setup code need a setup code")
-	case setupValid == 0:
-		return nil, "", nil
-	case setupValid < time.Second:
-		return nil, "", errors.New("the validity of a setup code must be at least 1s")
-	}
-	prefixes, err := toPrefixes("setup code network", setupClients, false)
-	if err != nil {
-		return nil, "", err
-	}
-	b := make([]byte, 10)
-	rand.Read(b)
-	s := base32.StdEncoding.EncodeToString(b)
-	code := s[0:4] + "-" + s[4:8] + "-" + s[8:12] + "-" + s[12:16]
-	return &tokenSetup{Code: setupCodeHash(code), Clients: prefixes, Valid: durationText(valid)}, code, nil
-}
-
-// toPrefixes returns the addresses and prefixes of values, what they are named in its error, as
-// masked prefixes, an address as the prefix of that address alone; with any, "*" is kept.
-func toPrefixes(what string, values []string, any bool) ([]string, error) {
-	var prefixes []string
-	for _, s := range values {
-		if s == "*" && any {
-			prefixes = append(prefixes, s)
-			continue
-		}
-		prefix, ok := parsePrefix(s)
-		if !ok {
-			return nil, fmt.Errorf("%s '%s' is not an IP address or a prefix such as 10.0.0.0/8", what, s)
-		}
-		prefixes = append(prefixes, prefix.String())
-	}
-	return prefixes, nil
-}
-
-// scopes returns the scopes of the token; an entry without them has the scope sign.
-func (t *apiToken) scopes() []string {
-	if len(t.Scopes) == 0 {
-		return []string{"sign"}
-	}
-	return t.Scopes
-}
-
-// hasScope reports whether the token has the scope, named or by the scope *.
-func (t *apiToken) hasScope(scope string) bool {
-	return allows(t.scopes(), scope)
-}
-
-// clientAllowed reports whether the token is used from the address client: one in its client
-// prefixes, or any without them.
-func (t *apiToken) clientAllowed(client netip.Addr) bool {
-	return len(t.Clients) == 0 || slices.ContainsFunc(t.Clients, func(s string) bool {
-		prefix, err := netip.ParsePrefix(s)
-		return err == nil && prefix.Contains(client)
-	})
-}
-
-// tokensDB is tokens-db.json of a CA directory, the tokens of its signing API by name.
-type tokensDB struct {
-	Tokens map[string]*apiToken `json:"tokens"`
-}
-
-// jwtClaims are the claims of a token: its ID, its name, its scopes, separated by spaces, and when
-// it was issued and expires, in seconds since the epoch; and the issuer and the audience of a JWT
-// of a token type, which a token never has.
-type jwtClaims struct {
-	ID        string          `json:"jti"`
-	Issuer    string          `json:"iss,omitempty"`
-	Subject   string          `json:"sub"`
-	Audience  json.RawMessage `json:"aud,omitempty"`
-	Scope     string          `json:"scope,omitempty"`
-	IssuedAt  int64           `json:"iat"`
-	ExpiresAt int64           `json:"exp"`
-}
-
-// token returns the token the claims hold, without what tokens-db.json alone holds.
-func (c *jwtClaims) token() *apiToken {
-	return &apiToken{ID: c.ID, Scopes: strings.Fields(c.Scope), Issued: time.Unix(c.IssuedAt, 0),
-		Expires: time.Unix(c.ExpiresAt, 0)}
-}
-
-// loadTokens reads tokens-db.json of caDir, or returns an empty database when it does not exist.
-func loadTokens(caDir string) (*tokensDB, error) {
-	db := &tokensDB{Tokens: map[string]*apiToken{}}
-	b, err := os.ReadFile(filepath.Join(caDir, tokensFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return db, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(b, db); err != nil {
-		return nil, fmt.Errorf("could not read %s: %w", filepath.Join(caDir, tokensFile), err)
-	}
-	if db.Tokens == nil {
-		db.Tokens = map[string]*apiToken{}
-	}
-	return db, nil
-}
-
-// save writes the database to tokens-db.json of caDir, readable by its owner alone.
-func (db *tokensDB) save(caDir string) error {
-	b, err := json.MarshalIndent(db, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := filepath.Join(caDir, tokensFile+".tmp")
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(caDir, tokensFile))
-}
-
-// lockTokens locks tokens-db.json of caDir, as lockFile does.
-func lockTokens(caDir string) (func(), error) {
-	return lockFile(filepath.Join(caDir, tokensFile))
-}
-
-// lockFile locks the file for the commands and serve by creating FILE.lock, which one of them at
-// a time can create, holding the PID of the locker. It waits up to tokensLockWait for the lock,
-// and returns the function that unlocks it.
-func lockFile(file string) (func(), error) {
-	path := file + ".lock"
-	deadline := time.Now().Add(tokensLockWait)
-	for {
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if err == nil {
-			_, err = fmt.Fprintf(f, "%d\n", os.Getpid())
-			if err := cmp.Or(err, f.Close()); err != nil {
-				os.Remove(path)
-				return nil, err
-			}
-			return func() { os.Remove(path) }, nil
-		}
-		if !errors.Is(err, os.ErrExist) {
-			return nil, err
-		}
-		if time.Now().After(deadline) {
-			pid, _ := os.ReadFile(path)
-			return nil, fmt.Errorf("%s is locked by process %s; remove %s if that process is gone",
-				file, strings.TrimSpace(string(pid)), path)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
 // purgeTokens removes from tokens-db.json of caDir, when it exists, the tokens that expired, or
 // were revoked, at least kept ago, every expired token for a kept of zero, and returns their count.
 func purgeTokens(caDir string, kept time.Duration) (int, error) {
-	if !fileExists(filepath.Join(caDir, tokensFile)) {
+	if !simpleca.FileExists(filepath.Join(caDir, simpleca.TokensFile)) {
 		return 0, nil
 	}
-	unlock, err := lockTokens(caDir)
+	unlock, err := simpleca.LockTokens(caDir)
 	if err != nil {
 		return 0, err
 	}
 	defer unlock()
-	db, err := loadTokens(caDir)
+	db, err := simpleca.LoadTokens(caDir)
 	if err != nil {
 		return 0, err
 	}
 	now := time.Now()
 	n := len(db.Tokens)
-	maps.DeleteFunc(db.Tokens, func(_ string, t *apiToken) bool { return !now.Add(-kept).Before(t.Expires) })
+	maps.DeleteFunc(db.Tokens, func(_ string, t *simpleca.APIToken) bool { return !now.Add(-kept).Before(t.Expires) })
 	if n == len(db.Tokens) {
 		return 0, nil
 	}
-	return n - len(db.Tokens), db.save(caDir)
+	return n - len(db.Tokens), db.Save(caDir)
 }
 
 // purgeToken removes the token name, expired or revoked, from tokens-db.json of caDir; a token
 // still accepted is revoked first.
 func purgeToken(caDir, name string) error {
-	unlock, err := lockTokens(caDir)
+	unlock, err := simpleca.LockTokens(caDir)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	db, err := loadTokens(caDir)
+	db, err := simpleca.LoadTokens(caDir)
 	if err != nil {
 		return err
 	}
 	t, ok := db.Tokens[name]
 	if !ok {
-		return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokensFile))
+		return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, simpleca.TokensFile))
 	}
 	if time.Now().Before(t.Expires) {
 		return fmt.Errorf("token '%s' is still accepted; revoke it first", name)
 	}
 	delete(db.Tokens, name)
-	return db.save(caDir)
-}
-
-// makeToken adds the token name to tokens-db.json of the CA in caDir and returns its JWT, as
-// addToken does without a setup code and the scope federate.
-func makeToken(caDir, name string, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (string, error) {
-	return addToken(caDir, name, nil, valid, scopes, certTypes, domains, ips, clients, 0, nil)
-}
-
-// addToken adds the token name, valid for valid, with the scopes, sign without them, used from
-// the client addresses clients, to tokens-db.json of the CA in caDir, and returns its JWT, signed
-// with the CA key. With the scope sign, it allows the certificate types certTypes, the domains and
-// the IP addresses ips, which belong to that scope alone. A scope, a type, a domain or an IP
-// address "*" allows any; an IP address or a client address is an address or a prefix, kept as a
-// prefix, and no clients allow any client. With a setupValid, the token is pending instead: it
-// gets no JWT, and addToken returns a setup code, valid for setupValid and exchanged from the
-// client addresses setupClients, any without them, for the JWT. With the scope federate, fed is
-// the JWT of a token type the token gets, which belongs to that scope alone.
-func addToken(caDir, name string, fed *tokenFederate, valid time.Duration, scopes, certTypes, domains, ips, clients []string,
-	setupValid time.Duration, setupClients []string) (string, error) {
-	setup, code, err := newTokenSetup(valid, setupValid, setupClients)
-	if err != nil {
-		return "", err
-	}
-	tok, caKey, err := prepareToken(caDir, name, fed, valid, scopes, certTypes, domains, ips, clients)
-	if err != nil {
-		return "", err
-	}
-	unlock, err := lockTokens(caDir)
-	if err != nil {
-		return "", err
-	}
-	defer unlock()
-	db, err := loadTokens(caDir)
-	if err != nil {
-		return "", err
-	}
-	if _, ok := db.Tokens[name]; ok {
-		return "", fmt.Errorf("token '%s' exists", name)
-	}
-
-	result := code
-	if setup != nil {
-		tok.ID, tok.Expires, tok.Setup = "", tok.Issued.Add(setupValid), setup
-	} else if result, err = signToken(caKey, name, tok); err != nil {
-		return "", err
-	}
-	db.Tokens[name] = tok
-	if err := db.save(caDir); err != nil {
-		return "", err
-	}
-	return result, nil
-}
-
-// prepareToken validates and returns the token name of the CA in caDir, with the JWT of a token
-// type fed of the scope federate, unsaved, and the CA key.
-func prepareToken(caDir, name string, fed *tokenFederate, valid time.Duration, scopes, certTypes, domains, ips, clients []string) (*apiToken, crypto.Signer, error) {
-	if valid < time.Second {
-		return nil, nil, errors.New("the validity of a token must be at least 1s")
-	}
-	if !kebabCaseRE.MatchString(name) {
-		return nil, nil, fmt.Errorf("token name '%s' is not a kebab-case name, such as web-deploy", name)
-	}
-	if len(scopes) == 0 {
-		scopes = []string{"sign"}
-	}
-	for _, s := range scopes {
-		if s != "*" && !slices.Contains(tokenScopes, s) {
-			return nil, nil, fmt.Errorf("unknown scope '%s': must be one of %s or *", s, strings.Join(tokenScopes, ", "))
-		}
-	}
-	if err := cmp.Or(checkAll("scope", scopes), checkAll("type", certTypes)); err != nil {
-		return nil, nil, err
-	}
-	if !slices.Contains(scopes, "*") {
-		scopes = slices.DeleteFunc(slices.Clone(tokenScopes), func(s string) bool { return !slices.Contains(scopes, s) })
-	}
-	switch {
-	case !allows(scopes, "sign") && len(certTypes)+len(domains)+len(ips) > 0:
-		return nil, nil, errors.New("certificate types, domains, IP addresses and localhost need the scope sign")
-	case !allows(scopes, "sign"):
-	case len(domains) == 0 && len(ips) == 0:
-		return nil, nil, errors.New("a token with the scope sign needs a domain or an IP address")
-	}
-	// A token with the scope federate and no token type gets no JWTs; it grants the scope on the
-	// token page.
-	if !allows(scopes, "federate") && fed != nil {
-		return nil, nil, errors.New("a token type, an audience and claims need the scope federate")
-	}
-	var names []string
-	for _, d := range domains {
-		d = strings.ToLower(strings.TrimSuffix(d, "."))
-		if d != "*" && !isHostname(d) {
-			return nil, nil, fmt.Errorf("domain '%s' is not a domain name or *", d)
-		}
-		names = append(names, d)
-	}
-	prefixes, err := toPrefixes("IP address", ips, true)
-	if err != nil {
-		return nil, nil, err
-	}
-	clientPrefixes, err := toPrefixes("client", clients, false)
-	if err != nil {
-		return nil, nil, err
-	}
-	cfg, err := loadRootConfig(caDir)
-	if err != nil {
-		return nil, nil, err
-	}
-	types, err := cfg.certTypes()
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, t := range certTypes {
-		if _, ok := types[t]; !ok && t != "*" {
-			return nil, nil, fmt.Errorf("unknown type '%s': must be one of %s or *", t, typeNames(types))
-		}
-	}
-	caKeyPath := filepath.Join(caDir, "ca_key.pem")
-	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) || !fileExists(caKeyPath) {
-		return nil, nil, fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
-	}
-	caKey, err := loadKey(caKeyPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	if fed != nil {
-		_, caID, err := locateCA(caDir)
-		if err != nil {
-			return nil, nil, err
-		}
-		if _, err := fed.resolve(cfg, caID, name); err != nil {
-			return nil, nil, err
-		}
-	}
-	now := time.Now().UTC().Truncate(time.Second)
-	return &apiToken{ID: randomID(), Scopes: scopes, Types: certTypes, Domains: names, IPs: prefixes,
-		Clients: clientPrefixes, Issued: now, Expires: now.Add(valid), Federate: fed}, caKey, nil
-}
-
-// active reports whether the token is neither revoked, pending nor expired at now.
-func (t *apiToken) active(now time.Time) bool {
-	return !t.revoked() && !t.pending() && now.Before(t.Expires)
-}
-
-// ownedBy reports whether the token was made for the OIDC user owner.
-func (t *apiToken) ownedBy(owner *tokenOIDC) bool {
-	return t.OIDC != nil && t.OIDC.Issuer == owner.Issuer && t.OIDC.Subject == owner.Subject
+	return db.Save(caDir)
 }
 
 // oidcToken stores tok as the token name of caDir and returns its JWT and the token given; an
 // active token of the same user is replaced with replace, or returned with reuse.
-func oidcToken(caDir, name string, tok *apiToken, caKey crypto.Signer, replace, reuse bool) (string, *apiToken, error) {
-	unlock, err := lockTokens(caDir)
+func oidcToken(caDir, name string, tok *simpleca.APIToken, caKey crypto.Signer, replace, reuse bool) (string, *simpleca.APIToken, error) {
+	unlock, err := simpleca.LockTokens(caDir)
 	if err != nil {
 		return "", nil, err
 	}
 	defer unlock()
-	db, err := loadTokens(caDir)
+	db, err := simpleca.LoadTokens(caDir)
 	if err != nil {
 		return "", nil, err
 	}
 	old, ok := db.Tokens[name]
 	switch {
-	case ok && !old.ownedBy(tok.OIDC):
+	case ok && !old.OwnedBy(tok.OIDC):
 		return "", nil, apiErr(http.StatusConflict, "the token '%s' exists and is not the token of this user", name)
-	case ok && old.active(time.Now()) && reuse:
-		jwt, err := signToken(caKey, name, old)
+	case ok && old.Active(time.Now()) && reuse:
+		jwt, err := simpleca.SignToken(caKey, name, old)
 		return jwt, old, err
-	case ok && old.active(time.Now()) && !replace:
+	case ok && old.Active(time.Now()) && !replace:
 		return "", nil, apiErr(http.StatusConflict, "the token '%s' of this user is active; replace it or use it", name)
 	}
-	jwt, err := signToken(caKey, name, tok)
+	jwt, err := simpleca.SignToken(caKey, name, tok)
 	if err != nil {
 		return "", nil, err
 	}
 	db.Tokens[name] = tok
-	return jwt, tok, db.save(caDir)
-}
-
-// signToken returns the JWT of the token name, its claims signed with caKey.
-func signToken(caKey crypto.Signer, name string, tok *apiToken) (string, error) {
-	claims, err := json.Marshal(jwtClaims{ID: tok.ID, Subject: name, Scope: strings.Join(tok.Scopes, " "),
-		IssuedAt: tok.Issued.Unix(), ExpiresAt: tok.Expires.Unix()})
-	if err != nil {
-		return "", err
-	}
-	return signJWT(caKey, claims)
-}
-
-// signJWT returns the JWT of the JSON claims signed with caKey, RS256 for an RSA key and ES256 for
-// an ECDSA P-256 key, its header naming the key by its JWK thumbprint.
-func signJWT(caKey crypto.Signer, claims []byte) (string, error) {
-	header, err := json.Marshal(struct {
-		Alg string `json:"alg"`
-		Kid string `json:"kid"`
-		Typ string `json:"typ"`
-	}{jwtAlg(caKey.Public()), publicJWK(caKey.Public()).Kid, "JWT"})
-	if err != nil {
-		return "", err
-	}
-	signed := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims)
-	digest := sha256.Sum256([]byte(signed))
-	var sig []byte
-	switch k := caKey.(type) {
-	case *rsa.PrivateKey:
-		sig, err = rsa.SignPKCS1v15(rand.Reader, k, crypto.SHA256, digest[:])
-	case *ecdsa.PrivateKey:
-		// An ES256 signature is r and s of 32 bytes each, not ASN.1 (RFC 7518 3.4).
-		var r, s *big.Int
-		if r, s, err = ecdsa.Sign(rand.Reader, k, digest[:]); err == nil {
-			sig = append(r.FillBytes(make([]byte, 32)), s.FillBytes(make([]byte, 32))...)
-		}
-	default:
-		err = errors.New("the CA key is not an RSA or ECDSA P-256 key")
-	}
-	if err != nil {
-		return "", err
-	}
-	return signed + "." + base64.RawURLEncoding.EncodeToString(sig), nil
-}
-
-// jwtAlg returns the JWS algorithm of the JWTs the key of pub signs: ES256 for an ECDSA key,
-// RS256 for an RSA key.
-func jwtAlg(pub crypto.PublicKey) string {
-	if keyType(pub) == "ec" {
-		return "ES256"
-	}
-	return "RS256"
+	return jwt, tok, db.Save(caDir)
 }
 
 // renewToken renews the token name of the CA in caDir and returns its JWT, as reissueToken does
@@ -582,73 +147,73 @@ func renewToken(caDir, name string, valid time.Duration) (string, error) {
 // new times, valid for valid from now or, for zero, for as long as it was before, or for the
 // default validity of token create when it was revoked, keeping what it allows and where it is
 // used from, and returns its JWT. The JWT it had is refused from then on. With a setupValid, the
-// token becomes pending instead, as addToken makes it, and reissueToken returns its new setup
+// token becomes pending instead, as simpleca.AddToken makes it, and reissueToken returns its new setup
 // code. A token waiting for a setup code that has not expired is refused.
 func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClients []string) (string, error) {
 	if valid != 0 && valid < time.Second {
 		return "", errors.New("the validity of a token must be at least 1s")
 	}
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
-	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) || !fileExists(caKeyPath) {
+	if !simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) || !simpleca.FileExists(caKeyPath) {
 		return "", fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
 	}
-	caKey, err := loadKey(caKeyPath)
+	caKey, err := simpleca.LoadKey(caKeyPath)
 	if err != nil {
 		return "", err
 	}
-	unlock, err := lockTokens(caDir)
+	unlock, err := simpleca.LockTokens(caDir)
 	if err != nil {
 		return "", err
 	}
 	defer unlock()
-	db, err := loadTokens(caDir)
+	db, err := simpleca.LoadTokens(caDir)
 	if err != nil {
 		return "", err
 	}
 	old, ok := db.Tokens[name]
 	if !ok {
-		return "", fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokensFile))
+		return "", fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, simpleca.TokensFile))
 	}
-	if old.pending() && time.Now().Before(old.Expires) {
+	if old.Pending() && time.Now().Before(old.Expires) {
 		return "", fmt.Errorf("token '%s' waits for its setup code; revoke it first to renew it", name)
 	}
 	switch {
 	case valid != 0:
-	case old.pending():
+	case old.Pending():
 		// The expiry of a pending token is that of its code; the validity of the token is kept apart.
-		if valid, err = old.Setup.valid(); err != nil {
+		if valid, err = old.Setup.Validity(); err != nil {
 			return "", fmt.Errorf("token '%s': %w", name, err)
 		}
-	case !old.revoked():
+	case !old.Revoked():
 		valid = old.Expires.Sub(old.Issued)
 	default:
 		// A revoked token, whose expiry is when it was revoked, takes the validity token create
 		// gives by default.
-		cfg, err := loadRootConfig(caDir)
+		cfg, err := simpleca.LoadRootConfig(caDir)
 		if err != nil {
 			return "", err
 		}
 		valid = time.Hour
 		if cfg.Tokens.Valid != "" {
-			if valid, err = parseDuration(cfg.Tokens.Valid); err != nil {
-				return "", fmt.Errorf("tokens.valid of %s: %w", cfg.path, err)
+			if valid, err = simpleca.ParseDuration(cfg.Tokens.Valid); err != nil {
+				return "", fmt.Errorf("tokens.valid of %s: %w", cfg.Path, err)
 			}
 		}
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	tok := &apiToken{ID: randomID(), Scopes: old.Scopes, Types: old.Types, Domains: old.Domains, IPs: old.IPs,
+	tok := &simpleca.APIToken{ID: simpleca.RandomID(), Scopes: old.Scopes, Types: old.Types, Domains: old.Domains, IPs: old.IPs,
 		Clients: old.Clients, Issued: now, Expires: now.Add(valid), OIDC: old.OIDC, Federate: old.Federate}
-	setup, result, err := newTokenSetup(valid, setupValid, setupClients)
+	setup, result, err := simpleca.NewTokenSetup(valid, setupValid, setupClients)
 	if err != nil {
 		return "", err
 	}
 	if setup != nil {
 		tok.ID, tok.Expires, tok.Setup = "", now.Add(setupValid), setup
-	} else if result, err = signToken(caKey, name, tok); err != nil {
+	} else if result, err = simpleca.SignToken(caKey, name, tok); err != nil {
 		return "", err
 	}
 	db.Tokens[name] = tok
-	if err := db.save(caDir); err != nil {
+	if err := db.Save(caDir); err != nil {
 		return "", err
 	}
 	return result, nil
@@ -656,10 +221,10 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 
 // listTokens writes the tokens of the CA in caDir to w, one per line, sorted by name.
 func listTokens(w io.Writer, caDir string) error {
-	if !fileExists(filepath.Join(caDir, "ca_cert.pem")) {
+	if !simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) {
 		return fmt.Errorf("CA certificate not found in %s, which is not a CA directory", caDir)
 	}
-	db, err := loadTokens(caDir)
+	db, err := simpleca.LoadTokens(caDir)
 	if err != nil {
 		return err
 	}
@@ -670,11 +235,11 @@ func listTokens(w io.Writer, caDir string) error {
 		t := db.Tokens[name]
 		expires := t.Expires.UTC().Format(displayTimeFormat)
 		switch {
-		case t.revoked():
+		case t.Revoked():
 			expires = "revoked"
-		case t.pending() && !now.Before(t.Expires):
+		case t.Pending() && !now.Before(t.Expires):
 			expires = "setup expired"
-		case t.pending():
+		case t.Pending():
 			expires = "setup until " + expires
 		case !now.Before(t.Expires):
 			expires += " (expired)"
@@ -687,10 +252,10 @@ func listTokens(w io.Writer, caDir string) error {
 		if t.Federate != nil {
 			federates = t.Federate.Type
 		}
-		if t.hasScope("sign") {
+		if t.HasScope("sign") {
 			certs = fmt.Sprint(len(t.Certs))
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, expires, strings.Join(t.scopes(), ","),
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, expires, strings.Join(t.EffectiveScopes(), ","),
 			cmp.Or(strings.Join(t.Types, ","), "-"), cmp.Or(strings.Join(t.Domains, ","), "-"),
 			cmp.Or(strings.Join(showPrefixes(t.IPs), ","), "-"), cmp.Or(strings.Join(showPrefixes(t.Clients), ","), "any"),
 			federates, certs, user)
@@ -698,45 +263,33 @@ func listTokens(w io.Writer, caDir string) error {
 	return tw.Flush()
 }
 
-// valid returns the validity a pending token gets at the exchange of its setup code, stored
-// as parseDuration reads it, or as Go writes a duration, such as 1h0m0s, by earlier releases.
-func (s *tokenSetup) valid() (time.Duration, error) {
-	d, err := parseDuration(s.Valid)
-	if err != nil {
-		if d, goErr := time.ParseDuration(s.Valid); goErr == nil {
-			return d, nil
-		}
-	}
-	return d, err
-}
-
 // describeToken returns the attributes of the token name, each a label and a value, as
 // token describe and the setup code page show them; with limits, also what it allows and where it
 // is used from, which only tokens-db.json holds, and not its JWT.
-func describeToken(name string, t *apiToken, limits bool) [][2]string {
+func describeToken(name string, t *simpleca.APIToken, limits bool) [][2]string {
 	now := time.Now()
 	at := func(when time.Time) string { return when.UTC().Format(displayTimeFormat) }
 	list := func(values []string, none string) string { return cmp.Or(strings.Join(values, ", "), none) }
 	status := "valid until " + at(t.Expires)
 	switch {
-	case t.revoked():
+	case t.Revoked():
 		status = "revoked at " + at(t.Expires)
-	case t.pending() && !now.Before(t.Expires):
+	case t.Pending() && !now.Before(t.Expires):
 		status = "setup code expired at " + at(t.Expires)
-	case t.pending():
+	case t.Pending():
 		status = "waits for its setup code, until " + at(t.Expires)
 	case !now.Before(t.Expires):
 		status = "expired at " + at(t.Expires)
 	}
 	attributes := [][2]string{{"Name", name}, {"Status", status}, {"Issued", at(t.Issued)},
-		{"Scopes", list(t.scopes(), "-")}}
+		{"Scopes", list(t.EffectiveScopes(), "-")}}
 	if t.OIDC != nil {
 		attributes = append(attributes, [2]string{"OIDC user", t.OIDC.User}, [2]string{"OIDC issuer", t.OIDC.Issuer})
 	}
 	if !limits {
 		return attributes
 	}
-	if t.hasScope("sign") {
+	if t.HasScope("sign") {
 		attributes = append(attributes, [2]string{"Cert types", list(t.Types, "-")},
 			[2]string{"Domains", list(t.Domains, "-")}, [2]string{"IP addresses", list(showPrefixes(t.IPs), "-")})
 	}
@@ -748,16 +301,16 @@ func describeToken(name string, t *apiToken, limits bool) [][2]string {
 		}
 	}
 	attributes = append(attributes, [2]string{"Used from", list(showPrefixes(t.Clients), "any client")})
-	if t.pending() {
+	if t.Pending() {
 		valid := t.Setup.Valid
-		if d, err := t.Setup.valid(); err == nil {
-			valid = durationText(d)
+		if d, err := t.Setup.Validity(); err == nil {
+			valid = simpleca.DurationText(d)
 		}
 		attributes = append(attributes, [2]string{"Code usable from", list(showPrefixes(t.Setup.Clients), "any client")},
 			[2]string{"Valid after the exchange", valid})
 	}
 	// Only a token with the scope sign issues certificates.
-	if t.hasScope("sign") {
+	if t.HasScope("sign") {
 		certs := fmt.Sprint(len(t.Certs))
 		if len(t.Certs) > 0 {
 			certs += ": " + strings.Join(t.Certs, ", ")
@@ -771,24 +324,24 @@ func describeToken(name string, t *apiToken, limits bool) [][2]string {
 // from tokens-db.json and making it expire now; its JWT, or its code, is refused from then on, and
 // the token is kept, to be renewed, until it is purged.
 func revokeToken(caDir, name string) error {
-	unlock, err := lockTokens(caDir)
+	unlock, err := simpleca.LockTokens(caDir)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	db, err := loadTokens(caDir)
+	db, err := simpleca.LoadTokens(caDir)
 	if err != nil {
 		return err
 	}
 	t, ok := db.Tokens[name]
 	if !ok {
-		return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokensFile))
+		return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, simpleca.TokensFile))
 	}
-	if t.revoked() {
+	if t.Revoked() {
 		return fmt.Errorf("token '%s' is revoked already", name)
 	}
 	t.ID, t.Setup, t.Expires = "", nil, time.Now().UTC().Truncate(time.Second)
-	return db.save(caDir)
+	return db.Save(caDir)
 }
 
 // caIDs returns the IDs of the root CA in rootDir, empty, and of its issuing CAs.
@@ -796,7 +349,7 @@ func caIDs(rootDir string) []string {
 	ids := []string{""}
 	entries, _ := os.ReadDir(rootDir)
 	for _, e := range entries {
-		if e.IsDir() && kebabCaseRE.MatchString(e.Name()) && fileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
+		if e.IsDir() && simpleca.KebabCaseRE.MatchString(e.Name()) && simpleca.FileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
 			ids = append(ids, e.Name())
 		}
 	}
@@ -809,44 +362,44 @@ func caIDs(rootDir string) []string {
 // the status 401 for an unknown, used or expired code, and 403 for a client the code is not
 // exchanged from.
 func exchangeSetupCode(rootDir, code string, client netip.Addr) (caID, name, jwt string, err error) {
-	hash := setupCodeHash(code)
+	hash := simpleca.SetupCodeHash(code)
 	for _, id := range caIDs(rootDir) {
 		dir := filepath.Join(rootDir, id)
 		if id, name, jwt, err := func() (string, string, string, error) {
-			unlock, err := lockTokens(dir)
+			unlock, err := simpleca.LockTokens(dir)
 			if err != nil {
 				return "", "", "", err
 			}
 			defer unlock()
-			db, err := loadTokens(dir)
+			db, err := simpleca.LoadTokens(dir)
 			if err != nil {
 				return "", "", "", err
 			}
 			for name, t := range db.Tokens {
-				if !t.pending() || t.Setup.Code != hash {
+				if !t.Pending() || t.Setup.Code != hash {
 					continue
 				}
 				now := time.Now().UTC().Truncate(time.Second)
 				if !now.Before(t.Expires) {
 					return "", "", "", apiErr(http.StatusUnauthorized, "the setup code has expired")
 				}
-				if !(&apiToken{Clients: t.Setup.Clients}).clientAllowed(client) {
+				if !(&simpleca.APIToken{Clients: t.Setup.Clients}).ClientAllowed(client) {
 					return "", "", "", apiErr(http.StatusForbidden, "the setup code is not usable from %s", client)
 				}
-				valid, err := t.Setup.valid()
+				valid, err := t.Setup.Validity()
 				if err != nil {
 					return "", "", "", fmt.Errorf("token '%s': %w", name, err)
 				}
-				caKey, err := loadKey(filepath.Join(dir, "ca_key.pem"))
+				caKey, err := simpleca.LoadKey(filepath.Join(dir, "ca_key.pem"))
 				if err != nil {
 					return "", "", "", err
 				}
-				t.ID, t.Setup, t.Issued, t.Expires = randomID(), nil, now, now.Add(valid)
-				jwt, err := signToken(caKey, name, t)
+				t.ID, t.Setup, t.Issued, t.Expires = simpleca.RandomID(), nil, now, now.Add(valid)
+				jwt, err := simpleca.SignToken(caKey, name, t)
 				if err != nil {
 					return "", "", "", err
 				}
-				return id, name, jwt, db.save(dir)
+				return id, name, jwt, db.Save(dir)
 			}
 			return "", "", "", nil
 		}(); err != nil || name != "" {
@@ -889,10 +442,10 @@ func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string) {
 		webuiFail(w, http.StatusInternalServerError, "could not set up the token")
 		return
 	}
-	audit(filepath.Join(rootDir, id), "token.setup", "name", name, "via", "setup", "actor", name, "client", client.String())
+	simpleca.Audit(filepath.Join(rootDir, id), "token.setup", "name", name, "via", "setup", "actor", name, "client", client.String())
 	scopes := []string{}
-	if db, err := loadTokens(filepath.Join(rootDir, id)); err == nil && db.Tokens[name] != nil {
-		scopes = db.Tokens[name].scopes()
+	if db, err := simpleca.LoadTokens(filepath.Join(rootDir, id)); err == nil && db.Tokens[name] != nil {
+		scopes = db.Tokens[name].EffectiveScopes()
 	}
 	webuiReply(w, http.StatusOK, map[string]any{"ca": id, "name": name, "token": jwt, "scopes": scopes})
 }
@@ -902,7 +455,7 @@ func apiTokenSetup(w http.ResponseWriter, r *http.Request, rootDir string) {
 // describe --ca-dir shows them with the CA that signed it, or the form again with the error. A
 // token refused is counted as on the other pages.
 func tokenDescribePage(w http.ResponseWriter, r *http.Request, rootDir string) {
-	caCert, err := loadCert(filepath.Join(rootDir, "ca_cert.pem"))
+	caCert, err := simpleca.LoadCert(filepath.Join(rootDir, "ca_cert.pem"))
 	if err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		http.Error(w, "could not read the CA", http.StatusInternalServerError)
@@ -929,7 +482,7 @@ func tokenDescribePage(w http.ResponseWriter, r *http.Request, rootDir string) {
 			}
 			for _, id := range caIDs(rootDir) {
 				dir := filepath.Join(rootDir, id)
-				cert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
+				cert, err := simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem"))
 				if err != nil {
 					continue
 				}
@@ -937,7 +490,7 @@ func tokenDescribePage(w http.ResponseWriter, r *http.Request, rootDir string) {
 				if err != nil {
 					continue
 				}
-				db, err := loadTokens(dir)
+				db, err := simpleca.LoadTokens(dir)
 				if err != nil {
 					return err
 				}
@@ -947,12 +500,12 @@ func tokenDescribePage(w http.ResponseWriter, r *http.Request, rootDir string) {
 				}
 				entry := db.Tokens[c.Subject]
 				if entry == nil || entry.ID == "" || entry.ID != c.ID {
-					page.Attributes = describeToken(c.Subject, c.token(), false)
+					page.Attributes = describeToken(c.Subject, c.Token(), false)
 					page.Attributes[1][1] = "refused: the token was renewed, revoked or removed"
 					return errUncounted
 				}
 				page.Attributes = describeToken(c.Subject, entry, true)
-				if !entry.active(time.Now()) {
+				if !entry.Active(time.Now()) {
 					return errUncounted
 				}
 				return nil
@@ -981,7 +534,7 @@ func tokenDescribePage(w http.ResponseWriter, r *http.Request, rootDir string) {
 // token once, with its attributes, or the form again with the error. The client is the one
 // clientAddr finds with the trusted proxies.
 func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string) {
-	caCert, err := loadCert(filepath.Join(rootDir, "ca_cert.pem"))
+	caCert, err := simpleca.LoadCert(filepath.Join(rootDir, "ca_cert.pem"))
 	if err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		http.Error(w, "could not read the CA", http.StatusInternalServerError)
@@ -1016,9 +569,9 @@ func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 			status, page.Error = http.StatusInternalServerError, "could not set up the token"
 		default:
-			audit(filepath.Join(rootDir, page.CA), "token.setup", "name", page.Name, "via", "setup", "actor", page.Name,
+			simpleca.Audit(filepath.Join(rootDir, page.CA), "token.setup", "name", page.Name, "via", "setup", "actor", page.Name,
 				"client", client.String())
-			if db, err := loadTokens(filepath.Join(rootDir, page.CA)); err == nil && db.Tokens[page.Name] != nil {
+			if db, err := simpleca.LoadTokens(filepath.Join(rootDir, page.CA)); err == nil && db.Tokens[page.Name] != nil {
 				page.Attributes = describeToken(page.Name, db.Tokens[page.Name], true)
 			}
 		}
@@ -1048,7 +601,7 @@ func apiErr(status int, format string, args ...any) *apiError {
 // checkToken returns the name and the entry in db of the JWT token, signed with the key of
 // caCert, and an error of status 401 when the token is malformed, signed by another key,
 // unknown, which a revoked token is, or expired.
-func checkToken(db *tokensDB, caCert *x509.Certificate, token string) (string, *apiToken, error) {
+func checkToken(db *simpleca.TokensDB, caCert *x509.Certificate, token string) (string, *simpleca.APIToken, error) {
 	c, err := verifyJWT(caCert, token)
 	if err != nil {
 		return "", nil, err
@@ -1059,7 +612,7 @@ func checkToken(db *tokensDB, caCert *x509.Certificate, token string) (string, *
 // otherCAToken returns err, the refusal of token by the CA in caDir, or, for a token another CA of
 // the same root CA signed, the error of status 401 naming both CAs, as token describe names the CA.
 func otherCAToken(caDir, token string, err error) error {
-	rootDir, id, rerr := locateCA(caDir)
+	rootDir, id, rerr := simpleca.LocateCA(caDir)
 	if rerr != nil {
 		return err
 	}
@@ -1073,7 +626,7 @@ func otherCAToken(caDir, token string, err error) error {
 		if other == id {
 			continue
 		}
-		caCert, cerr := loadCert(filepath.Join(rootDir, other, "ca_cert.pem"))
+		caCert, cerr := simpleca.LoadCert(filepath.Join(rootDir, other, "ca_cert.pem"))
 		if cerr != nil {
 			continue
 		}
@@ -1087,7 +640,7 @@ func otherCAToken(caDir, token string, err error) error {
 // verifyJWT returns the claims of the JWT token signed with the key of caCert, and an error of
 // status 401 when the token is malformed, signed by another key, or a JWT of a token type, which
 // has an issuer; with no caCert, the signature is not checked.
-func verifyJWT(caCert *x509.Certificate, token string) (*jwtClaims, error) {
+func verifyJWT(caCert *x509.Certificate, token string) (*simpleca.JWTClaims, error) {
 	invalid := apiErr(http.StatusUnauthorized, "invalid token")
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
@@ -1106,11 +659,11 @@ func verifyJWT(caCert *x509.Certificate, token string) (*jwtClaims, error) {
 		return nil, invalid
 	case caCert == nil && h.Alg != "RS256" && h.Alg != "ES256":
 		return nil, invalid
-	case caCert != nil && (h.Alg != jwtAlg(caCert.PublicKey) ||
+	case caCert != nil && (h.Alg != simpleca.JWTAlg(caCert.PublicKey) ||
 		verifyJWS(h.Alg, caCert.PublicKey, []byte(parts[0]+"."+parts[1]), sig) != nil):
 		return nil, invalid
 	}
-	var c jwtClaims
+	var c simpleca.JWTClaims
 	if json.Unmarshal(payload, &c) != nil || c.Issuer != "" || len(c.Audience) > 0 {
 		return nil, invalid
 	}
@@ -1119,13 +672,13 @@ func verifyJWT(caCert *x509.Certificate, token string) (*jwtClaims, error) {
 
 // lookupToken returns the name and the entry in db of the token with the verified claims c, and
 // an error of status 401 when it is unknown, which a revoked token is, or expired.
-func lookupToken(db *tokensDB, c *jwtClaims) (string, *apiToken, error) {
+func lookupToken(db *simpleca.TokensDB, c *simpleca.JWTClaims) (string, *simpleca.APIToken, error) {
 	now := time.Now()
 	t, ok := db.Tokens[c.Subject]
 	switch {
-	case ok && t.revoked():
+	case ok && t.Revoked():
 		return "", nil, apiErr(http.StatusUnauthorized, "the token has been revoked")
-	case !ok || t.pending() || t.ID != c.ID || c.Scope != strings.Join(t.Scopes, " "):
+	case !ok || t.Pending() || t.ID != c.ID || c.Scope != strings.Join(t.Scopes, " "):
 		return "", nil, apiErr(http.StatusUnauthorized, "unknown token")
 	case now.Unix() >= c.ExpiresAt || !now.Before(t.Expires):
 		return "", nil, apiErr(http.StatusUnauthorized, "the token has expired")
@@ -1139,7 +692,7 @@ func lookupToken(db *tokensDB, c *jwtClaims) (string, *apiToken, error) {
 // hostname or an IP address, the DNS names and the IP addresses are allowed by the token and there
 // are no email addresses; with the user rules, the domains of the email addresses are allowed and
 // there are neither DNS names nor IP addresses.
-func checkCSRNames(csr *x509.CertificateRequest, names string, tok *apiToken) error {
+func checkCSRNames(csr *x509.CertificateRequest, names string, tok *simpleca.APIToken) error {
 	domainAllowed := func(name string) bool {
 		return slices.Contains(tok.Domains, "*") || inDomains(strings.ToLower(name), tok.Domains)
 	}
@@ -1205,7 +758,7 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, tok *apiToken) er
 	hosts := csr.DNSNames
 	var addrs []netip.Addr
 	if cn := csr.Subject.CommonName; cn != "" {
-		if addr, ok := parseIP(cn); ok {
+		if addr, ok := simpleca.ParseIP(cn); ok {
 			addrs = append(addrs, addr)
 		} else {
 			hosts = append([]string{cn}, hosts...)
@@ -1219,7 +772,7 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, tok *apiToken) er
 		return apiErr(http.StatusForbidden, "the request has neither a DNS name nor an IP address")
 	}
 	for _, h := range hosts {
-		if !isHostname(strings.TrimPrefix(h, "*.")) || !domainAllowed(h) {
+		if !simpleca.IsHostname(strings.TrimPrefix(h, "*.")) || !domainAllowed(h) {
 			return apiErr(http.StatusForbidden, "the token does not allow '%s'", h)
 		}
 	}
@@ -1253,7 +806,7 @@ func clientAddr(r *http.Request) netip.Addr {
 	// The addresses are read from the last, which the trusted proxy added; an address that does
 	// not read stops the walk at the last one that does.
 	for i := len(hops) - 1; i >= 0; i-- {
-		addr, ok := parseIP(strings.TrimSpace(hops[i]))
+		addr, ok := simpleca.ParseIP(strings.TrimSpace(hops[i]))
 		if !ok {
 			break
 		}
@@ -1283,26 +836,26 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	ekus, kus []string, setupCodes bool) (cert, caCert *x509.Certificate, fileName string, err error) {
 	issueMu.Lock()
 	defer issueMu.Unlock()
-	unlock, err := lockTokens(caDir)
+	unlock, err := simpleca.LockTokens(caDir)
 	if err != nil {
 		return nil, nil, "", err
 	}
 	defer unlock()
-	caCert, err = loadCert(filepath.Join(caDir, "ca_cert.pem"))
+	caCert, err = simpleca.LoadCert(filepath.Join(caDir, "ca_cert.pem"))
 	if err != nil {
 		return nil, nil, "", err
 	}
-	db, err := loadTokens(caDir)
+	db, err := simpleca.LoadTokens(caDir)
 	if err != nil {
 		return nil, nil, "", err
 	}
 	token = strings.TrimSpace(token)
 	var name string
-	var tok *apiToken
+	var tok *simpleca.APIToken
 	if setupCodes && !strings.Contains(token, ".") {
-		hash := setupCodeHash(token)
+		hash := simpleca.SetupCodeHash(token)
 		for n, t := range db.Tokens {
-			if t.pending() && t.Setup.Code == hash {
+			if t.Pending() && t.Setup.Code == hash {
 				name, tok = n, t
 			}
 		}
@@ -1311,16 +864,16 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 			return nil, nil, "", apiErr(http.StatusUnauthorized, "unknown or used setup code")
 		case !time.Now().Before(tok.Expires):
 			return nil, nil, "", apiErr(http.StatusUnauthorized, "the setup code has expired")
-		case !(&apiToken{Clients: tok.Setup.Clients}).clientAllowed(client):
+		case !(&simpleca.APIToken{Clients: tok.Setup.Clients}).ClientAllowed(client):
 			return nil, nil, "", apiErr(http.StatusForbidden, "the setup code is not usable from %s", client)
 		}
 	} else if name, tok, err = checkToken(db, caCert, token); err != nil {
 		return nil, nil, "", otherCAToken(caDir, token, err)
 	}
-	if !tok.clientAllowed(client) {
+	if !tok.ClientAllowed(client) {
 		return nil, nil, "", apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
 	}
-	if !tok.hasScope("sign") {
+	if !tok.HasScope("sign") {
 		return nil, nil, "", apiErr(http.StatusForbidden, "the token does not have the scope sign")
 	}
 	// The default type is the first type of the token, server for the type *.
@@ -1329,16 +882,16 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 			certType = "server"
 		}
 	}
-	if !allows(tok.Types, certType) {
+	if !simpleca.Allows(tok.Types, certType) {
 		return nil, nil, "", apiErr(http.StatusForbidden,
 			"the token does not allow the type '%s'; choose a type it allows, %s, or the default, its first type",
 			certType, strings.Join(tok.Types, ", "))
 	}
-	cfg, err := loadRootConfig(caDir)
+	cfg, err := simpleca.LoadRootConfig(caDir)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	types, err := cfg.certTypes()
+	types, err := cfg.CertTypes()
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -1350,7 +903,7 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	if err != nil {
 		return nil, nil, "", apiErr(http.StatusBadRequest, "csr: %v", err)
 	}
-	if err := checkCSRNames(csr, def.names, tok); err != nil {
+	if err := checkCSRNames(csr, def.Names, tok); err != nil {
 		return nil, nil, "", err
 	}
 
@@ -1368,7 +921,7 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 		if email == "" && len(csr.EmailAddresses) > 0 {
 			email = csr.EmailAddresses[0]
 		}
-		base = certFileName(strings.TrimPrefix(cn, "*."), email, def.names == "user")
+		base = certFileName(strings.TrimPrefix(cn, "*."), email, def.Names == "user")
 	}
 	if base != "" {
 		if fileName, err = certFile(base); err != nil {
@@ -1382,13 +935,13 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	if san := csrSAN(csr); san != nil {
 		tmpl.ExtraExtensions = []pkix.Extension{*san}
 	}
-	ku, eku, oids, err := parseUsages(append(slices.Clone(def.keyUsage), kus...),
-		append(slices.Clone(def.extKeyUsage), ekus...))
+	ku, eku, oids, err := simpleca.ParseUsages(append(slices.Clone(def.KeyUsage), kus...),
+		append(slices.Clone(def.ExtKeyUsage), ekus...))
 	if err != nil {
 		return nil, nil, "", apiErr(http.StatusBadRequest, "%v", err)
 	}
 	// A token adds no usages to those of the type.
-	if typeKU, typeEKU, typeOIDs, _ := parseUsages(def.keyUsage, def.extKeyUsage); ku != typeKU ||
+	if typeKU, typeEKU, typeOIDs, _ := simpleca.ParseUsages(def.KeyUsage, def.ExtKeyUsage); ku != typeKU ||
 		len(eku) != len(typeEKU) || len(oids) != len(typeOIDs) {
 		return nil, nil, "", apiErr(http.StatusForbidden,
 			"the token does not allow key usages or extended key usages beyond those of the type '%s'", certType)
@@ -1406,12 +959,12 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 		return nil, nil, "", err
 	}
 	tok.Certs = append(tok.Certs, serial)
-	byCode := tok.pending()
+	byCode := tok.Pending()
 	if byCode {
 		// The token of a setup code signs this certificate alone.
 		tok.Setup, tok.Expires = nil, time.Now().UTC().Truncate(time.Second)
 	}
-	if err := db.save(caDir); err != nil {
+	if err := db.Save(caDir); err != nil {
 		return nil, nil, "", err
 	}
 	via := "api"
@@ -1430,7 +983,7 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 // with the type it names for the bearer token of the request, as signWithToken, for the client
 // clientAddr finds with the trusted proxies, and returns the certificate with its chain.
 func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
-	if !fileExists(filepath.Join(caDir, "ca_key.pem")) || !fileExists(filepath.Join(caDir, tokensFile)) {
+	if !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")) || !simpleca.FileExists(filepath.Join(caDir, simpleca.TokensFile)) {
 		http.NotFound(w, r)
 		return
 	}
@@ -1499,7 +1052,7 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 // new JWT of the token type of the token, unstored, valid for the validity of the type and never
 // after the token expires. The body is empty or {}: the token alone decides what the JWT holds.
 func apiFederationToken(w http.ResponseWriter, r *http.Request, caDir string) {
-	if !fileExists(filepath.Join(caDir, "ca_key.pem")) || !fileExists(filepath.Join(caDir, tokensFile)) {
+	if !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")) || !simpleca.FileExists(filepath.Join(caDir, simpleca.TokensFile)) {
 		http.NotFound(w, r)
 		return
 	}
@@ -1515,11 +1068,11 @@ func apiFederationToken(w http.ResponseWriter, r *http.Request, caDir string) {
 		err = guard.attempt(w, r, caDir, func() error { return apiErr(http.StatusUnauthorized, "a bearer token is required") })
 	default:
 		err = guard.attempt(w, r, caDir, func() error {
-			caCert, err := loadCert(filepath.Join(caDir, "ca_cert.pem"))
+			caCert, err := simpleca.LoadCert(filepath.Join(caDir, "ca_cert.pem"))
 			if err != nil {
 				return err
 			}
-			db, err := loadTokens(caDir)
+			db, err := simpleca.LoadTokens(caDir)
 			if err != nil {
 				return err
 			}
@@ -1527,37 +1080,37 @@ func apiFederationToken(w http.ResponseWriter, r *http.Request, caDir string) {
 			switch {
 			case err != nil:
 				return otherCAToken(caDir, token, err)
-			case !tok.clientAllowed(client):
+			case !tok.ClientAllowed(client):
 				return apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
-			case !tok.hasScope("federate"):
+			case !tok.HasScope("federate"):
 				return apiErr(http.StatusForbidden, "the token does not have the scope federate")
 			case tok.Federate == nil:
 				return apiErr(http.StatusForbidden, "the token has no token type of its JWTs")
 			}
-			cfg, err := loadRootConfig(caDir)
+			cfg, err := simpleca.LoadRootConfig(caDir)
 			if err != nil {
 				return err
 			}
-			_, caID, err := locateCA(caDir)
+			_, caID, err := simpleca.LocateCA(caDir)
 			if err != nil {
 				return err
 			}
-			fed, err := tok.Federate.resolve(cfg, caID, name)
+			fed, err := tok.Federate.Resolve(cfg, caID, name)
 			if err != nil {
 				return apiErr(http.StatusBadRequest, "%v", err)
 			}
-			caKey, err := loadKey(filepath.Join(caDir, "ca_key.pem"))
+			caKey, err := simpleca.LoadKey(filepath.Join(caDir, "ca_key.pem"))
 			if err != nil {
 				return err
 			}
-			jwt, id, expires, err := issueJWT(caKey, fed, 0, tok.Expires)
+			jwt, id, expires, err := simpleca.IssueJWT(caKey, fed, 0, tok.Expires)
 			if err != nil {
 				return err
 			}
-			audit(caDir, "token.issue", "name", name, "token_type", fed.typeName, "audience", fed.audience,
-				"subject", fed.subject, "jti", id, "via", "api", "actor", name, "client", client.String())
-			answer = map[string]any{"token": jwt, "token_type": fed.typeName, "audience": fed.audience,
-				"subject": fed.subject, "expires": expires}
+			simpleca.Audit(caDir, "token.issue", "name", name, "token_type", fed.TypeName, "audience", fed.Audience,
+				"subject", fed.Subject, "jti", id, "via", "api", "actor", name, "client", client.String())
+			answer = map[string]any{"token": jwt, "token_type": fed.TypeName, "audience": fed.Audience,
+				"subject": fed.Subject, "expires": expires}
 			return nil
 		})
 	}
@@ -1584,11 +1137,11 @@ func apiFederationToken(w http.ResponseWriter, r *http.Request, caDir string) {
 // its tokens-db.json, the page says why it signs no requests, and a POST is 403 Forbidden. The
 // client is the one clientAddr finds with the trusted proxies.
 func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
-	caCert, err1 := loadCert(filepath.Join(caDir, "ca_cert.pem"))
-	cfg, err2 := loadRootConfig(caDir)
-	var types map[string]certTypeDef
+	caCert, err1 := simpleca.LoadCert(filepath.Join(caDir, "ca_cert.pem"))
+	cfg, err2 := simpleca.LoadRootConfig(caDir)
+	var types map[string]simpleca.CertTypeDef
 	if err := cmp.Or(err1, err2); err == nil {
-		types, err1 = cfg.certTypes()
+		types, err1 = cfg.CertTypes()
 	}
 	if err := cmp.Or(err1, err2); err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
@@ -1608,7 +1161,7 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 	for _, name := range slices.Sorted(maps.Keys(types)) {
 		def := types[name]
 		var words []string
-		for _, usage := range def.extKeyUsage {
+		for _, usage := range def.ExtKeyUsage {
 			words = append(words, cmp.Or(usageWords[usage], usage))
 		}
 		description := "no key usages"
@@ -1617,17 +1170,17 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 			description = strings.Join(words[:len(words)-1], ", ") + " and " + words[len(words)-1]
 		case len(words) == 1:
 			description = words[0]
-		case len(def.keyUsage) > 0:
-			description = "key usages " + strings.Join(def.keyUsage, ", ")
+		case len(def.KeyUsage) > 0:
+			description = "key usages " + strings.Join(def.KeyUsage, ", ")
 		}
 		page.Types = append(page.Types, struct{ Name, Label string }{name, name + ": " + description})
 	}
 
 	// A CA without its key or its tokens shows why it signs no requests, in place of the form.
 	switch {
-	case !fileExists(filepath.Join(caDir, "ca_key.pem")):
+	case !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")):
 		page.Unavailable = "No key of this CA on this server"
-	case !fileExists(filepath.Join(caDir, tokensFile)):
+	case !simpleca.FileExists(filepath.Join(caDir, simpleca.TokensFile)):
 		page.Unavailable = "This CA has no tokens yet"
 	}
 

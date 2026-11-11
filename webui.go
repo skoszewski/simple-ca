@@ -36,6 +36,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- the token and certificate pages of serve -------------------------------
@@ -80,7 +82,7 @@ type webuiServer struct {
 	user       string
 	userCA     string
 	userScopes []string
-	userToken  *apiToken
+	userToken  *simpleca.APIToken
 	client     netip.Addr
 }
 
@@ -123,39 +125,39 @@ type webuiDefaults struct {
 // certificates issued with it, the OIDC user it was made for, null for another token, and the JWT
 // of a token type it gets with the scope federate, null without it.
 type webuiToken struct {
-	Name     string         `json:"name"`
-	Issued   time.Time      `json:"issued"`
-	Expires  time.Time      `json:"expires"`
-	Valid    string         `json:"valid"`
-	Revoked  bool           `json:"revoked"`
-	Expired  bool           `json:"expired"`
-	Pending  bool           `json:"pending"`
-	Scopes   []string       `json:"scopes"`
-	Types    []string       `json:"types"`
-	Domains  []string       `json:"domains"`
-	IPs      []string       `json:"ips"`
-	Clients  []string       `json:"clients"`
-	Certs    []string       `json:"certs"`
-	OIDC     *tokenOIDC     `json:"oidc"`
-	Federate *tokenFederate `json:"federate"`
+	Name     string                  `json:"name"`
+	Issued   time.Time               `json:"issued"`
+	Expires  time.Time               `json:"expires"`
+	Valid    string                  `json:"valid"`
+	Revoked  bool                    `json:"revoked"`
+	Expired  bool                    `json:"expired"`
+	Pending  bool                    `json:"pending"`
+	Scopes   []string                `json:"scopes"`
+	Types    []string                `json:"types"`
+	Domains  []string                `json:"domains"`
+	IPs      []string                `json:"ips"`
+	Clients  []string                `json:"clients"`
+	Certs    []string                `json:"certs"`
+	OIDC     *simpleca.TokenOIDC     `json:"oidc"`
+	Federate *simpleca.TokenFederate `json:"federate"`
 }
 
 // newWebuiToken returns the token name of tokens-db.json, t, as the API answers with it, expired
 // or not at the time now.
-func newWebuiToken(name string, t *apiToken, now time.Time) webuiToken {
+func newWebuiToken(name string, t *simpleca.APIToken, now time.Time) webuiToken {
 	// The validity token renew keeps: that of the token, or of a pending token once its code is
 	// exchanged; none for a revoked token, which takes the default of token create.
 	valid := ""
 	switch {
-	case t.pending():
-		if d, err := t.Setup.valid(); err == nil {
-			valid = durationText(d)
+	case t.Pending():
+		if d, err := t.Setup.Validity(); err == nil {
+			valid = simpleca.DurationText(d)
 		}
-	case !t.revoked():
-		valid = durationText(t.Expires.Sub(t.Issued))
+	case !t.Revoked():
+		valid = simpleca.DurationText(t.Expires.Sub(t.Issued))
 	}
-	return webuiToken{Name: name, Issued: t.Issued, Expires: t.Expires, Valid: valid, Revoked: t.revoked(),
-		Expired: !now.Before(t.Expires), Pending: t.pending(), Scopes: t.scopes(), Types: t.Types, Domains: t.Domains,
+	return webuiToken{Name: name, Issued: t.Issued, Expires: t.Expires, Valid: valid, Revoked: t.Revoked(),
+		Expired: !now.Before(t.Expires), Pending: t.Pending(), Scopes: t.EffectiveScopes(), Types: t.Types, Domains: t.Domains,
 		IPs: t.IPs, Clients: t.Clients, Certs: append([]string{}, t.Certs...), OIDC: t.OIDC, Federate: t.Federate}
 }
 
@@ -165,19 +167,19 @@ func newWebuiToken(name string, t *apiToken, now time.Time) webuiToken {
 // with a setup code in place of its JWT, OTC, the validity of the code and the clients it is
 // exchanged from.
 type webuiRequest struct {
-	CA          string         `json:"ca"`
-	Name        string         `json:"name"`
-	Federate    *tokenFederate `json:"federate"`
-	Valid       string         `json:"valid"`
-	Scopes      []string       `json:"scopes"`
-	Types       []string       `json:"types"`
-	Domains     []string       `json:"domains"`
-	IPs         []string       `json:"ips"`
-	Clients     []string       `json:"clients"`
-	Localhost   bool           `json:"localhost"`
-	OTC         bool           `json:"otc"`
-	OTCValid    string         `json:"otc_valid"`
-	OTCNetworks []string       `json:"otc_networks"`
+	CA          string                  `json:"ca"`
+	Name        string                  `json:"name"`
+	Federate    *simpleca.TokenFederate `json:"federate"`
+	Valid       string                  `json:"valid"`
+	Scopes      []string                `json:"scopes"`
+	Types       []string                `json:"types"`
+	Domains     []string                `json:"domains"`
+	IPs         []string                `json:"ips"`
+	Clients     []string                `json:"clients"`
+	Localhost   bool                    `json:"localhost"`
+	OTC         bool                    `json:"otc"`
+	OTCValid    string                  `json:"otc_valid"`
+	OTCNetworks []string                `json:"otc_networks"`
 }
 
 // caDir returns the directory of the CA id, the root CA when id is empty, or false for an id
@@ -189,7 +191,7 @@ func (s *webuiServer) caDir(id string) (string, bool) {
 	if id == "" {
 		return s.rootDir, true
 	}
-	if !kebabCaseRE.MatchString(id) || !fileExists(filepath.Join(s.rootDir, id, "ca_cert.pem")) {
+	if !simpleca.KebabCaseRE.MatchString(id) || !simpleca.FileExists(filepath.Join(s.rootDir, id, "ca_cert.pem")) {
 		return "", false
 	}
 	return filepath.Join(s.rootDir, id), true
@@ -228,7 +230,7 @@ func (s *webuiServer) authenticate(w http.ResponseWriter, r *http.Request) bool 
 func (s *webuiServer) identify(given, scope string, client netip.Addr) error {
 	for _, id := range caIDs(s.rootDir) {
 		dir := filepath.Join(s.rootDir, id)
-		caCert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
+		caCert, err := simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem"))
 		if err != nil {
 			continue
 		}
@@ -236,7 +238,7 @@ func (s *webuiServer) identify(given, scope string, client netip.Addr) error {
 		if err != nil {
 			continue
 		}
-		db, err := loadTokens(dir)
+		db, err := simpleca.LoadTokens(dir)
 		if err != nil {
 			return err
 		}
@@ -244,12 +246,12 @@ func (s *webuiServer) identify(given, scope string, client netip.Addr) error {
 		switch {
 		case err != nil:
 			return err
-		case !tok.hasScope(scope):
+		case !tok.HasScope(scope):
 			return apiErr(http.StatusForbidden, "the token does not have the scope %s", scope)
-		case !tok.clientAllowed(client):
+		case !tok.ClientAllowed(client):
 			return apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
 		}
-		s.user, s.userCA, s.userScopes, s.userToken, s.client = name, id, tok.scopes(), tok, client
+		s.user, s.userCA, s.userScopes, s.userToken, s.client = name, id, tok.EffectiveScopes(), tok, client
 		return nil
 	}
 	return apiErr(http.StatusUnauthorized, "invalid token")
@@ -259,7 +261,7 @@ func (s *webuiServer) identify(given, scope string, client netip.Addr) error {
 // has itself, every scope with the scope *.
 func (s *webuiServer) grants(scopes []string) bool {
 	return !slices.ContainsFunc(scopes, func(scope string) bool {
-		return scope != "sign" && !allows(s.userScopes, scope)
+		return scope != "sign" && !simpleca.Allows(s.userScopes, scope)
 	})
 }
 
@@ -376,21 +378,21 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 		webuiFail(w, http.StatusNotFound, "no such CA")
 		return
 	}
-	db, err := loadTokens(dir)
+	db, err := simpleca.LoadTokens(dir)
 	if err != nil {
 		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, "could not read the tokens")
 		return
 	}
 	// A token is renewed, revoked or removed only by a token that may grant its scopes.
-	if t, ok := db.Tokens[req.Name]; ok && r.URL.Path != "/api/tokens" && !s.grants(t.scopes()) {
+	if t, ok := db.Tokens[req.Name]; ok && r.URL.Path != "/api/tokens" && !s.grants(t.EffectiveScopes()) {
 		webuiFail(w, http.StatusForbidden, "your token cannot manage '"+req.Name+"': it has a scope your token does not have")
 		return
 	}
 	// A token created or renewed with a setup code gets the code in place of its JWT.
 	var setupValid time.Duration
 	if req.OTC {
-		if setupValid, err = parseDuration(req.OTCValid); err != nil {
+		if setupValid, err = simpleca.ParseDuration(req.OTCValid); err != nil {
 			webuiFail(w, http.StatusBadRequest, "otc_valid: "+err.Error())
 			return
 		}
@@ -405,7 +407,7 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 	// A validity is given for a token created or renewed, as token create and token renew take it.
 	var valid time.Duration
 	if r.URL.Path == "/api/tokens" || r.URL.Path == "/api/tokens/renew" {
-		if valid, err = parseDuration(req.Valid); err != nil {
+		if valid, err = simpleca.ParseDuration(req.Valid); err != nil {
 			webuiFail(w, http.StatusBadRequest, "valid: "+err.Error())
 			return
 		}
@@ -417,7 +419,7 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 		case len(scopes) == 0:
 			webuiFail(w, http.StatusBadRequest, "scopes: a token needs at least one scope")
 			return
-		case allows(scopes, "sign") && len(types) == 0:
+		case simpleca.Allows(scopes, "sign") && len(types) == 0:
 			webuiFail(w, http.StatusBadRequest, "types: a token with the scope sign needs at least one certificate type")
 			return
 		case !s.grants(scopes):
@@ -431,15 +433,15 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 		if req.Federate != nil {
 			req.Federate.Audience = strings.TrimSpace(req.Federate.Audience)
 		}
-		token, err := addToken(dir, req.Name, req.Federate, valid, scopes, types, domains, ips, req.Clients, setupValid,
+		token, err := simpleca.AddToken(dir, req.Name, req.Federate, valid, scopes, types, domains, ips, req.Clients, setupValid,
 			req.OTCNetworks)
 		if err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		record := append([]any{"name", req.Name, "scopes", strings.Join(scopes, ","), "setup_code", req.OTC},
-			federateAudit(req.Federate)...)
-		audit(dir, "token.create", append(record, s.auditActor()...)...)
+			simpleca.FederateAudit(req.Federate)...)
+		simpleca.Audit(dir, "token.create", append(record, s.auditActor()...)...)
 		answer(http.StatusCreated, req.Name, token)
 	case "/api/tokens/renew":
 		token, err := reissueToken(dir, req.Name, valid, setupValid, req.OTCNetworks)
@@ -447,14 +449,14 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		audit(dir, "token.renew", append([]any{"name", req.Name, "setup_code", req.OTC}, s.auditActor()...)...)
+		simpleca.Audit(dir, "token.renew", append([]any{"name", req.Name, "setup_code", req.OTC}, s.auditActor()...)...)
 		answer(http.StatusOK, req.Name, token)
 	case "/api/tokens/revoke":
 		if err := revokeToken(dir, req.Name); err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		audit(dir, "token.revoke", append([]any{"name", req.Name}, s.auditActor()...)...)
+		simpleca.Audit(dir, "token.revoke", append([]any{"name", req.Name}, s.auditActor()...)...)
 		webuiReply(w, http.StatusOK, map[string]string{"name": req.Name})
 	case "/api/tokens/purge":
 		if req.Name != "" {
@@ -462,14 +464,14 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 				webuiFail(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			audit(dir, "token.purge", append([]any{"name", req.Name}, s.auditActor()...)...)
+			simpleca.Audit(dir, "token.purge", append([]any{"name", req.Name}, s.auditActor()...)...)
 			webuiReply(w, http.StatusOK, map[string]int{"removed": 1})
 			return
 		}
 		// Every expired or revoked token is removed that the token of the request may grant.
 		now, n := time.Now(), 0
 		for _, name := range slices.Sorted(maps.Keys(db.Tokens)) {
-			if t := db.Tokens[name]; !now.Before(t.Expires) && s.grants(t.scopes()) {
+			if t := db.Tokens[name]; !now.Before(t.Expires) && s.grants(t.EffectiveScopes()) {
 				if err := purgeToken(dir, name); err != nil {
 					slog.Error("serve.error", "error", err.Error())
 					webuiFail(w, http.StatusInternalServerError, "could not remove the tokens")
@@ -479,7 +481,7 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if n > 0 {
-			audit(dir, "token.purge", append([]any{"count", n}, s.auditActor()...)...)
+			simpleca.Audit(dir, "token.purge", append([]any{"count", n}, s.auditActor()...)...)
 		}
 		webuiReply(w, http.StatusOK, map[string]int{"removed": n})
 	}
@@ -488,12 +490,12 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 // listCAs answers with the root CA and its issuing CAs, the certificate types and the defaults of
 // a new token.
 func (s *webuiServer) listCAs(w http.ResponseWriter) {
-	cfg, err := loadConfig(s.rootDir)
-	var types map[string]certTypeDef
+	cfg, err := simpleca.LoadConfig(s.rootDir)
+	var types map[string]simpleca.CertTypeDef
 	if err == nil {
-		types, err = cfg.certTypes()
+		types, err = cfg.CertTypes()
 	}
-	rootCert, err2 := loadCert(filepath.Join(s.rootDir, "ca_cert.pem"))
+	rootCert, err2 := simpleca.LoadCert(filepath.Join(s.rootDir, "ca_cert.pem"))
 	if err := cmp.Or(err, err2); err != nil {
 		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, "could not read the CA")
@@ -506,7 +508,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		if !ok {
 			continue
 		}
-		cert, err := loadCert(filepath.Join(dir, "ca_cert.pem"))
+		cert, err := simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem"))
 		if err != nil {
 			slog.Error("serve.error", "error", err.Error())
 			continue
@@ -516,7 +518,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 			slog.Error("serve.error", "dir", dir, "error", err.Error())
 		}
 		cas = append(cas, webuiCA{ID: id, Subject: subjectAttributes(nameString(cert.Subject)),
-			HasKey: fileExists(filepath.Join(dir, "ca_key.pem")), Theme: theme})
+			HasKey: simpleca.FileExists(filepath.Join(dir, "ca_key.pem")), Theme: theme})
 	}
 
 	answer := map[string]any{"title": rootCert.Subject.CommonName, "types": slices.Sorted(maps.Keys(types)), "cas": cas,
@@ -527,7 +529,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		// validity of a certificate and of a CRL in days.
 		names := map[string]string{}
 		for name, t := range types {
-			names[name] = t.names
+			names[name] = t.Names
 		}
 		var reasons []string
 		for _, r := range crlReasons[:6] {
@@ -538,12 +540,12 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 	case "tokens":
 		defaults := webuiDefaults{Valid: cmp.Or(cfg.Tokens.Valid, "1h"), Types: cfg.Tokens.Types,
 			Domains: cfg.Tokens.Domains, IPs: cfg.Tokens.IPs,
-			Clients: append(slices.Clone(cfg.Tokens.Hosts), cfg.Tokens.Networks...), OTCValid: durationText(tokenSetupValid)}
+			Clients: append(slices.Clone(cfg.Tokens.Hosts), cfg.Tokens.Networks...), OTCValid: simpleca.DurationText(tokenSetupValid)}
 		if len(defaults.Types) == 0 {
 			defaults.Types = []string{"server"}
 		}
 		// The scopes the token of the request grants, and the default ones among them.
-		grantable := slices.DeleteFunc(append(slices.Clone(tokenScopes), "*"), func(scope string) bool { return !s.grants([]string{scope}) })
+		grantable := slices.DeleteFunc(append(slices.Clone(simpleca.TokenScopes), "*"), func(scope string) bool { return !s.grants([]string{scope}) })
 		defaults.Scopes = slices.DeleteFunc(slices.Clone(cfg.Tokens.Scopes), func(scope string) bool {
 			return !slices.Contains(grantable, scope)
 		})
@@ -552,7 +554,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		}
 		// The token types of the scope federate, each with its audience, whether a token needs one
 		// given, and the validity of its JWTs.
-		tokenTypes, err := cfg.tokenTypes()
+		tokenTypes, err := cfg.TokenTypes()
 		if err != nil {
 			slog.Error("serve.error", "error", err.Error())
 			webuiFail(w, http.StatusInternalServerError, "could not read the token types")
@@ -561,11 +563,11 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		typeList := []map[string]any{}
 		for _, name := range slices.Sorted(maps.Keys(tokenTypes)) {
 			t, maxValid := tokenTypes[name], ""
-			if t.maxValid > 0 {
-				maxValid = durationText(t.maxValid)
+			if t.MaxValid > 0 {
+				maxValid = simpleca.DurationText(t.MaxValid)
 			}
-			typeList = append(typeList, map[string]any{"name": name, "base": t.base, "audience": t.audience,
-				"needs_audience": t.needsAudience && t.audience == "", "valid": durationText(t.valid), "max_valid": maxValid})
+			typeList = append(typeList, map[string]any{"name": name, "base": t.Base, "audience": t.Audience,
+				"needs_audience": t.NeedsAudience && t.Audience == "", "valid": simpleca.DurationText(t.Valid), "max_valid": maxValid})
 		}
 		answer["scopes"], answer["defaults"], answer["token_types"] = grantable, defaults, typeList
 	}
@@ -574,7 +576,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 
 // listTokens answers with the tokens of the CA in dir, sorted by name.
 func (s *webuiServer) listTokens(w http.ResponseWriter, dir string) {
-	db, err := loadTokens(dir)
+	db, err := simpleca.LoadTokens(dir)
 	if err != nil {
 		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, "could not read the tokens")

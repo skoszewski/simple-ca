@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestOpenSSLCA(t *testing.T) {
@@ -23,11 +25,11 @@ func TestOpenSSLCA(t *testing.T) {
 			t.Fatalf("makeCert %s: %v", name, err)
 		}
 	}
-	alice, err := loadCert(filepath.Join(caDir, "alice_cert.pem"))
+	alice, err := simpleca.LoadCert(filepath.Join(caDir, "alice_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
-	bob, err := loadCert(filepath.Join(caDir, "bob_cert.pem"))
+	bob, err := simpleca.LoadCert(filepath.Join(caDir, "bob_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -93,14 +95,14 @@ func TestWriteOpenSSLConf(t *testing.T) {
 	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	cfg, err := loadConfig(caDir)
+	cfg, err := simpleca.LoadConfig(caDir)
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
 	cfg.Days.Cert = 90
 	ekus := []string{"clientAuth", "ipsecUser", "1.3.6.1.4.1.99999.10"}
-	cfg.Types = map[string]typeConfig{"device": {ExtKeyUsage: &ekus}}
-	if err := cfg.save(); err != nil {
+	cfg.Types = map[string]simpleca.TypeConfig{"device": {ExtKeyUsage: &ekus}}
+	if err := cfg.Save(); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 
@@ -146,7 +148,7 @@ func TestWriteOpenSSLConf(t *testing.T) {
 		t.Fatalf("openssl ca:\n%s", out)
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
-	cert, err := loadCert(certPath)
+	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}

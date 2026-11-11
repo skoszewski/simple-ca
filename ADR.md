@@ -344,3 +344,32 @@ Entra ID app roles and Keycloak roles are given to users and groups at the provi
 carry their value in the ID token, unlike Entra ID groups, which are object IDs and drop out of a
 token past 200. The rules come first, so a named user or a group can be given a profile other
 than that of the user's roles.
+
+## The CA core is the package pkg/simpleca, and the client code pkg/client
+
+`simple-ca-wif` creates tokens and edits `simple-ca.json` as `simple-ca` does, so both use one
+code for them, the public package `pkg/simpleca`: the settings of `simple-ca.json`, the files and
+keys of a CA, the certificate and token types, the tokens, the JWTs of token types and the audit
+log. Package `main` keeps what only `simple-ca` runs, the CLI, the REPL, `serve`, the web UIs,
+ACME and OIDC, and calls the exported names of the package, which is public, under `pkg/`. The
+tests that run commands through `run` stay in package `main` and test the core through its
+exported names; the tests of the core alone are in the package.
+
+The client code that `request-cert`, `token-setup`, `request-token` and `simple-ca-wif` share,
+the requests to `serve` and to the clouds and the keys of `federation.json`, is the package
+`pkg/client`, so each program reads and writes `federation.json` with the same code.
+
+## simple-ca-wif calls the Google REST APIs with Application Default Credentials or a given token
+
+`simple-ca-wif` sets up the pool, the provider, the service account and the role bindings with
+plain HTTPS requests to the Google REST APIs, on the Go standard library, so it adds no
+dependency, as the Google SDK would. Its access token is the one given with `--access-token` or
+`GOOGLE_OAUTH_ACCESS_TOKEN`, or else one of the Application Default Credentials file that
+`gcloud auth application-default login` writes or `GOOGLE_APPLICATION_CREDENTIALS` names: the
+refresh token of an `authorized_user`, or a JWT signed with the key of a `service_account`. The
+metadata server is not used.
+
+Each step reads what exists first and leaves it alone, so `google setup` can be run again. It
+refuses what it would have to replace, such as a provider with another issuer, but the keys of an
+existing provider are replaced when they differ from those of the CA, so running it again after
+a key change uploads the new keys.

@@ -27,6 +27,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- audit commands ---------------------------------------------------------
@@ -65,11 +67,11 @@ func runAuditList(args []string) error {
 			return err
 		}
 	}
-	rootDir, _, err := locateCA(resolveCADir(*caDir))
+	rootDir, _, err := simpleca.LocateCA(resolveCADir(*caDir))
 	if err != nil {
 		return err
 	}
-	entries, err := readAudit(rootDir)
+	entries, err := simpleca.ReadAudit(rootDir)
 	if err != nil {
 		return err
 	}

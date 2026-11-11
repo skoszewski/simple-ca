@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestACME(t *testing.T) {
@@ -24,8 +26,8 @@ func TestACME(t *testing.T) {
 	tlsDir := t.TempDir()
 	legoDir := t.TempDir()
 
-	if err := os.WriteFile(filepath.Join(caDir, configFile), []byte(`{"days": {"cert": 400}, "acme": {"domains": ["localhost"]}}`), 0o644); err != nil {
-		t.Fatalf("write %s: %v", configFile, err)
+	if err := os.WriteFile(filepath.Join(caDir, simpleca.ConfigFile), []byte(`{"days": {"cert": 400}, "acme": {"domains": ["localhost"]}}`), 0o644); err != nil {
+		t.Fatalf("write %s: %v", simpleca.ConfigFile, err)
 	}
 	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
@@ -79,7 +81,7 @@ func TestACME(t *testing.T) {
 		t.Fatalf("lego wrote no localhost.crt to %s:\n%s", legoDir, out)
 	}
 	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), certPath)
-	cert, err := loadCert(certPath)
+	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}
@@ -97,7 +99,7 @@ func TestACME(t *testing.T) {
 	if err != nil || len(entries) != 1 || entries[0].serial != serialHex(cert.SerialNumber) {
 		t.Fatalf("index.txt of the issuing CA: %+v, %v, want the ACME certificate", entries, err)
 	}
-	if !fileExists(filepath.Join(caDir, "servers", acmeStateFile)) {
+	if !simpleca.FileExists(filepath.Join(caDir, "servers", acmeStateFile)) {
 		t.Fatalf("no %s in the issuing CA directory", acmeStateFile)
 	}
 
@@ -140,7 +142,7 @@ func TestACME(t *testing.T) {
 
 func rootPool(t *testing.T, caDir string) *x509.CertPool {
 	t.Helper()
-	root, err := loadCert(filepath.Join(caDir, "ca_cert.pem"))
+	root, err := simpleca.LoadCert(filepath.Join(caDir, "ca_cert.pem"))
 	if err != nil {
 		t.Fatalf("loadCert: %v", err)
 	}

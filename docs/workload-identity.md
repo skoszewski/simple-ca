@@ -57,7 +57,7 @@ CAs share the types:
     "types": {
       "gcp-deploy": {
         "base": "google",
-        "audience": "https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca",
+        "audience": "https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca",
         "subject": "simple-ca:{ca}:{name}",
         "valid": "30",
         "max_valid": "8h",
@@ -121,7 +121,7 @@ answer and its errors.
 
 ```sh
 CA_DIR=/etc/simple-ca/servers
-AUDIENCE=https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca
+AUDIENCE=https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca
 
 simple-ca token issue --ca-dir "$CA_DIR" --token-type google --audience "$AUDIENCE" --valid 2h \
   backup > backup.jwt

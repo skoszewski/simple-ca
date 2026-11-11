@@ -1,13 +1,16 @@
-# The build of the Dockerfile needs only the Go module, its sources and those of request-cert,
-# token-setup and request-token, the embedded assets and page templates, the help serve shows at
-# /help/ and the guides serve --docs shows at /docs/.
+# The build of the Dockerfile needs only the Go module, its sources, the shared packages of pkg/
+# and the sources of request-cert, token-setup, request-token and simple-ca-wif, the embedded
+# assets and page templates, the help serve shows at /help/ and the guides serve --docs shows at
+# /docs/.
 *
 !go.mod
 !go.sum
 !*.go
+!pkg
 !cmd/request-cert
 !cmd/token-setup
 !cmd/request-token
+!cmd/simple-ca-wif
 !assets
 !templates
 !help

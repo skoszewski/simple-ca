@@ -23,7 +23,6 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"crypto/rand"
 	"crypto/x509"
@@ -38,12 +37,13 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- makeCert ---------------------------------------------------------------
 
 var (
-	hostnameRE = regexp.MustCompile(`(?i)^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
 	emailRE    = regexp.MustCompile(`^[!-?A-~]+@[!-?A-~]+\.[!-?A-~]+$`)
 	fileNameRE = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
@@ -117,22 +117,6 @@ func subjectAttributes(subject string) [][2]string {
 	return attributes
 }
 
-// parseIP returns s as an IPv4 or IPv6 address without a zone.
-func parseIP(s string) (netip.Addr, bool) {
-	addr, err := netip.ParseAddr(s)
-	return addr, err == nil && addr.Zone() == ""
-}
-
-// parsePrefix returns s, an IPv4 or IPv6 address or prefix without a zone, as a masked prefix; an
-// address is the prefix of that address alone.
-func parsePrefix(s string) (netip.Prefix, bool) {
-	if addr, ok := parseIP(s); ok {
-		return netip.PrefixFrom(addr, addr.BitLen()), true
-	}
-	prefix, err := netip.ParsePrefix(s)
-	return prefix.Masked(), err == nil && prefix.Addr().Zone() == ""
-}
-
 // showPrefixes returns the prefixes of a token as they are shown, a prefix of one address written
 // as the address alone, and "*" as it is.
 func showPrefixes(prefixes []string) []string {
@@ -144,19 +128,6 @@ func showPrefixes(prefixes []string) []string {
 		}
 	}
 	return shown
-}
-
-// isHostname reports whether s is a hostname or an FQDN whose last label is not all digits, and
-// neither an IP address nor an OID.
-func isHostname(s string) bool {
-	if _, ok := parseIP(s); ok {
-		return false
-	}
-	if _, err := x509.ParseOID(s); err == nil {
-		return false
-	}
-	last := s[strings.LastIndex(s, ".")+1:]
-	return len(s) <= 253 && hostnameRE.MatchString(s) && strings.Trim(last, "0123456789") != ""
 }
 
 // certFileName returns the name of the files of a certificate: the hostname CN up to its first
@@ -171,28 +142,6 @@ func certFileName(cn, email string, userNames bool) string {
 		name, _, _ = strings.Cut(email, "@")
 	}
 	return strings.Trim(fileNameRE.ReplaceAllString(name, "_"), "_")
-}
-
-// locateCA returns the root CA directory of the CA in caDir and the name of that CA as an
-// issuing CA: caDir and "" for a self-signed root CA, else the directory above caDir, where the
-// root CA keeps its issuing CAs, and the name of caDir.
-func locateCA(caDir string) (rootDir, issuingCA string, err error) {
-	abs, err := filepath.Abs(caDir)
-	if err != nil {
-		return "", "", err
-	}
-	certPath := filepath.Join(abs, "ca_cert.pem")
-	if !fileExists(certPath) {
-		return "", "", fmt.Errorf("CA certificate not found in %s", caDir)
-	}
-	cert, err := loadCert(certPath)
-	if err != nil {
-		return "", "", err
-	}
-	if bytes.Equal(cert.RawSubject, cert.RawIssuer) {
-		return abs, "", nil
-	}
-	return filepath.Dir(abs), filepath.Base(abs), nil
 }
 
 // errCertExists reports a certificate that exists with its key, which cert create does not
@@ -211,7 +160,7 @@ var errCertExists = errors.New("the certificate and its key exist already")
 // SAN; the rest of sans are email addresses and numeric OIDs.
 //
 // kus are added to the key usages of the type and ekus to its extended key usages, as parsed by
-// parseUsages. It returns the certificate issued, and an error wrapping errCertExists when the
+// simpleca.ParseUsages. It returns the certificate issued, and an error wrapping errCertExists when the
 // certificate and its key exist.
 //
 // The key is of leafKeyType, rsa or ec, or of the key type of the CA key when it is empty; an
@@ -231,28 +180,28 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 		return nil, errors.New("subject name is required")
 	}
 
-	rootDir, issuingCA, err := locateCA(caDir)
+	rootDir, issuingCA, err := simpleca.LocateCA(caDir)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := loadConfig(rootDir)
+	cfg, err := simpleca.LoadConfig(rootDir)
 	if err != nil {
 		return nil, err
 	}
-	types, err := cfg.certTypes()
+	types, err := cfg.CertTypes()
 	if err != nil {
 		return nil, err
 	}
 	def, ok := types[certType]
 	if !ok {
-		return nil, fmt.Errorf("unknown type '%s': must be one of %s", certType, typeNames(types))
+		return nil, fmt.Errorf("unknown type '%s': must be one of %s", certType, simpleca.TypeNames(types))
 	}
-	keyUsage, extKeyUsages, extKeyUsageOIDs, err := parseUsages(
-		append(slices.Clone(def.keyUsage), kus...), append(slices.Clone(def.extKeyUsage), ekus...))
+	keyUsage, extKeyUsages, extKeyUsageOIDs, err := simpleca.ParseUsages(
+		append(slices.Clone(def.KeyUsage), kus...), append(slices.Clone(def.ExtKeyUsage), ekus...))
 	if err != nil {
 		return nil, err
 	}
-	userNames := def.names == "user"
+	userNames := def.Names == "user"
 
 	// The subject and the SANs, by the name rules of the certificate type.
 	var cn, email string
@@ -261,7 +210,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 	var oids []x509.OID
 	rest := sans
 	if !userNames {
-		if !isHostname(subjectName) {
+		if !simpleca.IsHostname(subjectName) {
 			return nil, fmt.Errorf("invalid CN '%s': a %s certificate's CN must be a hostname or FQDN", subjectName, certType)
 		}
 		cn = subjectName
@@ -295,13 +244,13 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 	}
 	for _, entry := range rest {
 		oid, oidErr := x509.ParseOID(entry)
-		ip, isIP := parseIP(entry)
+		ip, isIP := simpleca.ParseIP(entry)
 		switch {
 		case !userNames && isIP:
 			ips = append(ips, ip)
 		case oidErr == nil:
 			oids = append(oids, oid)
-		case !userNames && isHostname(entry):
+		case !userNames && simpleca.IsHostname(entry):
 			dnsNames = append(dnsNames, entry)
 		case userNames && emailRE.MatchString(entry):
 			emails = append(emails, entry)
@@ -321,7 +270,7 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 
 	caCertPath := filepath.Join(caDir, "ca_cert.pem")
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
-	if !fileExists(caCertPath) || !fileExists(caKeyPath) {
+	if !simpleca.FileExists(caCertPath) || !simpleca.FileExists(caKeyPath) {
 		return nil, fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
 	}
 
@@ -363,19 +312,19 @@ func makeCert(subjectName string, sans []string, caDir, certDir, certType string
 
 	certOut := filepath.Join(certDir, certName+"_cert.pem")
 	keyOut := filepath.Join(certDir, certName+"_key.pem")
-	if fileExists(certOut) && fileExists(keyOut) {
+	if simpleca.FileExists(certOut) && simpleca.FileExists(keyOut) {
 		return nil, fmt.Errorf("%w: %s and %s", errCertExists, filepath.Base(certOut), filepath.Base(keyOut))
 	}
 
-	caCert, err := loadCert(caCertPath)
+	caCert, err := simpleca.LoadCert(caCertPath)
 	if err != nil {
 		return nil, err
 	}
-	caKey, err := loadKey(caKeyPath)
+	caKey, err := simpleca.LoadKey(caKeyPath)
 	if err != nil {
 		return nil, err
 	}
-	key, err := newKey(cmp.Or(leafKeyType, keyType(caKey.Public())))
+	key, err := newKey(cmp.Or(leafKeyType, simpleca.KeyType(caKey.Public())))
 	if err != nil {
 		return nil, err
 	}

@@ -34,6 +34,8 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- version ----------------------------------------------------------------
@@ -85,15 +87,6 @@ func resolveTLS(cert, key string) (string, string, error) {
 		return "", "", errors.New("--tls-cert and --tls-key, or SIMPLE_CA_TLS_CERT and SIMPLE_CA_TLS_KEY, must be given together")
 	}
 	return cert, key, nil
-}
-
-// loadRootConfig loads simple-ca.json of the root CA of the CA in caDir.
-func loadRootConfig(caDir string) (*config, error) {
-	rootDir, _, err := locateCA(caDir)
-	if err != nil {
-		return nil, err
-	}
-	return loadConfig(rootDir)
 }
 
 // errUsage reports a command line that was rejected after its usage was printed.
@@ -219,15 +212,15 @@ func applyContext(fs *flag.FlagSet) error {
 	if caDirFlag == nil {
 		return nil
 	}
-	rootDir, caID, err := locateCA(resolveCADir(caDirFlag.Value.String()))
+	rootDir, caID, err := simpleca.LocateCA(resolveCADir(caDirFlag.Value.String()))
 	if err != nil {
 		return nil
 	}
-	cfg, err := loadConfig(rootDir)
+	cfg, err := simpleca.LoadConfig(rootDir)
 	if err != nil {
 		return err
 	}
-	values := cfg.contextValues(caID)
+	values := cfg.ContextValues(caID)
 	if len(values) == 0 {
 		return nil
 	}

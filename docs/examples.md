@@ -194,7 +194,7 @@ environment variable replaces it, and an option replaces both:
 {
   "ca_url": "https://pki.example.com/gcp-wif",
   "token_file": "build-01.token",
-  "provider": "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca",
+  "provider": "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca",
   "service_account": "build-01@lab-project.iam.gserviceaccount.com"
 }
 ```

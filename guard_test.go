@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestAuthGuard(t *testing.T) {
@@ -86,7 +88,7 @@ func TestAuthGuard(t *testing.T) {
 	if err := makeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	admin, err := makeToken(rootDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	admin, err := simpleca.MakeToken(rootDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

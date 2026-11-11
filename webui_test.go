@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestTokenWebUI(t *testing.T) {
@@ -25,7 +27,7 @@ func TestTokenWebUI(t *testing.T) {
 	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	key, err := makeToken(caDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	key, err := simpleca.MakeToken(caDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
@@ -85,7 +87,7 @@ func TestTokenWebUI(t *testing.T) {
 			t.Errorf("GET /api/cas with the token %q: %d %v, want 401 with an error", key, status, answer)
 		}
 	}
-	signOnly, err := makeToken(caDir, "sign-only", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
+	signOnly, err := simpleca.MakeToken(caDir, "sign-only", time.Hour, nil, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
@@ -121,13 +123,13 @@ func TestTokenWebUI(t *testing.T) {
 		fmt.Sprint(tokens[0].(map[string]any)["clients"]) != "[192.168.1.0/24]" {
 		t.Fatalf("GET /api/tokens: %d %v, want web-deploy from 192.168.1.0/24", status, answer)
 	}
-	created, _ := loadTokens(filepath.Join(caDir, "issuing-ca"))
+	created, _ := simpleca.LoadTokens(filepath.Join(caDir, "issuing-ca"))
 	if status, answer := call(key, "POST", "/api/tokens/renew", map[string]any{"ca": "issuing-ca", "name": "web-deploy",
 		"valid": "8h"}); status != http.StatusOK ||
 		!strings.HasPrefix(fmt.Sprint(answer["token"]), "eyJ") {
 		t.Errorf("renew: %d %v, want the renewed token", status, answer)
 	}
-	if db, _ := loadTokens(filepath.Join(caDir, "issuing-ca")); db.Tokens["web-deploy"].ID == created.Tokens["web-deploy"].ID {
+	if db, _ := simpleca.LoadTokens(filepath.Join(caDir, "issuing-ca")); db.Tokens["web-deploy"].ID == created.Tokens["web-deploy"].ID {
 		t.Error("the renewed token has no new JWT ID")
 	}
 	if status, _ := call(key, "POST", "/api/tokens/revoke", map[string]any{"ca": "../x", "name": "web-deploy"}); status != http.StatusNotFound {
@@ -157,7 +159,7 @@ func TestTokenWebUI(t *testing.T) {
 		"valid": "1h", "scopes": []string{"tokens"}}); status != http.StatusCreated {
 		t.Errorf("creating a token with the scope tokens: %d %v, want 201", status, answer)
 	}
-	if _, err := makeToken(filepath.Join(caDir, "issuing-ca"), "operator", time.Hour, []string{"certs"}, nil, nil, nil, nil); err != nil {
+	if _, err := simpleca.MakeToken(filepath.Join(caDir, "issuing-ca"), "operator", time.Hour, []string{"certs"}, nil, nil, nil, nil); err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
 	if status, _ := call(key, "POST", "/api/tokens/revoke", map[string]any{"ca": "issuing-ca", "name": "operator"}); status != http.StatusForbidden {
@@ -165,7 +167,7 @@ func TestTokenWebUI(t *testing.T) {
 	}
 
 	// An issuing CA token opens that CA alone.
-	issuingKey, err := makeToken(filepath.Join(caDir, "issuing-ca"), "issuing-admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	issuingKey, err := simpleca.MakeToken(filepath.Join(caDir, "issuing-ca"), "issuing-admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}

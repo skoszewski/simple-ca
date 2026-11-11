@@ -65,7 +65,7 @@ writes it, and it can be written or edited by hand. A setting not described here
     "types": {
       "gcp-deploy": {
         "base": "google",
-        "audience": "https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca",
+        "audience": "https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca",
         "subject": "simple-ca:{ca}:{name}",
         "max_valid": "8h",
         "claims": {"env": "lab"}

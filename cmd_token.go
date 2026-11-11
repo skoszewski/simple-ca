@@ -34,6 +34,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- token commands ---------------------------------------------------------
@@ -64,7 +66,7 @@ func runTokenCreate(args []string) error {
 	valid := durationVar(fs, "valid", time.Hour, "validity `period` of the token: minutes, or a number with h, d, m (30 days) or y\n"+
 		"(365 days), such as 30, 8h, 180d or 1y")
 	localhost := fs.Bool("localhost", false, "allow the name localhost and the IP address 127.0.0.1")
-	var fed tokenFederate
+	var fed simpleca.TokenFederate
 	fs.StringVar(&fed.Type, "federate-type", "", "token `type` of the JWTs of the scope federate: google, azure or a type of\n"+
 		"federation.types of simple-ca.json")
 	fs.StringVar(&fed.Audience, "audience", "", "`audience` of the JWTs of the scope federate, in place of that of the token type")
@@ -106,10 +108,10 @@ func runTokenCreate(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
-	if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+	if err := simpleca.ReadKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
 		return err
 	}
-	cfg, err := loadRootConfig(dir)
+	cfg, err := simpleca.LoadRootConfig(dir)
 	if err != nil {
 		return err
 	}
@@ -117,8 +119,8 @@ func runTokenCreate(args []string) error {
 	// The options not given take the defaults of tokens in simple-ca.json.
 	defaults := cfg.Tokens
 	if !given["valid"] && defaults.Valid != "" {
-		if *valid, err = parseDuration(defaults.Valid); err != nil {
-			return fmt.Errorf("tokens.valid of %s: %w", cfg.path, err)
+		if *valid, err = simpleca.ParseDuration(defaults.Valid); err != nil {
+			return fmt.Errorf("tokens.valid of %s: %w", cfg.Path, err)
 		}
 	}
 	if !given["scope"] {
@@ -127,7 +129,7 @@ func runTokenCreate(args []string) error {
 	if len(scopes) == 0 {
 		scopes = []string{"sign"}
 	}
-	if allows(scopes, "sign") {
+	if simpleca.Allows(scopes, "sign") {
 		if !given["type"] && !given["cert-type"] {
 			certTypes = slices.Clone(defaults.Types)
 		}
@@ -153,20 +155,20 @@ func runTokenCreate(args []string) error {
 		return err
 	}
 	// The settings of the scope federate are given together with --federate-type.
-	var federate *tokenFederate
+	var federate *simpleca.TokenFederate
 	switch {
 	case given["federate-type"]:
 		federate = &fed
 	case given["audience"] || given["claim"]:
 		return errors.New("--audience and --claim need --federate-type")
 	}
-	token, err := addToken(dir, rest[0], federate, *valid, scopes, certTypes, domains, ips, clients, setupValid, setupClients)
+	token, err := simpleca.AddToken(dir, rest[0], federate, *valid, scopes, certTypes, domains, ips, clients, setupValid, setupClients)
 	if err != nil {
 		return err
 	}
 	record := append([]any{"name", rest[0], "scopes", strings.Join(scopes, ","), "setup_code", setupValid > 0},
-		federateAudit(federate)...)
-	audit(dir, "token.create", append(record, "via", "cli", "actor", cliActor())...)
+		simpleca.FederateAudit(federate)...)
+	simpleca.Audit(dir, "token.create", append(record, "via", "cli", "actor", simpleca.CLIActor())...)
 	fmt.Println(token)
 	return nil
 }
@@ -197,7 +199,7 @@ func runTokenIssue(args []string) error {
 			"federation.issuer or ca_publish_base_url of simple-ca.json, the audience of the type or\n"+
 			"--audience, and the claims of the type and --claim.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
-	var fed tokenFederate
+	var fed simpleca.TokenFederate
 	fs.StringVar(&fed.Type, "token-type", "", "token `type`: google, azure or a type of federation.types of simple-ca.json")
 	fs.StringVar(&fed.Audience, "audience", "", "`audience` of the JWT, in place of that of the token type")
 	fs.Func("claim", "`name=value` claim of the JWT, a string; may be specified multiple times", claimFlag(&fed.Claims))
@@ -211,39 +213,39 @@ func runTokenIssue(args []string) error {
 	switch {
 	case fed.Type == "":
 		return errors.New("--token-type is required; token create makes the tokens of simple-ca")
-	case !kebabCaseRE.MatchString(name):
+	case !simpleca.KebabCaseRE.MatchString(name):
 		return fmt.Errorf("name '%s' is not a kebab-case name, such as web-deploy", name)
 	}
 	dir := resolveCADir(*caDir)
 	caKeyPath := filepath.Join(dir, "ca_key.pem")
-	if !fileExists(filepath.Join(dir, "ca_cert.pem")) || !fileExists(caKeyPath) {
+	if !simpleca.FileExists(filepath.Join(dir, "ca_cert.pem")) || !simpleca.FileExists(caKeyPath) {
 		return fmt.Errorf("CA certificate and key not found in %s. Please point --ca-dir to a CA directory", dir)
 	}
-	if err := readKeyPassphrase(caKeyPath); err != nil {
+	if err := simpleca.ReadKeyPassphrase(caKeyPath); err != nil {
 		return err
 	}
-	cfg, err := loadRootConfig(dir)
+	cfg, err := simpleca.LoadRootConfig(dir)
 	if err != nil {
 		return err
 	}
-	_, caID, err := locateCA(dir)
+	_, caID, err := simpleca.LocateCA(dir)
 	if err != nil {
 		return err
 	}
-	federation, err := fed.resolve(cfg, caID, name)
+	federation, err := fed.Resolve(cfg, caID, name)
 	if err != nil {
 		return err
 	}
-	caKey, err := loadKey(caKeyPath)
+	caKey, err := simpleca.LoadKey(caKeyPath)
 	if err != nil {
 		return err
 	}
-	jwt, id, _, err := issueJWT(caKey, federation, *valid, time.Time{})
+	jwt, id, _, err := simpleca.IssueJWT(caKey, federation, *valid, time.Time{})
 	if err != nil {
 		return err
 	}
-	audit(dir, "token.issue", "name", name, "token_type", federation.typeName, "audience", federation.audience,
-		"subject", federation.subject, "jti", id, "via", "cli", "actor", cliActor())
+	simpleca.Audit(dir, "token.issue", "name", name, "token_type", federation.TypeName, "audience", federation.Audience,
+		"subject", federation.Subject, "jti", id, "via", "cli", "actor", simpleca.CLIActor())
 	fmt.Println(jwt)
 	return nil
 }
@@ -317,21 +319,21 @@ func runTokenDescribe(args []string) error {
 	}
 
 	var name string
-	var tok *apiToken
+	var tok *simpleca.APIToken
 	limits := true
 	var notes [][2]string
 	var refused string
 	if len(rest) == 1 {
 		dir := resolveCADir(*caDir)
-		if !fileExists(filepath.Join(dir, "ca_cert.pem")) {
+		if !simpleca.FileExists(filepath.Join(dir, "ca_cert.pem")) {
 			return fmt.Errorf("CA certificate not found in %s. Please point --ca-dir to a CA directory", dir)
 		}
-		db, err := loadTokens(dir)
+		db, err := simpleca.LoadTokens(dir)
 		if err != nil {
 			return err
 		}
 		if name, tok = rest[0], db.Tokens[rest[0]]; tok == nil {
-			return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(dir, tokensFile))
+			return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(dir, simpleca.TokensFile))
 		}
 	} else {
 		var b []byte
@@ -347,7 +349,7 @@ func runTokenDescribe(args []string) error {
 		var caCert *x509.Certificate
 		dir := resolveCADir(*caDir)
 		if given["ca-dir"] {
-			if caCert, err = loadCert(filepath.Join(dir, "ca_cert.pem")); err != nil {
+			if caCert, err = simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem")); err != nil {
 				return err
 			}
 		}
@@ -358,15 +360,15 @@ func runTokenDescribe(args []string) error {
 		case err != nil:
 			return errors.New("the token is not a JWT of simple-ca token create")
 		}
-		name, tok, limits = c.Subject, c.token(), false
+		name, tok, limits = c.Subject, c.Token(), false
 		if caCert == nil {
 			notes = append(notes, [2]string{"Signature", "not checked; --ca-dir of its CA checks it and shows its limits"})
-		} else if db, err := loadTokens(dir); err != nil {
+		} else if db, err := simpleca.LoadTokens(dir); err != nil {
 			return err
 		} else if entry := db.Tokens[name]; entry != nil && entry.ID != "" && entry.ID == c.ID {
 			tok, limits = entry, true
 		} else {
-			refused = "refused: the token was renewed, revoked or removed in " + filepath.Join(dir, tokensFile)
+			refused = "refused: the token was renewed, revoked or removed in " + filepath.Join(dir, simpleca.TokensFile)
 		}
 	}
 	attributes := describeToken(name, tok, limits)
@@ -393,7 +395,7 @@ func runTokenRevoke(args []string) error {
 	if err := revokeToken(dir, rest[0]); err != nil {
 		return err
 	}
-	audit(dir, "token.revoke", "name", rest[0], "via", "cli", "actor", cliActor())
+	simpleca.Audit(dir, "token.revoke", "name", rest[0], "via", "cli", "actor", simpleca.CLIActor())
 	fmt.Printf("Token %s revoked\n", rest[0])
 	return nil
 }
@@ -413,7 +415,7 @@ func runTokenPurge(args []string) error {
 		if err := purgeToken(dir, rest[0]); err != nil {
 			return err
 		}
-		audit(dir, "token.purge", "name", rest[0], "via", "cli", "actor", cliActor())
+		simpleca.Audit(dir, "token.purge", "name", rest[0], "via", "cli", "actor", simpleca.CLIActor())
 		fmt.Printf("Token %s removed\n", rest[0])
 		return nil
 	}
@@ -422,7 +424,7 @@ func runTokenPurge(args []string) error {
 		return err
 	}
 	if n > 0 {
-		audit(dir, "token.purge", "count", n, "via", "cli", "actor", cliActor())
+		simpleca.Audit(dir, "token.purge", "count", n, "via", "cli", "actor", simpleca.CLIActor())
 	}
 	fmt.Printf("%d expired or revoked tokens removed\n", n)
 	return nil
@@ -448,14 +450,14 @@ func runTokenRenew(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
-	if err := readKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
+	if err := simpleca.ReadKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
 		return err
 	}
 	token, err := reissueToken(dir, rest[0], *valid, setupValid, setupClients)
 	if err != nil {
 		return err
 	}
-	audit(dir, "token.renew", "name", rest[0], "setup_code", setupValid > 0, "via", "cli", "actor", cliActor())
+	simpleca.Audit(dir, "token.renew", "name", rest[0], "setup_code", setupValid > 0, "via", "cli", "actor", simpleca.CLIActor())
 	fmt.Println(token)
 	return nil
 }
@@ -471,10 +473,10 @@ func runTokenJWKS(args []string) error {
 		return err
 	}
 	dir := resolveCADir(*caDir)
-	if !fileExists(filepath.Join(dir, "ca_cert.pem")) {
+	if !simpleca.FileExists(filepath.Join(dir, "ca_cert.pem")) {
 		return fmt.Errorf("CA certificate not found in %s. Please point --ca-dir to a CA directory", dir)
 	}
-	b, err := caJWKS(dir)
+	b, err := simpleca.CAJWKS(dir)
 	if err != nil {
 		return err
 	}

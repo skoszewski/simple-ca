@@ -24,18 +24,15 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"runtime/debug"
 	"strings"
-	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/client"
 )
 
 // buildVersion is the version a release build is given at link time with
@@ -44,11 +41,6 @@ var buildVersion string
 
 // errUsage reports wrong arguments, after the usage has been printed.
 var errUsage = errors.New("usage")
-
-// client sends the request of token-setup, and maxAnswer is the most it reads of the answer.
-var client = &http.Client{Timeout: 30 * time.Second}
-
-const maxAnswer = 1 << 20
 
 func run() error {
 	flag.Usage = func() {
@@ -101,34 +93,16 @@ func run() error {
 		}()
 	}
 
-	setupURL := u.Scheme + "://" + u.Host + "/api/token-setup"
-	body, err := json.Marshal(map[string]string{"code": strings.TrimSpace(flag.Arg(0))})
+	token, err := client.Exchange(*serverURL, strings.TrimSpace(flag.Arg(0)))
 	if err != nil {
 		return err
-	}
-	resp, err := client.Post(setupURL, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer))
-	if err != nil {
-		return err
-	}
-	var result struct{ Token, Error string }
-	if err := json.Unmarshal(answer, &result); resp.StatusCode != http.StatusOK || err != nil || result.Token == "" {
-		message := strings.TrimSpace(string(answer))
-		if result.Error != "" {
-			message = result.Error
-		}
-		return fmt.Errorf("%s: %d %s", setupURL, resp.StatusCode, message)
 	}
 
 	if *tokenFile == "" {
-		fmt.Println(result.Token)
+		fmt.Println(token)
 		return nil
 	}
-	if _, err := file.WriteString(result.Token + "\n"); err != nil {
+	if _, err := file.WriteString(token + "\n"); err != nil {
 		return fmt.Errorf("--token-file: %w", err)
 	}
 	written = true

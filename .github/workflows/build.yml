@@ -1,9 +1,9 @@
 # Publishes a GitHub release for a pushed tag vX.Y.Z or vX.Y.Z-PRE; a tag vX.Y.Z-N is not built.
 #
 # - check: gofmt and go vet.
-# - build: for each platform, simple-ca, request-cert, token-setup, request-token and
-#   simple-ca-trust, versioned with the tag, in one archive, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz,
-#   .zip for Windows.
+# - build: for each platform, simple-ca, request-cert, token-setup, request-token, simple-ca-wif
+#   and simple-ca-trust, versioned with the tag, in one archive,
+#   simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz, .zip for Windows.
 # - deb: the Debian package of ./build.mjs deb for amd64 and arm64, each on a runner of its
 #   architecture, simple-ca_X.Y.Z-1_<arch>.deb.
 # - release: refuses a tag that is not semver, not on main, or not the newest CHANGELOG.md entry;
@@ -69,7 +69,7 @@ jobs:
       # Downloads the browser files of serve-markdown's page, which simple-ca embeds.
       - name: Page assets
         run: node build.mjs assets
-      # Builds the five programs for the platform and packs them into its archive.
+      # Builds the six programs for the platform and packs them into its archive.
       - name: Build
         id: build
         env:
@@ -89,6 +89,7 @@ jobs:
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-cert$exe" ./cmd/request-cert
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/token-setup$exe" ./cmd/token-setup
           go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-token$exe" ./cmd/request-token
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/simple-ca-wif$exe" ./cmd/simple-ca-wif
           # simple-ca-trust is the Go program on Linux, the Swift one on macOS, the .NET one on Windows.
           case "$GOOS" in
             linux)

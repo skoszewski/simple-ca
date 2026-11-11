@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 func TestIndex(t *testing.T) {
@@ -21,8 +23,8 @@ func TestIndex(t *testing.T) {
 	if _, err := makeCert("test", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
-	if fileExists(filepath.Join(caDir, configFile)) {
-		t.Fatalf("%s written without settings", configFile)
+	if simpleca.FileExists(filepath.Join(caDir, simpleca.ConfigFile)) {
+		t.Fatalf("%s written without settings", simpleca.ConfigFile)
 	}
 
 	for _, c := range []struct{ dir, cert, subject string }{
@@ -34,7 +36,7 @@ func TestIndex(t *testing.T) {
 			t.Fatalf("openssl x509 -serial: %v", err)
 		}
 		opensslSerial := strings.TrimPrefix(strings.TrimSpace(string(out)), "serial=")
-		cert, err := loadCert(c.cert)
+		cert, err := simpleca.LoadCert(c.cert)
 		if err != nil {
 			t.Fatalf("loadCert: %v", err)
 		}

@@ -31,6 +31,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- throttling of refused credentials --------------------------------------
@@ -98,7 +100,7 @@ func (g *authGuard) attempt(w http.ResponseWriter, r *http.Request, dir string, 
 	if errors.As(err, &e) && e.status == http.StatusUnauthorized {
 		auditRefused(r, dir, e.msg, client)
 		if hold > 0 {
-			audit(dir, "auth.held", "client", client.String(), "wait", hold.String())
+			simpleca.Audit(dir, "auth.held", "client", client.String(), "wait", hold.String())
 		}
 	}
 	return err
@@ -108,7 +110,7 @@ func (g *authGuard) attempt(w http.ResponseWriter, r *http.Request, dir string, 
 // r for the CA in dir, with the reason.
 func auditRefused(r *http.Request, dir, reason string, client netip.Addr) {
 	route, _, _ := strings.Cut(r.RequestURI, "?")
-	audit(dir, "auth.refused", "route", route, "reason", reason, "client", client.String())
+	simpleca.Audit(dir, "auth.refused", "route", route, "reason", reason, "client", client.String())
 }
 
 // check counts an attempt of client, or returns an error of status 429, setting Retry-After on w,

@@ -22,6 +22,113 @@ simple-ca ca create --ca-dir "$CA_DIR" --issuing-ca gcp-wif "Google WIF"
 
 Its key may be `rsa`, the default, or `ec` (`--key-type ec`): Google accepts RS256 and ES256.
 
+## With simple-ca-wif
+
+`simple-ca-wif`, on the CA host, does steps 1 to 5 with two commands, through the Google REST
+APIs. `google setup` does steps 1 to 3, and `google machine` steps 4 and 5 for one machine. The
+machine then goes on with step 6. The steps below do the same by hand.
+
+### Credentials
+
+`simple-ca-wif` calls Google with an access token, from the first of these it finds:
+
+- `--access-token`, or `GOOGLE_OAUTH_ACCESS_TOKEN`;
+- Application Default Credentials: the file named by `GOOGLE_APPLICATION_CREDENTIALS`, of the
+  type `authorized_user` or `service_account`, or else the file that
+  `gcloud auth application-default login` writes.
+
+The metadata server is not used. The account of the credentials needs these IAM roles in the
+project:
+
+- `roles/iam.workloadIdentityPoolAdmin`, for the pool and the provider;
+- `roles/iam.serviceAccountAdmin`, for the service account and the principals that may
+  impersonate it;
+- `roles/resourcemanager.projectIamAdmin`, for the roles granted on the project.
+
+A user signs in for Application Default Credentials with:
+
+```sh
+gcloud auth application-default login
+```
+
+### The pool, the provider and the token type
+
+`google setup` sets the issuer of step 1, creates the pool and the provider of step 2 with the
+keys of the CA, and adds the token type of step 3:
+
+```sh
+CA_DIR=/etc/simple-ca/gcp-wif
+PROJECT_ID=lab-project
+POOL_ID=lab-pool
+ISSUER=https://pki.example.com
+
+simple-ca-wif google setup --ca-dir "$CA_DIR" --project "$PROJECT_ID" --pool "$POOL_ID" \
+  --issuer "$ISSUER"
+```
+
+- `--issuer` is `federation.issuer` of the root CA. It is needed when `simple-ca.json` has none.
+- `--provider` names the provider, by default `simple-ca`.
+- `--type` names the token type, by default `gcp-wif`. Its other settings are kept.
+- `--attribute-mapping` is the mapping of a new provider, by default
+  `google.subject=assertion.sub`.
+
+Each step prints one line: created, updated or unchanged. The command leaves alone what exists,
+so it can be run again. It refuses an `--issuer` other than the one `simple-ca.json` has, a
+provider with another issuer, and a pool or a provider that is deleted; undelete it first. A
+provider whose keys differ from those of the CA gets the current keys.
+
+### The token and the access of a machine
+
+`google machine` makes the token of step 4 and gives the machine the access of step 5. Here
+`build-01` acts as the service account `build-01`, with the role `roles/browser`:
+
+```sh
+CA_DIR=/etc/simple-ca/gcp-wif
+PROJECT_ID=lab-project
+NAME=build-01
+NETWORK=10.20.0.0/16
+ROLE=roles/browser
+
+simple-ca-wif google machine --ca-dir "$CA_DIR" --project "$PROJECT_ID" \
+  --service-account "$NAME" --role "$ROLE" --network "$NETWORK" "$NAME"
+```
+
+- The token has the scope `federate` and the token type of `--type`, by default `gcp-wif`, which
+  `google setup` added. It asks for the passphrase of the key as `token create` does.
+- `--valid`, by default 2160h, `--host` and `--network` are those of `token create`.
+- The token goes to `build-01.token`, a new file of mode 0600. With `--otc`, the command prints a
+  one-time setup code instead; `--otc-valid` and `--otc-network` are those of `token create`.
+- `--service-account` creates the service account when it is missing, with the display name
+  `simple-ca build-01` or that of `--display-name`. The principal may impersonate it, and it gets
+  each `--role`.
+- Without `--service-account`, the principal gets each `--role`.
+- `--role` may be given more than once. A member already in a role binding is left alone.
+- `--project` is needed with `--service-account` or `--role`; without either, the command makes
+  no call to Google.
+- `--output-dir` is the directory of the token and of `federation.json`, by default the working
+  directory.
+
+The command also writes `federation.json` of step 6, whose `ca_url` is that of `--ca-url`, by
+default the issuer of the CA:
+
+```json
+{
+  "ca_url": "https://pki.example.com/gcp-wif",
+  "token_file": "build-01.token",
+  "provider": "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca",
+  "service_account": "build-01@lab-project.iam.gserviceaccount.com"
+}
+```
+
+Without `--service-account`, the file has no `service_account`. Before it changes anything, the
+command refuses an existing `federation.json`, an existing `build-01.token`, a token `build-01` the
+CA already has, and an `--output-dir` it cannot write to. Without the token
+type in `simple-ca.json`, it asks to run `google setup` first. It makes the changes in Google
+before the token and `federation.json`, so after a failed step it is run again as it was.
+
+Hand `build-01.token`, or the setup code, and `federation.json` to the machine, which goes on
+with step 6.
+
 ## 1. The issuer
 
 Choose the issuer, and set it as `federation.issuer` in `simple-ca.json` of the root CA:
@@ -45,7 +152,7 @@ with the issuer of step 1 and the key uploaded:
 
 ```sh
 PROJECT_ID=lab-project
-POOL_ID=lab
+POOL_ID=lab-pool
 PROVIDER_ID=simple-ca
 CA_DIR=/etc/simple-ca/gcp-wif
 ISSUER=https://pki.example.com/gcp-wif
@@ -61,7 +168,7 @@ The next steps need the resource name of the provider, which holds the number of
 
 ```sh
 PROJECT_ID=lab-project
-POOL_ID=lab
+POOL_ID=lab-pool
 PROVIDER_ID=simple-ca
 
 gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" --project="$PROJECT_ID" \
@@ -69,7 +176,7 @@ gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" --project="
 ```
 
 ```text
-projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca
+projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca
 ```
 
 ## 3. The token type
@@ -85,7 +192,7 @@ resource name of step 2:
     "types": {
       "gcp-wif": {
         "base": "google",
-        "audience": "https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca"
+        "audience": "https://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca"
       }
     }
   }
@@ -126,7 +233,7 @@ The subject of its JWTs, the name of the token, makes the machine this principal
 the number of the project, not its ID:
 
 ```text
-principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/subject/build-01
+principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/subject/build-01
 ```
 
 The machine gets its access in one of two ways.
@@ -138,7 +245,7 @@ then calls Google Cloud with its federated access token:
 
 ```sh
 PROJECT_ID=lab-project
-PRINCIPAL=principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/subject/build-01
+PRINCIPAL=principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/subject/build-01
 ROLE=roles/browser
 
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="$PRINCIPAL" --role="$ROLE"
@@ -156,7 +263,7 @@ PROJECT_ID=lab-project
 SA_NAME=build-01
 SA_DISPLAY_NAME="simple-ca build-01"
 SA_EMAIL=build-01@lab-project.iam.gserviceaccount.com
-PRINCIPAL=principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/subject/build-01
+PRINCIPAL=principal://iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/subject/build-01
 ROLE=roles/browser
 
 gcloud iam service-accounts create "$SA_NAME" --project="$PROJECT_ID" \
@@ -180,7 +287,7 @@ directory:
 {
   "ca_url": "https://pki.example.com/gcp-wif",
   "token_file": "build-01.token",
-  "provider": "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca",
+  "provider": "//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca",
   "service_account": "build-01@lab-project.iam.gserviceaccount.com"
 }
 ```
@@ -277,7 +384,8 @@ gcloud projects describe "$PROJECT_ID"
   once; a JWT issued before lasts until it expires, within the hour.
 - Each JWT issued is a `token.issue` record of the audit log:
   `simple-ca audit list --ca-dir /etc/simple-ca --event token.issue --ca gcp-wif`.
-- When the key of the CA changes, upload the new key set with
+- When the key of the CA changes, run `simple-ca-wif google setup` again, which uploads the new
+  key set, or upload it with
   `gcloud iam workload-identity-pools providers update-oidc --jwk-json-path`; the provider holds
   at most 8 keys.
 
@@ -296,7 +404,7 @@ The same with curl and jq, with the settings of `federation.json` of step 6:
 ```sh
 CA_URL=https://pki.example.com/gcp-wif
 TOKEN_FILE=build-01.token
-PROVIDER=//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab/providers/simple-ca
+PROVIDER=//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca
 SA_EMAIL=build-01@lab-project.iam.gserviceaccount.com
 
 JWT=$(curl -sS -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \

@@ -29,7 +29,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	_ "crypto/sha512"
@@ -53,6 +52,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- ACME -------------------------------------------------------------------
@@ -147,13 +148,6 @@ func newACMEServer() *acmeServer {
 	return &acmeServer{nonces: map[string]time.Time{}, states: map[string]*acmeState{}}
 }
 
-// randomID returns 16 random bytes in base64url.
-func randomID() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
-}
-
 // state returns the state of the CA in caDir, dropping the orders and authorizations that
 // expired; issueMu must be held.
 func (s *acmeServer) state(caDir string) (*acmeState, error) {
@@ -220,7 +214,7 @@ func (s *acmeServer) newNonce(limit int) string {
 		delete(s.nonces, s.issued[0])
 		s.issued = s.issued[1:]
 	}
-	n := randomID()
+	n := simpleca.RandomID()
 	s.nonces[n] = now
 	s.issued = append(s.issued, n)
 	return n
@@ -346,15 +340,15 @@ type acmeCA struct {
 	*acmeServer
 	dir, origin, base string
 	domains           []string
-	limits            acmeConfig
+	limits            simpleca.ACMEConfig
 	client            netip.Addr
 }
 
 // handle serves the ACME request r for the CA in caDir at the ACME path path, below prefix, the
 // URL path of the CA's ACME paths; it is 404 Not Found when the CA has no ACME.
 func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caDir, prefix, path string) {
-	cfg, err := loadConfig(rootDir)
-	if err != nil || len(cfg.ACME.Domains) == 0 || !fileExists(filepath.Join(caDir, "ca_key.pem")) {
+	cfg, err := simpleca.LoadConfig(rootDir)
+	if err != nil || len(cfg.ACME.Domains) == 0 || !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")) {
 		if err != nil {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		}
@@ -367,7 +361,7 @@ func (s *acmeServer) handle(w http.ResponseWriter, r *http.Request, rootDir, caD
 	}
 	origin := scheme + "://" + r.Host
 	ca := &acmeCA{acmeServer: s, dir: caDir, origin: origin, base: origin + prefix, domains: cfg.ACME.Domains,
-		limits: cfg.ACME.limits(), client: clientAddr(r)}
+		limits: cfg.ACME.Limits(), client: clientAddr(r)}
 	w.Header().Set("Link", fmt.Sprintf("<%s/directory>;rel=\"index\"", ca.base))
 
 	switch {
@@ -586,7 +580,7 @@ func (ca *acmeCA) newAccount(w http.ResponseWriter, req *acmeRequest) error {
 		return problem(http.StatusServiceUnavailable, "rateLimited", "this CA has its %d accounts, acme.max_accounts",
 			ca.limits.MaxAccounts)
 	}
-	id := randomID()
+	id := simpleca.RandomID()
 	a := &acmeAccount{Key: key, Thumbprint: req.thumbprint, Contact: p.Contact, Status: "valid"}
 	st.Accounts[id] = a
 	if err := ca.save(ca.dir); err != nil {
@@ -698,7 +692,7 @@ func (ca *acmeCA) newOrder(w http.ResponseWriter, req *acmeRequest) error {
 		switch {
 		case id.Type != "dns":
 			return problem(http.StatusBadRequest, "unsupportedIdentifier", "identifier type %q is not supported", id.Type)
-		case !isHostname(base):
+		case !simpleca.IsHostname(base):
 			return problem(http.StatusBadRequest, "rejectedIdentifier", "%q is not a DNS name", id.Value)
 		case !inDomains(base, ca.domains):
 			return problem(http.StatusBadRequest, "rejectedIdentifier", "%q is not under the domains of this CA", id.Value)
@@ -730,14 +724,14 @@ func (ca *acmeCA) newOrder(w http.ResponseWriter, req *acmeRequest) error {
 		base, wildcard := strings.CutPrefix(name, "*.")
 		a := &acmeAuthz{Account: req.account, Name: base, Wildcard: wildcard, Status: "pending", Expires: expires}
 		if !wildcard {
-			a.Challenges = append(a.Challenges, acmeChallenge{Type: "http-01", Token: randomID(), Status: "pending"})
+			a.Challenges = append(a.Challenges, acmeChallenge{Type: "http-01", Token: simpleca.RandomID(), Status: "pending"})
 		}
-		a.Challenges = append(a.Challenges, acmeChallenge{Type: "dns-01", Token: randomID(), Status: "pending"})
-		aid := randomID()
+		a.Challenges = append(a.Challenges, acmeChallenge{Type: "dns-01", Token: simpleca.RandomID(), Status: "pending"})
+		aid := simpleca.RandomID()
 		st.Authzs[aid] = a
 		o.Authzs = append(o.Authzs, aid)
 	}
-	oid := randomID()
+	oid := simpleca.RandomID()
 	st.Orders[oid] = o
 	if err := ca.save(ca.dir); err != nil {
 		return err
@@ -1044,7 +1038,7 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 		return problem(http.StatusBadRequest, "badCSR", "the names of the csr are not those of the order")
 	}
 
-	cfg, err := loadRootConfig(ca.dir)
+	cfg, err := simpleca.LoadRootConfig(ca.dir)
 	if err != nil {
 		return err
 	}
@@ -1058,10 +1052,10 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 	if err != nil {
 		return problem(http.StatusBadRequest, "rejectedIdentifier", "%v", err)
 	}
-	if fileExists(filepath.Join(ca.dir, strings.TrimSuffix(file, "_cert.pem")+"_key.pem")) {
+	if simpleca.FileExists(filepath.Join(ca.dir, strings.TrimSuffix(file, "_cert.pem")+"_key.pem")) {
 		return problem(http.StatusConflict, "rejectedIdentifier", "the CA holds a certificate %s with its key, which is not replaced", file)
 	}
-	caCert, err := loadCert(filepath.Join(ca.dir, "ca_cert.pem"))
+	caCert, err := simpleca.LoadCert(filepath.Join(ca.dir, "ca_cert.pem"))
 	if err != nil {
 		return err
 	}
@@ -1133,7 +1127,7 @@ func (ca *acmeCA) revoke(w http.ResponseWriter, req *acmeRequest) error {
 	if err != nil {
 		return problem(http.StatusBadRequest, "malformed", "the certificate does not parse")
 	}
-	caCert, err := loadCert(filepath.Join(ca.dir, "ca_cert.pem"))
+	caCert, err := simpleca.LoadCert(filepath.Join(ca.dir, "ca_cert.pem"))
 	if err != nil {
 		return err
 	}
@@ -1171,7 +1165,7 @@ func (ca *acmeCA) revoke(w http.ResponseWriter, req *acmeRequest) error {
 	if !revoked {
 		return problem(http.StatusBadRequest, "alreadyRevoked", "the certificate is revoked already")
 	}
-	audit(ca.dir, "cert.revoke", "serial", serial, "reason", reason, "via", "acme", "actor", req.account,
+	simpleca.Audit(ca.dir, "cert.revoke", "serial", serial, "reason", reason, "via", "acme", "actor", req.account,
 		"client", ca.client.String())
 	w.Header().Set("Replay-Nonce", ca.newNonce(ca.limits.MaxNonces))
 	w.WriteHeader(http.StatusOK)

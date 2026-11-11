@@ -34,6 +34,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
 // ---- revocation reasons -----------------------------------------------------
@@ -86,17 +88,17 @@ func makeCRL(caDir string, days int) error {
 	signingDir := caDir
 	caCertPath := filepath.Join(signingDir, "ca_cert.pem")
 	caKeyPath := filepath.Join(signingDir, "ca_key.pem")
-	if !fileExists(caCertPath) || !fileExists(caKeyPath) {
+	if !simpleca.FileExists(caCertPath) || !simpleca.FileExists(caKeyPath) {
 		return fmt.Errorf("CA certificate or key not found in %s", signingDir)
 	}
-	caCert, err := loadCert(caCertPath)
+	caCert, err := simpleca.LoadCert(caCertPath)
 	if err != nil {
 		return err
 	}
 	if len(caCert.SubjectKeyId) == 0 {
 		return fmt.Errorf("CA certificate %s has no subject key identifier", caCertPath)
 	}
-	caKey, err := loadKey(caKeyPath)
+	caKey, err := simpleca.LoadKey(caKeyPath)
 	if err != nil {
 		return err
 	}
@@ -166,7 +168,7 @@ func auditCRL(caDir string, args ...any) {
 			}
 		}
 	}
-	audit(caDir, "crl.write", append([]any{"number", number}, args...)...)
+	simpleca.Audit(caDir, "crl.write", append([]any{"number", number}, args...)...)
 }
 
 // ---- revokeCert -------------------------------------------------------------
@@ -175,7 +177,7 @@ func auditCRL(caDir string, args ...any) {
 // CA in caDir, for reason, a name of crlReasons, or for no reason when empty; it returns false
 // when the certificate was revoked already.
 func markRevoked(caDir, serial, reason string) (bool, error) {
-	unlock, err := lockFile(filepath.Join(caDir, indexFile))
+	unlock, err := simpleca.LockFile(filepath.Join(caDir, indexFile))
 	if err != nil {
 		return false, err
 	}
@@ -214,7 +216,7 @@ func revokeCert(certPath, caDir, reason string) error {
 		}
 		reason = names[i]
 	}
-	if !fileExists(certPath) {
+	if !simpleca.FileExists(certPath) {
 		return fmt.Errorf("certificate not found: %s", certPath)
 	}
 	signingDir := caDir
@@ -222,7 +224,7 @@ func revokeCert(certPath, caDir, reason string) error {
 		return fmt.Errorf("CA directory not found: %s", signingDir)
 	}
 
-	cert, err := loadCert(certPath)
+	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		return err
 	}
@@ -234,7 +236,7 @@ func revokeCert(certPath, caDir, reason string) error {
 	if !revoked {
 		return fmt.Errorf("certificate %s is revoked already", serial)
 	}
-	audit(signingDir, "cert.revoke", "serial", serial, "reason", reason, "via", "cli", "actor", cliActor())
+	simpleca.Audit(signingDir, "cert.revoke", "serial", serial, "reason", reason, "via", "cli", "actor", simpleca.CLIActor())
 	if reason != "" {
 		fmt.Printf("Certificate %s (serial %s) marked as revoked, reason %s.\n", certPath, serial, reason)
 	} else {
