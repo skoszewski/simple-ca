@@ -46,6 +46,8 @@ func runServe(args []string) error {
 		"With --webui, it also serves the token page at /tokens/, the certificate page at\n"+
 		"/certificates/ and the audit page at /audit/. Sign in with a token that has the scope\n"+
 		"tokens, certs or audit; a root CA token opens every CA, an issuing CA token only its own CA.\n\n"+
+		"With --downloads, it lists the files of the directory whose NAME.sha256 holds their SHA-256\n"+
+		"at /downloads/, and with --packages it serves the apt repository of the directory at /apt/.\n\n"+
 		"It logs in records of key=value pairs, as its audit records, to the systemd journal when\n"+
 		"it runs under systemd, else to the standard error; the audit records also go to the\n"+
 		"audit log. --request-log adds a record of each request.")
@@ -55,6 +57,8 @@ func runServe(args []string) error {
 	tlsCert := fs.String("tls-cert", "", "serve HTTPS with the certificate chain in this PEM `file` (default: $SIMPLE_CA_TLS_CERT)")
 	tlsKey := fs.String("tls-key", "", "private key of --tls-cert, a PEM `file` (default: $SIMPLE_CA_TLS_KEY)")
 	docs := fs.Bool("docs", false, "serve the guides of simple-ca at /docs/")
+	downloads := fs.String("downloads", "", "serve the files of this `directory` with a matching NAME.sha256 at /downloads/")
+	packages := fs.String("packages", "", "serve this apt repository `directory` at /apt/")
 	logRequests := fs.Bool("request-log", false, "log each request (default: serve.request_log of simple-ca.json)")
 	webui := fs.Bool("webui", false, "serve the token page at /tokens/, the certificate page at /certificates/ and the\n"+
 		"audit page at /audit/")
@@ -80,6 +84,12 @@ func runServe(args []string) error {
 		return errors.New("--docs needs the browser files of serve-markdown's page, which this executable " +
 			"was built without; see docs/development.md")
 	}
+	for option, dir := range map[string]string{"--downloads": *downloads, "--packages": *packages} {
+		if info, err := os.Stat(dir); dir != "" && (err != nil || !info.IsDir()) {
+			return fmt.Errorf("%s: '%s' is not a directory", option, dir)
+		}
+	}
+	downloadsDir, packagesDir = *downloads, *packages
 	rootDir, _, err := simpleca.LocateCA(cli.ResolveCADir(*caDir))
 	if err != nil {
 		return err
@@ -148,6 +158,12 @@ func runServe(args []string) error {
 		}
 		if helpSite != nil {
 			pages = append(pages, [2]string{"help", helpPath})
+		}
+		if downloadsDir != "" {
+			pages = append(pages, [2]string{"downloads", downloadsPath})
+		}
+		if packagesDir != "" {
+			pages = append(pages, [2]string{"apt", aptPath})
 		}
 		for _, p := range pages {
 			slog.Info("serve.page", "page", p[0], "url", origin+p[1])

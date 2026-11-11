@@ -21,7 +21,12 @@ token with the scope `tokens`, `certs` or `audit`, or for the [OIDC sign-in](oid
 `simple-ca.json` sets it up. Over plain HTTP, the tokens cross the network in clear, which
 `serve` mentions at start for an address other than a loopback one; `--tls-cert` and
 `--tls-key` serve the pages over HTTPS where that matters. The names `help`, `docs`, `tokens`,
-`certificates` and `audit` cannot be issuing CA names, because the pages use those paths.
+`certificates`, `audit`, `downloads` and `apt` cannot be issuing CA names, because the pages use
+those paths.
+
+With `--downloads DIR`, it lists the files of `DIR` for the clients at `/downloads/`, see
+[Downloads](#downloads), and with `--packages DIR` it serves the apt repository in `DIR` at
+`/apt/`, see [apt repository](#apt-repository). Both are public, like the files of the CAs.
 
 `serve` logs in one format, the lines of key=value pairs of its [audit records](audit.md), each
 starting with `time=` and `event=`: the start, with the version, the root CA, the origin and
@@ -84,6 +89,12 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/help` | a redirect (`307 Temporary Redirect`) to `/help/` | |
 | `/docs/` | with `--docs`, the guides of `simple-ca`, from `usage.md` | `text/html` |
 | `/docs` | with `--docs`, a redirect (`307 Temporary Redirect`) to `/docs/` | |
+| `/downloads/` | with `--downloads`, the page of the files whose SHA-256 matches their sum file | `text/html` |
+| `/downloads/FILE` | a file of the page, as an attachment | `application/octet-stream` |
+| `/downloads/FILE.sha256` | the sum file of a file of the page | `text/plain` |
+| `/downloads` | with `--downloads`, a redirect (`307 Temporary Redirect`) to `/downloads/` | |
+| `/apt/` | with `--packages`, the page telling how to set up the apt repository | `text/html` |
+| `/apt/...` | with `--packages`, the files and the subdirectory listings of the apt repository | |
 
 The index page lists the root CA and all its issuing CAs, also when `--ca-dir` is an issuing CA,
 each with its name, the CN of its subject, or the whole subject without one, whose popup lists
@@ -106,14 +117,16 @@ all the pages. The
 pages are styled with the browser build of Tailwind CSS 4.3.3, embedded in the executable and
 served at `/assets/tailwindcss-browser-4.3.3.js`; `/assets/webui/theme.js` sets the theme,
 `/assets/webui/picker.js` draws the dropdown choosers, the index page opens its dialogs with the
-script `/assets/webui/index.js`, the signing forms choose the certificate type with
+script `/assets/webui/index.js`, the copy buttons of the index and downloads pages copy with
+`/assets/webui/copy.js`, the signing forms choose the certificate type with
 `/assets/webui/sign.js`, and `/token-setup` shows the token with `/assets/webui/setup.js`, so the
 pages load nothing from other sites. The
 [OIDC sign-in](oidc.md), `/assets/webui/oidc.js`, sends the browser to the provider, and the page
 `/oidc-callback` redeems the code at the token endpoint of the provider.
 
 The files are read on each request, so a CRL written by `crl create` is served at once; a file that
-does not exist is `404 Not Found`. No other file is served.
+does not exist is `404 Not Found`. No other file is served, but those of `--downloads` and
+`--packages`.
 
 `/help/` shows the clients of the [signing API](signing-api.md) how to request a certificate with
 `request-cert`, step by step with `openssl`, `curl` and `jq`, or with the signing form:
@@ -146,3 +159,84 @@ served:
 simple-ca ca create --ca-dir /tmp/ca --ca-url http://pki.example.com:8080 "My Root CA"
 simple-ca serve --ca-dir /tmp/ca --address 0.0.0.0 --port 8080
 ```
+
+## Downloads
+
+`/downloads/` lists the files of the `--downloads` directory, with the size and the SHA-256 of
+each; the name links to the file, the SHA-256 to its sum file, and the copy button after the
+SHA-256 copies it to the clipboard. A file is listed when `NAME.sha256` beside it holds the line
+`sha256sum NAME` writes, with the SHA-256 of the file and its name; a file without it, or whose
+SHA-256 does not match, is left out, with a `serve.warning` record for the mismatch, and its
+URL is `404 Not Found`. Subdirectories and files whose names start with `.` are not listed, and
+a symbolic link is followed only within the directory. The directory is read on each request,
+and a file is hashed again after it or its sum file changes. The index page links to
+`/downloads/` as "Downloads" in its header, and every page below the page.
+
+```sh
+DOWNLOADS=/srv/simple-ca/downloads
+NAME=request-cert-linux-amd64
+
+cp "bin/$NAME" "$DOWNLOADS/"
+(cd "$DOWNLOADS" && sha256sum "$NAME" > "$NAME.sha256")
+simple-ca serve --ca-dir /etc/simple-ca --downloads "$DOWNLOADS"
+```
+
+In a checkout of simple-ca, `./build.mjs sums` writes the sum files of a directory, of all its
+files or of those matching a glob, see [Development](development.md#building):
+
+```sh
+DOWNLOADS=/srv/simple-ca/downloads
+GLOB='request-cert-*'
+
+./build.mjs sums "$DOWNLOADS" "$GLOB"
+```
+
+A client checks a file it downloaded with its sum file:
+
+```sh
+BASE_URL=https://pki.example.com:8443
+NAME=request-cert-linux-amd64
+
+curl -fsSLO "$BASE_URL/downloads/$NAME"
+curl -fsSLO "$BASE_URL/downloads/$NAME.sha256"
+sha256sum -c "$NAME.sha256"
+```
+
+## apt repository
+
+`/apt/` serves the files of the `--packages` directory as they are, and a listing of each of its
+subdirectories. `serve` builds no index; `./build.mjs apt` builds a signed flat repository of the
+Debian packages, see [Development](development.md#building), whose files are copied to the
+directory:
+
+```sh
+PACKAGES=/srv/simple-ca/apt
+
+./build.mjs apt --key apt-signing-key.asc
+rsync -a --delete apt/ "pki.example.com:$PACKAGES/"
+simple-ca serve --ca-dir /etc/simple-ca --packages "$PACKAGES"
+```
+
+`/apt/` itself is the apt page, built into `serve`, which tells the admin of a Debian or Ubuntu
+machine how to set up the repository: the commands below with `BASE_URL` set to the address the
+page was opened at, a copy button for them, and the packages, the names of the `Package:` lines
+of `Packages`. It warns when the repository has no `key.asc`, and when the page is served over
+plain HTTP. The index page links to it as "Apt" in its header, beside "Downloads", and every
+page below the page.
+
+A client trusts the key of the repository, `key.asc`, and adds the repository as a flat one,
+whose suite is `./`:
+
+```sh
+BASE_URL=https://pki.example.com:8443
+
+sudo install -d -m 0755 /etc/apt/keyrings
+sudo curl -fsSL -o /etc/apt/keyrings/simple-ca.asc "$BASE_URL/apt/key.asc"
+echo "deb [signed-by=/etc/apt/keyrings/simple-ca.asc] $BASE_URL/apt ./" |
+  sudo tee /etc/apt/sources.list.d/simple-ca.list
+sudo apt-get update
+sudo apt-get install simple-ca-lite
+```
+
+The key is fetched over HTTPS from a server the client trusts; a key fetched over plain HTTP
+can be replaced on the way.

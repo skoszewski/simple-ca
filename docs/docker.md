@@ -87,6 +87,46 @@ docker run -d -p 8080:8080 -v simple-ca:/data -v "$KEY_PASSWORD_FILE:/run/secret
   -e SIMPLE_CA_KEY_PASSWORD_FILE=/run/secrets/key-password simple-ca serve --address 0.0.0.0
 ```
 
+## simple-ca-full
+
+`--full` adds a second image to `./build.mjs docker` and `./build.mjs container`:
+`simple-ca-full:X.Y.Z` and `simple-ca-full:latest`, built by `Dockerfile.full` from
+`simple-ca:X.Y.Z` of the same build, below the same registry, and pushed with it by `--push`. It
+adds one layer:
+
+- the release archives, `simple-ca-*.tar.gz` and `simple-ca-lite-*.tar.gz` and their `.zip`
+  files, with a `.sha256` file written for each, in `/srv/simple-ca/downloads`;
+- the apt repository of `./build.mjs apt` in `/srv/simple-ca/apt`.
+
+Its command replaces the one of `simple-ca`: without arguments, the container runs `serve` on
+port 8080 with `--downloads /srv/simple-ca/downloads` and `--packages /srv/simple-ca/apt`, so it
+offers the archives at `/downloads/` and the repository, with its setup page, at `/apt/` (see
+[serve](serve.md#downloads)). `--full` takes the directory of the archives, `dist/` by default,
+and that of the repository, `apt/` by default, and refuses to build when the first holds no
+archive or the second has no `Release`, `InRelease` or `key.asc`.
+
+```sh
+SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+
+./build.mjs dist
+./build.mjs deb
+./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE"
+./build.mjs docker --full
+docker volume create simple-ca
+docker run --rm -v simple-ca:/data simple-ca-full ca create \
+  --ca-url http://pki.example.com:8080 "My Root CA"
+docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data simple-ca-full
+```
+
+As with `simple-ca`, `serve` needs a CA in `/data`, so the CA is created first.
+
+`./build.mjs dist` writes the archives of the host only; archives of other platforms, such as
+those of a release, are put into the directory given to `--full`. The `FROM` of `Dockerfile.full`
+reads `simple-ca:X.Y.Z` where the builder reads images: the local images for the `docker`
+driver of buildx and for the `container` CLI, and the registry for a `docker-container` builder,
+so that a multi-platform build of `docker` needs `--push`, which pushes `simple-ca` before
+`simple-ca-full` is built.
+
 ## Docker Compose
 
 `examples/compose.yaml` runs the image of `./build.mjs docker` as the service `simple-ca`, with

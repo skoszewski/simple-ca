@@ -55,8 +55,8 @@ const (
 // webuiScripts are the scripts of the pages, served at their paths: theme.js, which every page
 // loads in its head; picker.js, oidc.js and webui.js, which both pages load, then tokens.js or
 // certs.js; the signing form of serve loads picker.js, oidc.js and sign.js, its setup code page
-// picker.js, oidc.js and setup.js, its OIDC callback page oidc.js, and its index page picker.js
-// and index.js.
+// picker.js, oidc.js and setup.js, its OIDC callback page oidc.js, its index page picker.js,
+// index.js and copy.js, and its downloads and apt pages copy.js.
 //
 //go:embed assets/webui/*.js
 var webuiScripts embed.FS

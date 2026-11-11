@@ -74,7 +74,7 @@ Without `--issuing-ca`, creates the root CA in the CA directory. With `--issuing
 creates an issuing CA in `CA_DIR/NAME/`, signed by the root CA in the CA directory, and adds it
 to `ca_bundle.pem` and to `index.txt` of the root CA. `NAME` is a **kebab-case** name: words of
 lower-case letters and digits joined by hyphens, such as `servers` or `lab-servers`, but not
-`help`, `docs`, `tokens`, `certificates` or `audit`, the routes of the pages of
+`help`, `docs`, `tokens`, `certificates`, `audit`, `downloads` or `apt`, the routes of the pages of
 [serve](serve.md). The CA directory must not hold an issuing CA. A CA that exists is left as it
 is. `--days` defaults to `days.ca` of `simple-ca.json`, 3650 without it; an issuing CA without
 either is valid as long as its root CA.

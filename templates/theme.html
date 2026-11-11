@@ -126,6 +126,12 @@
         {{- with docsLink}}
         <a class="hover:text-ink hover:underline" href="{{.}}" target="_blank" rel="noopener">Documentation</a>
         {{- end}}
+        {{- with downloadsLink}}
+        <a class="hover:text-ink hover:underline" href="{{.}}">Downloads</a>
+        {{- end}}
+        {{- with aptLink}}
+        <a class="hover:text-ink hover:underline" href="{{.}}">Apt</a>
+        {{- end}}
         <button type="button" data-theme-switch aria-label="Theme" class="rounded-full border border-line p-1.5 hover:bg-subtle hover:text-ink"></button>
       </p>
 {{- end}}

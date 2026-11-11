@@ -418,3 +418,16 @@ Each step reads what exists first and leaves it alone, so `google setup` can be 
 refuses what it would have to replace, such as a provider with another issuer, but the keys of an
 existing provider are replaced when they differ from those of the CA, so running it again after
 a key change uploads the new keys.
+
+## Downloads are checked against SHA-256 sum files, and the apt repository is built outside serve
+
+`serve --downloads` lists a file only when `NAME.sha256` beside it holds its SHA-256, as GitHub
+shows a SHA-256 digest beside each release asset, rather than an OpenPGP signature, which the Go
+standard library cannot check. The sum shows that a file is the one that was published there;
+who published it rests on the server the client trusts.
+
+`serve --packages` serves a prepared directory as it is, so `serve` reads no `.deb` file: their
+control files are compressed with xz or zstd, which the Go standard library cannot read, and apt
+needs a `Release` signed with OpenPGP. `./build.mjs apt` builds and signs the repository in a
+Debian container with `apt-ftparchive` and gpg instead. The repository is flat, one directory
+and one channel, with the sources line `deb URL/apt ./`.

@@ -2,25 +2,32 @@
 
 // Builds, tests, checks and packages simple-ca; docs/development.md describes the actions.
 // Usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
-//        ./build.mjs docker|container [--registry REGISTRY] [--push] [<os>/<arch>[,...]]
+//        ./build.mjs docker|container [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]
 //        ./build.mjs deb
 //        ./build.mjs dist [--dpkg]
+//        ./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]
+//        ./build.mjs sums DIR [GLOB]
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, matchesGlob, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]\n" +
-  "       ./build.mjs docker|container [--registry REGISTRY] [--push] [<os>/<arch>[,...]]\n" +
+  "       ./build.mjs docker|container [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]\n" +
   "       ./build.mjs deb\n" +
-  "       ./build.mjs dist [--dpkg]";
+  "       ./build.mjs dist [--dpkg]\n" +
+  "       ./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]\n" +
+  "       ./build.mjs sums DIR [GLOB]";
 const root = dirname(fileURLToPath(import.meta.url));
 let selfContained = false;
 let push = false;
 let dpkg = false;
 let registry = null;
+let keyFile = null;
+let passphraseFile = null;
+let fullDirs = null;
 const positional = [];
 for (let i = 2; i < process.argv.length; i++) {
   const arg = process.argv[i];
@@ -34,6 +41,21 @@ for (let i = 2; i < process.argv.length; i++) {
     registry = process.argv[++i] ?? "";
   } else if (arg.startsWith("--registry=")) {
     registry = arg.slice("--registry=".length);
+  } else if (arg === "--key") {
+    keyFile = process.argv[++i] ?? "";
+  } else if (arg.startsWith("--key=")) {
+    keyFile = arg.slice("--key=".length);
+  } else if (arg === "--passphrase-file") {
+    passphraseFile = process.argv[++i] ?? "";
+  } else if (arg.startsWith("--passphrase-file=")) {
+    passphraseFile = arg.slice("--passphrase-file=".length);
+  } else if (arg === "--full") {
+    // Up to two following arguments that are directories: the release archives and the repository.
+    fullDirs = [];
+    while (fullDirs.length < 2 && i + 1 < process.argv.length && !process.argv[i + 1].startsWith("--") &&
+      existsSync(process.argv[i + 1]) && statSync(process.argv[i + 1]).isDirectory()) {
+      fullDirs.push(resolve(process.argv[++i]));
+    }
   } else {
     positional.push(arg);
   }
@@ -122,6 +144,25 @@ function scratchDir(name) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Writes NAME.sha256, the line of sha256sum, for each file of dir matching glob, skipping dot
+ * files, sum files and those whose sum file already holds the line, and prints the names written.
+ */
+function writeSums(dir, glob) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const name = entry.name;
+    if (!entry.isFile() || name.startsWith(".") || name.endsWith(".sha256") || !matchesGlob(name, glob)) {
+      continue;
+    }
+    const line = `${createHash("sha256").update(readFileSync(join(dir, name))).digest("hex")}  ${name}\n`;
+    const sumFile = join(dir, `${name}.sha256`);
+    if (!existsSync(sumFile) || readFileSync(sumFile, "utf8") !== line) {
+      writeFileSync(sumFile, line);
+      console.log(`${name}.sha256`);
+    }
+  }
 }
 
 const goBuild = (output, pkg) => {
@@ -266,7 +307,12 @@ function buildDeb(engine, dir, source, internal = false) {
 // The Debian package directories and source package names.
 const debPackages = [["debian-package", "simple-ca"], ["debian-package-lite", "simple-ca-lite"]];
 
-if (!["build", "trust", "test", "check", "clean", "assets", "docker", "container", "deb", "dist"].includes(action) ||
+if (!["build", "trust", "test", "check", "clean", "assets", "docker", "container", "deb", "dist", "apt", "sums"].includes(action) ||
+  (action === "sums" && (platform === "" || positional.length > 3)) ||
+  (action === "apt" && positional.length > 3) ||
+  ((keyFile !== null) !== (action === "apt")) || keyFile === "" ||
+  (passphraseFile !== null && (action !== "apt" || passphraseFile === "")) ||
+  (fullDirs !== null && !imageBuild) ||
   (selfContained && action !== "trust") || (push && !imageBuild) || (dpkg && action !== "dist") ||
   (registry !== null && (!imageBuild || registry === "")) ||
   (["deb", "dist"].includes(action) && platform !== "")) {
@@ -287,7 +333,7 @@ if (imageBuild && platforms.some((p) => !/^[a-z0-9]+\/[a-z0-9]+(\/[a-z0-9]+)?$/.
   process.exit(2);
 }
 
-if (platform !== "" && !imageBuild) {
+if (platform !== "" && !imageBuild && !["apt", "sums"].includes(action)) {
   const [goos, goarch, ...rest] = platform.split("/");
   if (!goos || !goarch || rest.length > 0) {
     console.error("platform must be given as <goos>/<goarch>, e.g. linux/amd64");
@@ -354,28 +400,70 @@ switch (action) {
       console.error("CHANGELOG.md has no \"## x.y.z\" entry");
       process.exit(1);
     }
-    const image = registry === null ? "simple-ca" : `${registry.replace(/\/+$/, "")}/simple-ca`;
-    const tags = [`${image}:${version}`, `${image}:latest`];
-    const args = ["--build-arg", `VERSION=v${version}`, ...tags.flatMap((tag) => ["-t", tag])];
-    if (action === "docker") {
-      run("docker", ["buildx", "build", ...(push ? ["--push"] : []),
-        ...(platform === "" ? [] : ["--platform", platform]), ...args, "."]);
-      break;
+    const prefix = registry === null ? "" : `${registry.replace(/\/+$/, "")}/`;
+    const tagsOf = (name) => [`${prefix}${name}:${version}`, `${prefix}${name}:latest`];
+
+    // With --full, the release archives and the apt repository are checked before any build.
+    const [downloadsDir = join(root, "dist"), repoDir = join(root, "apt")] = fullDirs ?? [];
+    const archives = fullDirs !== null && existsSync(downloadsDir) ?
+      readdirSync(downloadsDir).filter((name) => /^simple-ca(-lite)?-[0-9].*\.(tar\.gz|zip)$/.test(name)) : [];
+    if (fullDirs !== null && archives.length === 0) {
+      console.error(`--full: ${downloadsDir} holds no release archives; see ./build.mjs dist`);
+      process.exit(1);
     }
-    args.push(...platforms.flatMap((p) => ["--platform", p]));
-    if (!works("container", ["--version"])) {
+    const missing = fullDirs === null ? [] :
+      ["Release", "InRelease", "key.asc"].filter((name) => !existsSync(join(repoDir, name)));
+    if (missing.length > 0) {
+      console.error(`--full: ${repoDir} has no ${missing.join(", ")}; see ./build.mjs apt`);
+      process.exit(1);
+    }
+    if (action === "container" && !works("container", ["--version"])) {
       console.error("container: Apple's container CLI is not installed");
       process.exit(1);
     }
-    const context = scratchDir("image");
-    try {
-      stageContext(".dockerignore", "Dockerfile", context);
-      run("container", ["build", "-f", join(context, "Dockerfile"), ...args, context]);
-    } finally {
-      rmSync(context, { recursive: true, force: true });
+
+    // Builds the image of dockerfile in context with tags, and pushes it with --push.
+    const buildImage = (dockerfile, context, tags, buildArgs) => {
+      const args = [...buildArgs.flatMap((arg) => ["--build-arg", arg]), ...tags.flatMap((tag) => ["-t", tag])];
+      if (action === "docker") {
+        run("docker", ["buildx", "build", ...(push ? ["--push"] : []),
+          ...(platform === "" ? [] : ["--platform", platform]), "-f", dockerfile, ...args, context]);
+        return;
+      }
+      run("container", ["build", "-f", dockerfile, ...args, ...platforms.flatMap((p) => ["--platform", p]), context]);
+      for (const tag of push ? tags : []) {
+        run("container", ["image", "push", tag]);
+      }
+    };
+
+    const tags = tagsOf("simple-ca");
+    if (action === "docker") {
+      buildImage(join(root, "Dockerfile"), ".", tags, [`VERSION=v${version}`]);
+    } else {
+      const context = scratchDir("image");
+      try {
+        stageContext(".dockerignore", "Dockerfile", context);
+        buildImage(join(context, "Dockerfile"), context, tags, [`VERSION=v${version}`]);
+      } finally {
+        rmSync(context, { recursive: true, force: true });
+      }
     }
-    for (const tag of push ? tags : []) {
-      run("container", ["image", "push", tag]);
+    if (fullDirs === null) {
+      break;
+    }
+
+    // simple-ca-full: the image above with the archives, their sum files and the repository.
+    const stage = scratchDir("image-full");
+    try {
+      for (const name of archives) {
+        cpSync(join(downloadsDir, name), join(stage, "downloads", name));
+      }
+      writeSums(join(stage, "downloads"), "*");
+      cpSync(repoDir, join(stage, "apt"), { recursive: true });
+      cpSync(join(root, "Dockerfile.full"), join(stage, "Dockerfile.full"));
+      buildImage(join(stage, "Dockerfile.full"), stage, tagsOf("simple-ca-full"), [`BASE=${tags[0]}`]);
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
     }
     break;
   }
@@ -449,6 +537,68 @@ switch (action) {
     }
     break;
   }
+  case "apt": {
+    const debDir = platform === "" ? join(root, "dist") : resolve(platform);
+    const aptDir = positional[2] === undefined ? join(root, "apt") : resolve(positional[2]);
+    // The destination is replaced, so it must be empty or hold a repository.
+    if (aptDir === debDir ||
+      (existsSync(aptDir) && readdirSync(aptDir).length > 0 && !existsSync(join(aptDir, "Release")))) {
+      console.error(`apt: ${aptDir} is not empty and holds no repository, or is the source directory`);
+      process.exit(1);
+    }
+    keyFile = resolve(keyFile);
+    passphraseFile = passphraseFile === null ? null : resolve(passphraseFile);
+    const debs = existsSync(debDir) ? readdirSync(debDir).filter((name) => name.endsWith(".deb")) : [];
+    if (debs.length === 0) {
+      console.error(`apt: ${debDir} holds no .deb files`);
+      process.exit(1);
+    }
+    for (const file of [keyFile, passphraseFile].filter((file) => file !== null && !existsSync(file))) {
+      console.error(`apt: ${file} does not exist`);
+      process.exit(1);
+    }
+    const engine = host === "darwin" && works("container", ["--version"]) ? "container" : "docker";
+    const scratch = scratchDir("apt");
+    const context = join(scratch, "context");
+    const out = join(scratch, "out");
+    try {
+      for (const name of debs) {
+        cpSync(join(debDir, name), join(context, "debs", name));
+      }
+      for (const name of ["Dockerfile", "build-repo.sh"]) {
+        cpSync(join(root, "apt-repo", name), join(context, "apt-repo", name));
+      }
+      // Secrets are not part of the cache key, so the repository is always built anew.
+      const args = ["-f", join(context, "apt-repo", "Dockerfile"), "--no-cache",
+        "--secret", `id=gpg_key,src=${keyFile}`,
+        ...(passphraseFile === null ? [] : ["--secret", `id=gpg_passphrase,src=${passphraseFile}`]),
+        "--output", `type=local,dest=${out}`, context];
+      if (engine === "container") {
+        run("container", ["build", ...args]);
+      } else {
+        run("docker", ["buildx", "build", ...args]);
+      }
+      // The container CLI writes a local output to out.tar/<os>_<arch>/ below dest.
+      const release = readdirSync(out, { recursive: true }).find((file) => basename(file) === "Release");
+      const repo = dirname(join(out, release));
+      rmSync(aptDir, { recursive: true, force: true });
+      cpSync(repo, aptDir, { recursive: true });
+      console.log(aptDir);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+    break;
+  }
+  case "sums": {
+    const dir = resolve(platform);
+    const glob = positional[2] ?? "*";
+    if (!existsSync(dir)) {
+      console.error(`sums: ${dir} does not exist`);
+      process.exit(1);
+    }
+    writeSums(dir, glob);
+    break;
+  }
   case "test":
     run("go", ["test", "./..."], { env });
     break;
@@ -466,6 +616,7 @@ switch (action) {
     rmSync(binDir, { recursive: true, force: true });
     rmSync(buildDir, { recursive: true, force: true });
     rmSync(`${root}/dist`, { recursive: true, force: true });
+    rmSync(`${root}/apt`, { recursive: true, force: true });
     for (const dir of ["trust/macos/.build", "trust/windows/bin", "trust/windows/obj", "trust/windows/simple-ca-trust.csproj"]) {
       rmSync(join(root, dir), { recursive: true, force: true });
     }

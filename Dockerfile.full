@@ -1,0 +1,12 @@
+# simple-ca-full: the image of the Dockerfile, named by the build argument BASE, with the release
+# archives and their sum files in /srv/simple-ca/downloads and the apt repository of
+# ./build.mjs apt in /srv/simple-ca/apt. Without arguments it runs serve on port 8080 with
+# --downloads and --packages on those directories. ./build.mjs docker|container --full stages
+# downloads/ and apt/ as the build context.
+
+ARG BASE=simple-ca:latest
+FROM ${BASE}
+COPY downloads/ /srv/simple-ca/downloads/
+COPY apt/ /srv/simple-ca/apt/
+CMD ["serve", "--address", "0.0.0.0", "--port", "8080", \
+     "--downloads", "/srv/simple-ca/downloads", "--packages", "/srv/simple-ca/apt"]

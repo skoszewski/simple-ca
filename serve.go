@@ -167,7 +167,7 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 // index.html, the list of the CAs; sign.html, the signing form; tokens.html and certs.html, the
 // tokens and the certificates of the CAs, with the parts they share in webui-common.html;
 // token-setup.html, the setup code page; token-describe.html, the page describing a token;
-// oidc-callback.html, the page the OIDC provider sends the
+// downloads.html, the downloads page; apt.html, the apt page; oidc-callback.html, the page the OIDC provider sends the
 // browser back to; and theme.html, the colours all of them share and the version line below each
 // of them.
 //
@@ -176,8 +176,9 @@ var templateFiles embed.FS
 
 // pageTemplates are templateFiles parsed, each named after its file, with the functions json,
 // which writes a value as JSON, version, the version of simple-ca, helpLink, the route of the
-// help page, empty for an executable without it, and docsLink, the route of the guides, empty
-// unless they are served.
+// help page, empty for an executable without it, docsLink, the route of the guides, empty
+// unless they are served, downloadsLink, the route of the downloads page, and aptLink, the route
+// of the apt page, each empty unless it is served.
 var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json": func(v any) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
@@ -191,6 +192,16 @@ var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json"
 		return ""
 	}
 	return docsPath
+}, "downloadsLink": func() string {
+	if downloadsDir == "" {
+		return ""
+	}
+	return downloadsPath
+}, "aptLink": func() string {
+	if packagesDir == "" {
+		return ""
+	}
+	return aptPath
 }}).ParseFS(templateFiles, "templates/*.html"))
 
 // docsServed tells that serve shows the guides at docsPath.
@@ -238,7 +249,8 @@ func issuingCADir(rootDir string, r *http.Request) (string, bool) {
 // signing API at /help/ and, with docs, the guides at /docs/. With webui, it serves the token
 // page at tokensPath and the certificate page at certsPath. The setup codes of the tokens are
 // exchanged for them at /api/token-setup and on the page /token-setup, and with oidc in
-// simple-ca.json, the ID tokens of the OIDC sign-in at /api/oidc-token.
+// simple-ca.json, the ID tokens of the OIDC sign-in at /api/oidc-token. With downloadsDir, it
+// serves the downloads page at downloadsPath, and with packagesDir the apt repository at aptPath.
 func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	docsServed = docs && docsSite != nil
 	mux := http.NewServeMux()
@@ -560,6 +572,19 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	}
 	if docsServed {
 		top.Handle(docsPath, docsSite)
+	}
+	if downloadsDir != "" {
+		top.HandleFunc("GET "+downloadsPath+"{$}", func(w http.ResponseWriter, r *http.Request) {
+			downloadsPage(w, r, rootDir)
+		})
+		top.HandleFunc("GET "+downloadsPath+"{file}", serveDownload)
+		top.Handle("GET "+strings.TrimSuffix(downloadsPath, "/"), http.RedirectHandler(downloadsPath, http.StatusTemporaryRedirect))
+	}
+	if packagesDir != "" {
+		top.Handle("GET "+aptPath, aptHandler)
+		top.HandleFunc("GET "+aptPath+"{$}", func(w http.ResponseWriter, r *http.Request) {
+			aptPage(w, r, rootDir)
+		})
 	}
 	if webui {
 		for path, scope := range map[string]string{tokensPath: "tokens", certsPath: "certs", auditPagePath: "audit"} {

@@ -17,6 +17,12 @@
             <div class="mt-2 flex flex-wrap gap-4">
               <a class="text-sm text-head-link hover:underline" href="/token-setup">Set up a token</a>
               <a class="text-sm text-head-link hover:underline" href="/token-describe">Describe a token</a>
+              {{- with downloadsLink}}
+              <a class="text-sm text-head-link hover:underline" href="{{.}}">Downloads</a>
+              {{- end}}
+              {{- with aptLink}}
+              <a class="text-sm text-head-link hover:underline" href="{{.}}">Apt</a>
+              {{- end}}
               {{- if .Tokens}}
               <a class="text-sm text-head-link hover:underline" href="{{.Tokens}}">Tokens</a>
               <a class="text-sm text-head-link hover:underline" href="{{.Certs}}">Certificates</a>
@@ -135,5 +141,6 @@
 
     <script src="/assets/webui/picker.js"></script>
     <script src="/assets/webui/index.js"></script>
+    <script src="/assets/webui/copy.js"></script>
   </body>
 </html>

@@ -22,18 +22,31 @@ archives are packed from, to `.build/`; `.gitignore` leaves both out.
                                # build simple-ca-trust-windows-arm64.exe carrying the .NET runtime
 ./build.mjs test               # run the tests
 ./build.mjs check              # check formatting, vet and run the tests
-./build.mjs clean              # remove bin/, .build/, dist/ and the build files of trust/macos
-                               # and trust/windows
+./build.mjs clean              # remove bin/, .build/, dist/, apt/ and the build files of
+                               # trust/macos and trust/windows
 ./build.mjs assets             # download the browser files of the /help/ and /docs/ pages
-./build.mjs docker [--registry REGISTRY] [--push] [<os>/<arch>[,...]]
+./build.mjs docker [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]
                                # build simple-ca:<version> and simple-ca:latest; --push pushes them;
-                               # the registry defaults to SIMPLE_CA_REGISTRY
-./build.mjs container [--registry REGISTRY] [--push] [<os>/<arch>[,...]]
+                               # the registry defaults to SIMPLE_CA_REGISTRY; --full also builds
+                               # simple-ca-full with the archives of DL, dist/ by default, and the
+                               # apt repository APT, apt/ by default
+./build.mjs container [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]
                                # the same image built on the local Mac with Apple's container CLI
 ./build.mjs deb                # build the Debian packages for the architecture of the Docker engine
 ./build.mjs dist [--dpkg]      # write the archives of an internal release for the host to
                                # dist/, and with --dpkg the Debian packages
+./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]
+                               # write the signed apt repository of the .deb files of SOURCE,
+                               # dist/ by default, to DEST, apt/ by default
+./build.mjs sums DIR [GLOB]    # write NAME.sha256 for each file of DIR, or each matching GLOB
 ```
+
+`./build.mjs sums` writes, for each file of `DIR` whose name matches `GLOB`, every file by
+default, the sum file that [serve --downloads](serve.md#downloads) checks: `NAME.sha256` beside
+it, with the line `sha256sum NAME` writes. Subdirectories, files whose names start with `.` and
+`.sha256` files are skipped, and a sum file that already holds the line is left as it is; the sum
+files written are printed. `GLOB` is quoted, so that the shell does not expand it, and is matched
+with Node's `path.matchesGlob`.
 
 `./build.mjs deb` builds two packages with `docker buildx`, for the architecture of the Docker
 engine, which may be a remote host of the docker context:
@@ -54,6 +67,61 @@ an entry `X.Y.Z-N`, whose programs are those of `vX.Y.Z`; while `vX.Y.Z` is not 
 browser files are downloaded first when `assets/markdown/` holds another release, and the build
 fails when that fails. [systemd](systemd.md#debian-package) describes the installed `simple-ca`
 package, and [Simple CA Lite](simple-ca-lite.md#installation) the `simple-ca-lite` package.
+
+`./build.mjs apt` builds the flat apt repository that `serve --packages` serves at `/apt/` (see
+[serve](serve.md#apt-repository)) from the `.deb` files of `SOURCE`, `dist/` by default, with the
+image of `apt-repo/Dockerfile`: `apt-repo/build-repo.sh` runs `apt-ftparchive` for `Packages`,
+`Packages.gz` and `Release`, signs `Release` with gpg as `InRelease` and `Release.gpg`, and
+exports the public key as `key.asc`. `--key` names the armored secret key, as
+`gpg --export-secret-keys --armor` writes it, and `--passphrase-file` a file holding its
+passphrase, when it has one; both reach the build as build secrets, `gpg_key` and
+`gpg_passphrase`, which are in no layer of the image, and the build runs without its cache. It
+builds with Apple's `container` CLI on macOS when it is installed, and with `docker buildx`
+otherwise, and replaces `DEST` with the repository: the `.deb` files and those six files. `DEST`
+is `apt/` in the root of the checkout by default, which `.gitignore` leaves out. A `DEST` that is
+`SOURCE`, or that is not empty and holds no `Release`, is refused, so no other directory is
+replaced.
+
+A signing key is made once with gpg, in the keyring of the user, and exported to the key file;
+`umask 077` keeps the files readable by their owner alone. `default default never` makes a
+primary key and a subkey of gpg's default algorithms that do not expire. A key without a
+passphrase:
+
+```sh
+SIMPLE_CA_GPG_KEY_UID='simple-ca apt repository <apt@example.com>'
+SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+
+mkdir -p "$(dirname "$SIMPLE_CA_GPG_KEY_FILE")"
+gpg --batch --pinentry-mode loopback --passphrase '' \
+  --quick-generate-key "$SIMPLE_CA_GPG_KEY_UID" default default never
+(umask 077 && gpg --armor --output "$SIMPLE_CA_GPG_KEY_FILE" \
+  --export-secret-keys "$SIMPLE_CA_GPG_KEY_UID")
+
+./build.mjs deb
+./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE"
+```
+
+A key with a passphrase, a random one in a file of its own, which gpg reads its first line of:
+
+```sh
+SIMPLE_CA_GPG_KEY_UID='simple-ca apt repository <apt@example.com>'
+SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
+
+mkdir -p "$(dirname "$SIMPLE_CA_GPG_KEY_FILE")"
+(umask 077 && openssl rand -base64 32 > "$SIMPLE_CA_GPG_PASSPHRASE_FILE")
+gpg --batch --pinentry-mode loopback --passphrase-file "$SIMPLE_CA_GPG_PASSPHRASE_FILE" \
+  --quick-generate-key "$SIMPLE_CA_GPG_KEY_UID" default default never
+(umask 077 && gpg --batch --pinentry-mode loopback \
+  --passphrase-file "$SIMPLE_CA_GPG_PASSPHRASE_FILE" --armor --output "$SIMPLE_CA_GPG_KEY_FILE" \
+  --export-secret-keys "$SIMPLE_CA_GPG_KEY_UID")
+
+./build.mjs deb
+./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE" --passphrase-file "$SIMPLE_CA_GPG_PASSPHRASE_FILE"
+```
+
+The same key signs every later build, so the clients that trust its `key.asc` keep trusting the
+repository.
 
 The builds in Docker, of the packages, of the image and of `Dockerfile.test`, keep their
 temporary files in a tmpfs on `/tmp`, and the release workflow packs the archives in the

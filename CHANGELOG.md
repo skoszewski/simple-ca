@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.19.0
+
+feat: serve offers checked downloads and an apt repository to clients.
+
+- `serve --downloads DIR` lists at `/downloads/` the files of `DIR` whose `NAME.sha256`, as
+  `sha256sum` writes it, holds their SHA-256, with their size and SHA-256, and serves them and
+  their sum files; a file without a sum file, or with one that does not match, is not listed and
+  not served. The SHA-256 links to the sum file, with a button copying it to the clipboard.
+  The index page links to `/downloads/` in its header, and every page below the page.
+- `serve --packages DIR` serves the apt repository in `DIR` as it is below `/apt/`, and at
+  `/apt/` a page with the commands that set up the repository on a Debian or Ubuntu machine, for
+  the address of the server, and its packages. The index page links to it as "Apt" beside
+  "Downloads", and every page below the page.
+- `./build.mjs docker|container --full [DL [APT]]` also builds `simple-ca-full`, `simple-ca` with
+  the release archives of `DL`, `dist/` by default, and their sum files, and the apt repository
+  `APT`, `apt/` by default; it runs `serve` with `--downloads` and `--packages` on them.
+- `./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]` builds a flat apt
+  repository of the `.deb` files of `SOURCE`, `dist/` by default, in a container build, signed
+  with the gpg key of `FILE`, with its public key as `key.asc`, and writes it to `DEST`, `apt/` by
+  default; a `DEST` that is not empty and holds no repository is refused.
+- `./build.mjs sums DIR [GLOB]` writes `NAME.sha256`, the line of `sha256sum`, for each file of
+  `DIR`, or each matching `GLOB`, whose sum file is missing or differs.
+- `downloads` and `apt` cannot be issuing CA names.
+
 ## 1.18.2
 
 fix: build.mjs container builds the image on the local Mac with Apple's container CLI, also for several platforms.

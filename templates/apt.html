@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Apt repository - {{.Title}} - simple-ca</title>
+    <script src="{{.Script}}"></script>
+    {{template "theme" .Theme}}
+  </head>
+  <body class="min-h-screen bg-page text-ink">
+    <div class="mx-auto max-w-5xl px-4 py-10 sm:py-16 xl:w-11/12 xl:max-w-[160rem] 2xl:w-5/6">
+      <div class="overflow-hidden rounded-2xl border border-line bg-card shadow-lg">
+        <div class="bg-head px-6 py-4 text-head-ink">
+          <h1 class="text-xl font-semibold">Apt repository</h1>
+          <p class="mt-1 text-sm text-head-muted">{{.Title}}, served by simple-ca</p>
+          <div class="mt-2 flex flex-wrap gap-4">
+            <a class="text-sm text-head-link hover:underline" href="/">All CAs</a>
+          </div>
+        </div>
+        <div class="space-y-4 px-6 py-5 text-sm">
+          <p>To install the packages of this server on a Debian or Ubuntu machine, run these commands
+            there as a user with sudo. They store the signing key of the repository in
+            <code class="font-mono">/etc/apt/keyrings/simple-ca.asc</code>, add the repository to
+            <code class="font-mono">/etc/apt/sources.list.d/simple-ca.list</code>, trusted with that
+            key alone, and install the packages. Later releases come with
+            <code class="font-mono">sudo apt-get update</code> and
+            <code class="font-mono">sudo apt-get upgrade</code>.</p>
+          {{- if .NoKey}}
+          <p class="rounded-lg border border-bad-line bg-bad px-4 py-3 text-bad-ink">The repository has no
+            <code class="font-mono">key.asc</code>, so the commands cannot fetch its signing key.</p>
+          {{- end}}
+          {{- if .PlainHTTP}}
+          <p class="rounded-lg border border-warn-line bg-warn px-4 py-3 text-warn-ink">This page is served over
+            plain HTTP: the key fetched over it can be replaced on the way. Check its fingerprint with the admin
+            of this server, or fetch it over HTTPS.</p>
+          {{- end}}
+          <div class="relative">
+            <pre class="overflow-x-auto rounded-lg border border-line bg-subtle px-4 py-3 pr-10 font-mono text-xs">{{.Commands}}</pre>
+            <button type="button" data-copy="{{.Commands}}" title="Copy the commands" aria-label="Copy the commands"
+              class="absolute top-2 right-2 rounded p-1 text-muted hover:bg-card hover:text-ink"></button>
+          </div>
+          {{- if .Packages}}
+          <div>
+            <h2 class="font-semibold">Packages</h2>
+            <ul class="mt-1 list-disc pl-5 font-mono text-xs">
+              {{- range .Packages}}
+              <li>{{.}}</li>
+              {{- end}}
+            </ul>
+          </div>
+          {{- else}}
+          <p class="text-muted">The repository holds no packages.</p>
+          {{- end}}
+        </div>
+      </div>
+      {{template "version"}}
+    </div>
+    <script src="/assets/webui/copy.js"></script>
+  </body>
+</html>
