@@ -21,7 +21,8 @@ the archive also holds `request-cert`, the Go client of the signing API, `token-
 exchanges a setup code for its token, `request-token`, which gets the JWTs of workload identity
 federation and the access tokens of Google Cloud and Microsoft Entra ID, `simple-ca-wif`, which
 sets up Google workload identity federation from the CA host, and `simple-ca-trust`, which adds
-the CAs to the trust store.
+the CAs to the trust store. `simple-ca-lite`, with the certificate commands alone, has an
+archive of its own, `simple-ca-lite-X.Y.Z-<goos>-<goarch>.tar.gz`.
 With Go installed:
 
 ```sh
@@ -32,6 +33,7 @@ An executable installed with `go install` has no `/help/` page of `serve`; the r
 
 `./build.mjs deb` builds a Debian package with the programs and the systemd units, installed with
 `dpkg -i`, and the releases hold it for amd64 and arm64; [systemd](docs/systemd.md#debian-package) describes it.
+It also builds `simple-ca-lite`, the package of `simple-ca-lite` alone.
 
 ## Quick start
 
@@ -70,6 +72,8 @@ command of its own;
   Windows, macOS or Linux.
 - [systemd](docs/systemd.md) - units for `serve` and the daily CRLs.
 - [Docker](docs/docker.md) - the container image.
+- [Simple CA Lite](docs/simple-ca-lite.md) - `simple-ca-lite`, the `ca`, `cert`, `crl` and `key`
+  commands of `simple-ca` alone, in a program and a Debian package of their own.
 - [Simple CA Mini](docs/simple-ca-mini.md) - `simple-ca-mini.py`, a single Python 3 script that
   drives the `openssl` command, for the CAs, certificates, PFX bundles and `serve`.
 - [Development](docs/development.md) - building, testing and releasing.

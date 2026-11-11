@@ -43,7 +43,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // samePublic reports whether the keys a and b have the same public key.
@@ -410,19 +409,16 @@ func TestReadKeyPassphrase(t *testing.T) {
 
 func TestEncryptedCAKey(t *testing.T) {
 	resetKeys(t)
+	PromptPassphrase = nil
 	root := newRoot(t, "rsa")
-	writeKey(t, filepath.Join(root.dir, "ca_key.pem"), root.key, "ca-pass")
-	if _, err := MakeToken(root.dir, "deploy", time.Hour, nil, nil, []string{"example.com"}, nil, nil); !errors.Is(err, ErrNoPassphrase) {
-		t.Fatalf("MakeToken with an encrypted CA key and no passphrase: %v, want ErrNoPassphrase", err)
+	keyPath := filepath.Join(root.dir, "ca_key.pem")
+	writeKey(t, keyPath, root.key, "ca-pass")
+	if _, err := LoadKey(keyPath); !errors.Is(err, ErrNoPassphrase) {
+		t.Fatalf("LoadKey of an encrypted CA key without a passphrase: %v, want ErrNoPassphrase", err)
 	}
 	t.Setenv("SIMPLE_CA_KEY_PASSWORD", "ca-pass")
-	jwt, err := MakeToken(root.dir, "deploy", time.Hour, nil, nil, []string{"example.com"}, nil, nil)
-	if err != nil {
-		t.Fatalf("MakeToken with the passphrase of the CA key: %v", err)
+	got, err := LoadKey(keyPath)
+	if err != nil || !samePublic(got, root.key) {
+		t.Fatalf("LoadKey of the encrypted CA key with its passphrase: %v, want the CA key", err)
 	}
-	jwks, err := CAJWKS(root.dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	verifyJWT(t, jwt, jwks)
 }

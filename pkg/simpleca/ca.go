@@ -20,8 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package simpleca is the CA core of simple-ca: the settings of simple-ca.json, the files and keys
-// of a CA, the certificate and token types, the tokens of the signing API and the audit log.
+// Package simpleca is the base of simple-ca: the settings of simple-ca.json, the files and keys of
+// a CA, the helpers, the file lock and the audit log.
 package simpleca
 
 import (
@@ -72,4 +72,16 @@ func LoadCert(path string) (*x509.Certificate, error) {
 func FileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// CAIDs returns the IDs of the root CA in rootDir, empty, and of its issuing CAs.
+func CAIDs(rootDir string) []string {
+	ids := []string{""}
+	entries, _ := os.ReadDir(rootDir)
+	for _, e := range entries {
+		if e.IsDir() && KebabCaseRE.MatchString(e.Name()) && FileExists(filepath.Join(rootDir, e.Name(), "ca_cert.pem")) {
+			ids = append(ids, e.Name())
+		}
+	}
+	return ids
 }

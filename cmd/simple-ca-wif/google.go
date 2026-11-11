@@ -42,6 +42,7 @@ import (
 
 	"github.com/skoszewski/simple-ca/pkg/client"
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/tokens"
 )
 
 // iamURL is the base URL of the IAM API v1, and resourceManagerURL that of the Resource Manager
@@ -304,14 +305,14 @@ func runGoogleSetup(args []string) error {
 	default:
 		setIssuer = ""
 	}
-	iss := cfg.TokenIssuer(caID)
+	iss := tokens.Issuer(cfg, caID)
 	switch {
 	case iss == "":
 		return fmt.Errorf("the CA has no issuer: give --issuer, or set federation.issuer of %s", cfg.Path)
 	case !strings.HasPrefix(iss, "https://"):
 		return fmt.Errorf("the issuer %s of the CA does not start with https://, which Google requires", iss)
 	}
-	jwks, err := simpleca.CAJWKS(dir)
+	jwks, err := tokens.CAJWKS(dir)
 	if err != nil {
 		return err
 	}
@@ -342,7 +343,7 @@ func runGoogleSetup(args []string) error {
 		cfg.Federation.Types = map[string]simpleca.TokenTypeConfig{}
 	}
 	cfg.Federation.Types[*typeName] = def
-	if _, err := cfg.TokenTypes(); err != nil {
+	if _, err := tokens.Types(cfg); err != nil {
 		return err
 	}
 
@@ -572,18 +573,18 @@ func runGoogleMachine(args []string) error {
 		return fmt.Errorf("the token type %s of %s has no audience of a Google workload identity pool provider: "+
 			"run simple-ca-wif google setup", *typeName, cfg.Path)
 	}
-	fed := &simpleca.TokenFederate{Type: *typeName}
+	fed := &tokens.TokenFederate{Type: *typeName}
 	resolved, err := fed.Resolve(cfg, caID, name)
 	if err != nil {
 		return err
 	}
-	if _, _, err := simpleca.NewTokenSetup(valid, setupValid, setupClients); err != nil {
+	if _, _, err := tokens.NewTokenSetup(valid, setupValid, setupClients); err != nil {
 		return err
 	}
-	if _, _, err := simpleca.PrepareToken(dir, name, fed, valid, []string{"federate"}, nil, nil, nil, clients); err != nil {
+	if _, _, err := tokens.PrepareToken(dir, name, fed, valid, []string{"federate"}, nil, nil, nil, clients); err != nil {
 		return err
 	}
-	db, err := simpleca.LoadTokens(dir)
+	db, err := tokens.LoadTokens(dir)
 	if err != nil {
 		return err
 	}
@@ -642,11 +643,11 @@ func runGoogleMachine(args []string) error {
 	}
 
 	// The token.
-	token, err := simpleca.AddToken(dir, name, fed, valid, []string{"federate"}, nil, nil, nil, clients, setupValid, setupClients)
+	token, err := tokens.AddToken(dir, name, fed, valid, []string{"federate"}, nil, nil, nil, clients, setupValid, setupClients)
 	if err != nil {
 		return err
 	}
-	record := append([]any{"name", name, "scopes", "federate", "setup_code", setupValid > 0}, simpleca.FederateAudit(fed)...)
+	record := append([]any{"name", name, "scopes", "federate", "setup_code", setupValid > 0}, tokens.FederateAudit(fed)...)
 	simpleca.Audit(dir, "token.create", append(record, "via", "cli", "actor", simpleca.CLIActor())...)
 	if *otc {
 		fmt.Fprintf(stdout, "token %s: created, setup code %s\n", name, token)

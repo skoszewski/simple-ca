@@ -22,6 +22,8 @@ import (
 
 	"github.com/skoszewski/serve-markdown/v3/render"
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cli"
 )
 
 func TestServe(t *testing.T) {
@@ -31,13 +33,13 @@ func TestServe(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	if err := makeCA(caDir, "Test CA", 3650, "", server.URL, "rsa"); err != nil {
+	if err := cert.MakeCA(caDir, "Test CA", 3650, "", server.URL, "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
+	if err := cert.MakeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
-	if _, err := makeCert("web.example.com", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil, ""); err != nil {
+	if _, err := cert.MakeCert("web.example.com", nil, filepath.Join(caDir, "issuing-ca"), "", "server", 365, nil, nil, ""); err != nil {
 		t.Fatalf("makeCert: %v", err)
 	}
 
@@ -74,7 +76,7 @@ func TestServe(t *testing.T) {
 	if status, _, _ := get("GET", cdp); status != http.StatusOK {
 		t.Fatalf("GET %s, the first CRL of ca create: %d, want 200", cdp, status)
 	}
-	if err := makeCA(caDir, "Short CA", 10, "short-ca", "", "rsa"); err != nil {
+	if err := cert.MakeCA(caDir, "Short CA", 10, "short-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA short: %v", err)
 	}
 	status, typ, page := get("GET", "/")
@@ -85,11 +87,11 @@ func TestServe(t *testing.T) {
 	for _, s := range []string{"<title>Test CA - simple-ca</title>", `font-semibold">Test CA</h1>`, "served by simple-ca",
 		"<dd>/CN=Issuing CA</dd>", `<span data-subject="[[&#34;CN&#34;,&#34;Issuing CA&#34;]]">Issuing CA</span>`,
 		`font-semibold">Issuing CA</h2>`, `text-subtle-ink">Root CA</span>`, `text-subtle-ink">Subordinate CA</span>`,
-		"<dd>/CN=Test CA</dd>", serialHex(issuing.SerialNumber),
-		`<span class="whitespace-nowrap">` + colonHex(fingerprint[:8]) + `:</span><span class="whitespace-nowrap">` +
-			colonHex(fingerprint[8:16]) + `:</span><span class="whitespace-nowrap">` + colonHex(fingerprint[16:24]) +
-			`:</span><span class="whitespace-nowrap">` + colonHex(fingerprint[24:]) + `</span>`,
-		"RSA 4096 bits", issuing.NotBefore.UTC().Format(displayTimeFormat), "3650 days left",
+		"<dd>/CN=Test CA</dd>", cert.SerialHex(issuing.SerialNumber),
+		`<span class="whitespace-nowrap">` + cert.ColonHex(fingerprint[:8]) + `:</span><span class="whitespace-nowrap">` +
+			cert.ColonHex(fingerprint[8:16]) + `:</span><span class="whitespace-nowrap">` + cert.ColonHex(fingerprint[16:24]) +
+			`:</span><span class="whitespace-nowrap">` + cert.ColonHex(fingerprint[24:]) + `</span>`,
+		"RSA 4096 bits", issuing.NotBefore.UTC().Format(cert.DisplayTimeFormat), "3650 days left",
 		`bg-warn text-warn-ink">10 days left`, `href="/ca_cert.crt"`, `href="/issuing-ca/ca_cert.pem"`,
 		"<dd>number 1, 0 revoked, next update ", `href="/issuing-ca/crl.crl"`, `<script src="` + tailwindPath + `">`,
 		`<button type="button" data-info="info-1"`, `<dialog id="info-1"`, `<script src="/assets/webui/index.js">`} {
@@ -141,7 +143,7 @@ func TestServe(t *testing.T) {
 	if status, _, _ := get("GET", "/assets/"); status != http.StatusNotFound {
 		t.Fatalf("GET /assets/: %d, want 404", status)
 	}
-	if err := makeCRL(filepath.Join(caDir, "issuing-ca"), 30); err != nil {
+	if err := cert.MakeCRL(filepath.Join(caDir, "issuing-ca"), 30); err != nil {
 		t.Fatalf("makeCRL: %v", err)
 	}
 	if _, _, page := get("GET", "/"); !strings.Contains(string(page), "<dd>number 2, 0 revoked, next update ") {
@@ -225,7 +227,7 @@ func TestServe(t *testing.T) {
 }
 
 func TestServeAddress(t *testing.T) {
-	if err := run([]string{"serve", "--address", ""}); !errors.Is(err, errUsage) {
+	if err := run([]string{"serve", "--address", ""}); !errors.Is(err, cli.ErrUsage) {
 		t.Fatalf("serve --address \"\": %v, want a usage error", err)
 	}
 }
@@ -270,11 +272,11 @@ func TestHelpPage(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	caDir := t.TempDir()
-	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
+	if err := cert.MakeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
 	for _, name := range []string{"help", "docs", "tokens", "certificates"} {
-		if err := makeCA(caDir, "Pages CA", 3650, name, "", "rsa"); err == nil || !strings.Contains(err.Error(), "taken") {
+		if err := cert.MakeCA(caDir, "Pages CA", 3650, name, "", "rsa"); err == nil || !strings.Contains(err.Error(), "taken") {
 			t.Fatalf("makeCA --issuing-ca %s: %v, want it refused", name, err)
 		}
 	}

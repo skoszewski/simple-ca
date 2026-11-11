@@ -275,6 +275,7 @@ token of every request: `Authorization: Bearer TOKEN`.
 - `403 Forbidden` - a token without the scope `tokens`, a client the token does not allow, or
   creating, renewing, revoking or removing a token with a scope the signed-in token does not have;
 - `404 Not Found` - a CA the token does not open;
+- `413 Request Entity Too Large` - a body larger than 64 KiB;
 - `429 Too Many Requests` - a client held back after refused tokens, see
   [Refused credentials](#refused-credentials).
 
@@ -302,7 +303,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 `serve` exchanges the [setup code](#one-time-setup-codes) of a token of the root CA or of any of
 its issuing CAs for the token at `/api/token-setup`, with `--webui` or without it. A request is a
-`POST` with a JSON body of at most 64 KiB, and needs no token:
+`POST` with a JSON body of at most 1 KiB, and needs no token:
 
 ```json
 {
@@ -315,8 +316,9 @@ issuing CA of the token, empty for the root CA, its name, its JWT, valid for the
 `token create` from now, and its scopes. The code works once. An error is `{"error": "..."}` with
 the status `400 Bad Request` for a body that is not a JSON object with the code,
 `401 Unauthorized` for an unknown, used or expired code, `403 Forbidden` for a client
-outside `--otc-network`, `415 Unsupported Media Type` for a body that is not
-`application/json`, and `429 Too Many Requests` for a client held back after refused codes.
+outside `--otc-network`, `413 Request Entity Too Large` for a body larger than 1 KiB,
+`415 Unsupported Media Type` for a body that is not `application/json`, and
+`429 Too Many Requests` for a client held back after refused codes.
 
 ```sh
 SERVER=http://pki.example.com:8080
@@ -416,6 +418,7 @@ certificate of the name, as the [directory layout](directory-layout.md) describe
   accepted from the client, the request names a key usage or extended key usage the type does
   not have, or it breaks the name rules above, such as a subject attribute other than CN and
   `emailAddress`, a second CN, or a SAN other than a DNS name, an email address or an IP address;
+- `413 Request Entity Too Large` - a body larger than 64 KiB;
 - `415 Unsupported Media Type` - the body is not `application/json`;
 - `429 Too Many Requests` - the client is held back after refused tokens, see
   [Refused credentials](#refused-credentials).
@@ -462,6 +465,7 @@ An error is `{"error": "..."}` with the status:
 - `403 Forbidden` - a token without the scope `federate`, a token without a token type, or a
   client the token does not allow;
 - `404 Not Found` - a CA without its key or `tokens-db.json`;
+- `413 Request Entity Too Large` - a body larger than 1 KiB;
 - `429 Too Many Requests` - the client is held back after refused tokens.
 
 ```sh

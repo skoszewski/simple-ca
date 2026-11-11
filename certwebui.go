@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cert"
 )
 
 // ---- the certificate page of serve ------------------------------------------
@@ -144,17 +145,17 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.URL.Path {
 	case "/api/certs":
-		cert, err := makeCert(strings.TrimSpace(req.Subject), req.SANs, dir, "", req.Type, req.Days, req.EKU, req.KU, "")
+		crt, err := cert.MakeCert(strings.TrimSpace(req.Subject), req.SANs, dir, "", req.Type, req.Days, req.EKU, req.KU, "")
 		switch {
-		case errors.Is(err, errCertExists):
+		case errors.Is(err, cert.ErrCertExists):
 			webuiFail(w, http.StatusConflict, err.Error())
 			return
 		case err != nil:
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		auditIssued(dir, cert, req.Type, s.auditActor()...)
-		webuiReply(w, http.StatusCreated, map[string]string{"subject": req.Subject, "serial": serialHex(cert.SerialNumber)})
+		cert.AuditIssued(dir, crt, req.Type, s.auditActor()...)
+		webuiReply(w, http.StatusCreated, map[string]string{"subject": req.Subject, "serial": cert.SerialHex(crt.SerialNumber)})
 	case "/api/certs/sign":
 		// The certificate is named after the name given, as cert sign names it after the request
 		// file, and replaces an earlier certificate of the name.
@@ -162,31 +163,31 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, http.StatusBadRequest, "name: the file name of the certificate is given without a directory")
 			return
 		}
-		file, err := certFile(req.Name)
+		file, err := cert.CertFile(req.Name)
 		if err != nil {
 			webuiFail(w, http.StatusBadRequest, "name: "+err.Error())
 			return
 		}
-		cert, err := requestCert(dir, []byte(req.CSR), req.Type, req.Days, req.EKU, req.KU)
+		crt, err := cert.RequestCert(dir, []byte(req.CSR), req.Type, req.Days, req.EKU, req.KU)
 		if err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := storeCert(dir, filepath.Join(dir, file), cert); err != nil {
+		if err := cert.StoreCert(dir, filepath.Join(dir, file), crt); err != nil {
 			slog.Error("serve.error", "error", err.Error())
 			webuiFail(w, http.StatusInternalServerError, "could not store the certificate")
 			return
 		}
-		auditIssued(dir, cert, req.Type, s.auditActor()...)
+		cert.AuditIssued(dir, crt, req.Type, s.auditActor()...)
 		webuiReply(w, http.StatusCreated, map[string]string{"file": file})
 	case "/api/certs/pfx":
-		certPath, ok := certFiles(dir)[req.Serial]
+		certPath, ok := cert.CertFiles(dir)[req.Serial]
 		if !ok || !simpleca.FileExists(strings.TrimSuffix(certPath, "_cert.pem")+"_key.pem") {
 			webuiFail(w, http.StatusNotFound, "no certificate file with a key of the CA directory holds the certificate "+req.Serial)
 			return
 		}
 		password := rand.Text()
-		bundle, err := encodePFX(certPath, dir, password)
+		bundle, err := cert.EncodePFX(certPath, dir, password)
 		if err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
@@ -197,19 +198,19 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 	case "/api/certs/revoke":
 		reason := ""
 		if req.Reason != "" {
-			i := slices.IndexFunc(crlReasons[:6], func(c struct {
-				name string
-				code int
+			i := slices.IndexFunc(cert.CRLReasons[:6], func(c struct {
+				Name string
+				Code int
 			}) bool {
-				return strings.EqualFold(c.name, req.Reason)
+				return strings.EqualFold(c.Name, req.Reason)
 			})
 			if i < 0 {
 				webuiFail(w, http.StatusBadRequest, "unknown revocation reason '"+req.Reason+"'")
 				return
 			}
-			reason = crlReasons[i].name
+			reason = cert.CRLReasons[i].Name
 		}
-		revoked, err := markRevoked(dir, req.Serial, reason)
+		revoked, err := cert.MarkRevoked(dir, req.Serial, reason)
 		switch {
 		case err != nil:
 			webuiFail(w, http.StatusBadRequest, err.Error())
@@ -220,49 +221,49 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 			webuiReply(w, http.StatusOK, map[string]string{"serial": req.Serial})
 		}
 	case "/api/crl":
-		if err := makeCRL(dir, req.Days); err != nil {
+		if err := cert.MakeCRL(dir, req.Days); err != nil {
 			webuiFail(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		auditCRL(dir, s.auditActor()...)
+		cert.AuditCRL(dir, s.auditActor()...)
 		webuiReply(w, http.StatusOK, map[string]string{"ca": req.CA})
 	}
 }
 
 // listCerts answers with the certificates index.txt of the CA in dir records, and its CRL.
 func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
-	entries, err := readIndex(dir)
+	entries, err := cert.ReadIndex(dir)
 	if err != nil {
 		slog.Error("serve.error", "error", err.Error())
 		webuiFail(w, http.StatusInternalServerError, "could not read the certificates")
 		return
 	}
 	now := time.Now()
-	files, keys := certFiles(dir), keyFiles(dir)
+	files, keys := cert.CertFiles(dir), cert.KeyFiles(dir)
 	certs := []webuiCert{}
 	for _, e := range entries {
-		status, err := entryStatus(e, now)
+		status, err := cert.EntryStatus(e, now)
 		if err != nil {
 			webuiFail(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		expires, err := parseIndexTime(e.expires)
+		expires, err := cert.ParseIndexTime(e.Expires)
 		if err != nil {
-			webuiFail(w, http.StatusInternalServerError, "invalid expiry of serial "+e.serial)
+			webuiFail(w, http.StatusInternalServerError, "invalid expiry of serial "+e.Serial)
 			return
 		}
-		c := webuiCert{Serial: e.serial, Subject: subjectAttributes(e.subject), Status: status, Expires: expires, Key: "-"}
-		if path, ok := keys[e.serial]; ok {
-			c.Key = keyStatus(path)
+		c := webuiCert{Serial: e.Serial, Subject: cert.SubjectAttributes(e.Subject), Status: status, Expires: expires, Key: "-"}
+		if path, ok := keys[e.Serial]; ok {
+			c.Key = cert.KeyStatus(path)
 		}
-		if path, ok := files[e.serial]; ok {
+		if path, ok := files[e.Serial]; ok {
 			c.HasKey = simpleca.FileExists(strings.TrimSuffix(path, "_cert.pem") + "_key.pem")
 		}
-		if e.revoked != "" {
-			if t, err := parseIndexTime(e.revoked); err == nil {
+		if e.Revoked != "" {
+			if t, err := cert.ParseIndexTime(e.Revoked); err == nil {
 				c.Revoked = &t
 			}
-			c.Reason, _, _ = revocationReason(e.revoked)
+			c.Reason, _, _ = cert.RevocationReason(e.Revoked)
 		}
 		certs = append(certs, c)
 	}
@@ -278,44 +279,10 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 	webuiReply(w, http.StatusOK, map[string]any{"certs": certs, "crl": crl})
 }
 
-// keyFiles returns the paths of the private keys of the certificates the CA in dir issued, by
-// their serial numbers: NAME_key.pem beside NAME_cert.pem, and for a root CA, the ca_key.pem of
-// each issuing CA; a path may name no file.
-func keyFiles(dir string) map[string]string {
-	keys := map[string]string{}
-	for serial, path := range certFiles(dir) {
-		keys[serial] = strings.TrimSuffix(path, "_cert.pem") + "_key.pem"
-	}
-	issuing, _ := filepath.Glob(filepath.Join(dir, "*", "ca_cert.pem"))
-	for _, path := range issuing {
-		if cert, err := simpleca.LoadCert(path); err == nil {
-			keys[serialHex(cert.SerialNumber)] = filepath.Join(filepath.Dir(path), "ca_key.pem")
-		}
-	}
-	return keys
-}
-
-// certFiles returns the certificate files NAME_cert.pem of the CA directory dir, besides that of
-// the CA, by the serial numbers of the certificates they hold.
-func certFiles(dir string) map[string]string {
-	paths, _ := filepath.Glob(filepath.Join(dir, "*_cert.pem"))
-	files := map[string]string{}
-	for _, path := range paths {
-		if filepath.Base(path) == "ca_cert.pem" {
-			continue
-		}
-		if cert, err := simpleca.LoadCert(path); err == nil {
-			files[serialHex(cert.SerialNumber)] = path
-		}
-	}
-	return files
-}
-
 // showCert answers with the file holding the certificate of the serial number serial, whether its
-// key beside it is ENC, PLAIN or - for none, and the content of the certificate, as certDetails
-// returns it. The certificate
-// is looked for in the certificate files of the CA in dir, and for the root CA also in the
-// certificates of its issuing CAs.
+// key beside it is ENC, PLAIN or - for none, and the content of the certificate, as
+// cert.CertDetails returns it. The certificate is looked for in the certificate files of the CA in
+// dir, and for the root CA also in the certificates of its issuing CAs.
 func (s *webuiServer) showCert(w http.ResponseWriter, dir, serial string) {
 	paths, _ := filepath.Glob(filepath.Join(dir, "*_cert.pem"))
 	if dir == s.rootDir {
@@ -331,13 +298,13 @@ func (s *webuiServer) showCert(w http.ResponseWriter, dir, serial string) {
 		if block == nil || block.Type != "CERTIFICATE" {
 			continue
 		}
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil || serialHex(cert.SerialNumber) != serial {
+		crt, err := x509.ParseCertificate(block.Bytes)
+		if err != nil || cert.SerialHex(crt.SerialNumber) != serial {
 			continue
 		}
 		file, _ := filepath.Rel(dir, path)
 		webuiReply(w, http.StatusOK, map[string]any{"file": filepath.ToSlash(file),
-			"key": keyStatus(strings.TrimSuffix(path, "_cert.pem") + "_key.pem"), "certificate": certDetails(cert, time.Now())})
+			"key": cert.KeyStatus(strings.TrimSuffix(path, "_cert.pem") + "_key.pem"), "certificate": cert.CertDetails(crt, time.Now())})
 		return
 	}
 	webuiFail(w, http.StatusNotFound, "no certificate file of the CA directory holds the certificate "+serial+

@@ -48,6 +48,7 @@ import (
 
 	"github.com/skoszewski/simple-ca/pkg/client"
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/tokens"
 )
 
 const (
@@ -288,7 +289,7 @@ func TestSetupCreatesThenLeavesAlone(t *testing.T) {
 		t.Errorf("the operations are not polled: %v", g.requests)
 	}
 
-	jwks, err := simpleca.CAJWKS(caDir)
+	jwks, err := tokens.CAJWKS(caDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +343,7 @@ func TestSetupPatchesKeys(t *testing.T) {
 		t.Errorf("changes %v", c)
 	}
 	wantLines(t, g.out.String(), "provider projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca: updated")
-	jwks, _ := simpleca.CAJWKS(caDir)
+	jwks, _ := tokens.CAJWKS(caDir)
 	if got := g.resources[testProvider]["oidc"].(map[string]any)["jwksJson"]; got != string(jwks) {
 		t.Errorf("jwksJson %v", got)
 	}
@@ -462,7 +463,7 @@ func TestMachineServiceAccount(t *testing.T) {
 	if info, _ := os.Stat(tokenPath); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("token file mode %v", info.Mode())
 	}
-	db, err := simpleca.LoadTokens(caDir)
+	db, err := tokens.LoadTokens(caDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,7 +556,7 @@ func TestMachinePrincipalWithSetupCode(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out, "build-01.token")); !os.IsNotExist(err) {
 		t.Errorf("token file: %v", err)
 	}
-	db, _ := simpleca.LoadTokens(caDir)
+	db, _ := tokens.LoadTokens(caDir)
 	if tok := db.Tokens["build-01"]; tok == nil || !tok.Pending() ||
 		!slices.Equal(tok.Setup.Clients, []string{"10.30.0.0/16", "192.0.2.1/32"}) {
 		t.Errorf("token %+v", tok)
@@ -592,7 +593,7 @@ func TestMachineRefusals(t *testing.T) {
 		if err != errUsage {
 			t.Errorf("error %v", err)
 		}
-		db, _ := simpleca.LoadTokens(caDir)
+		db, _ := tokens.LoadTokens(caDir)
 		entries, _ := os.ReadDir(out)
 		if len(g.requests) > 0 || len(db.Tokens) > 0 || len(entries) > 0 {
 			t.Errorf("requests %v, tokens %v, files %v", g.requests, db.Tokens, entries)
@@ -607,7 +608,7 @@ func TestMachineRefusals(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "federation.json") {
 			t.Errorf("error %v", err)
 		}
-		db, _ := simpleca.LoadTokens(caDir)
+		db, _ := tokens.LoadTokens(caDir)
 		if len(g.requests) > 0 || len(db.Tokens) > 0 {
 			t.Errorf("requests %v, tokens %v", g.requests, db.Tokens)
 		}
@@ -623,7 +624,7 @@ func TestMachineRefusals(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "denied") {
 			t.Errorf("error %v", err)
 		}
-		db, _ := simpleca.LoadTokens(caDir)
+		db, _ := tokens.LoadTokens(caDir)
 		entries, _ := os.ReadDir(out)
 		if len(db.Tokens) > 0 || len(entries) > 0 {
 			t.Errorf("tokens %v, files %v", db.Tokens, entries)
@@ -652,7 +653,7 @@ func TestMachineRefusals(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "exists") {
 			t.Errorf("error %v", err)
 		}
-		db, _ := simpleca.LoadTokens(caDir)
+		db, _ := tokens.LoadTokens(caDir)
 		if len(g.requests) > 0 || len(db.Tokens) > 0 {
 			t.Errorf("requests %v, tokens %v", g.requests, db.Tokens)
 		}
@@ -661,7 +662,7 @@ func TestMachineRefusals(t *testing.T) {
 		root, caDir := newTestCA(t)
 		setTokenType(t, root)
 		g := newFakeGoogle(t)
-		if _, err := simpleca.MakeToken(caDir, "build-01", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
+		if _, err := tokens.MakeToken(caDir, "build-01", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 		err := runGoogleMachine([]string{"--ca-dir", caDir, "--project", "lab-project", "--role", "roles/browser",
@@ -685,7 +686,7 @@ func TestMachineRefusals(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "run the command again") {
 			t.Fatalf("error %v", err)
 		}
-		db, _ := simpleca.LoadTokens(caDir)
+		db, _ := tokens.LoadTokens(caDir)
 		entries, _ := os.ReadDir(out)
 		if len(db.Tokens) > 0 || len(entries) > 0 {
 			t.Fatalf("tokens %v, files %v", db.Tokens, entries)

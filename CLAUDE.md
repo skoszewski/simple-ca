@@ -24,11 +24,24 @@
 - Go standard library only; `go-pkcs12`, serve-markdown's `render` package, which draws the
   `/help/` page, and `golang.org/x/term`, which reads the passphrase of the private keys without
   echo, are the dependencies, and no other is added.
-- The CA core is the public package `pkg/simpleca`, used by `simple-ca` and `simple-ca-wif`;
-  package `main` keeps the CLI, the REPL, `serve`, the web UIs, ACME and OIDC. The client code of
-  `request-cert`, `token-setup`, `request-token` and `simple-ca-wif` is `pkg/client`.
-- `simple-ca-wif` uses the Go standard library, `pkg/simpleca`, `pkg/client` and
-  `golang.org/x/term`, and calls the Google REST APIs without the Google SDK.
+- The CA core is the public package `pkg/simpleca` with a subpackage per domain, each importing
+  only those of the rows before it:
+  - base, `pkg/simpleca`: the config, keys, passphrase, helpers, audit log and `LockFile`;
+  - `jose`: JWS, JWK and JWT signing; `cert`: the certificate types and the certificate core;
+  - `tokens`: the token store, token types and federation JWTs; `acme`: the ACME server;
+  - `oidc`: the OIDC client, `oidc-users.json` and the sign-in handlers;
+  - `cli`: the shared commands of the groups `ca`, `cert`, `crl` and `key`.
+- Methods on `Config` are not added for the logic of a subpackage; it takes a function there,
+  such as `cert.Types(cfg)`. What `main` gives `acme` and `oidc` are hooks, package globals that
+  `main` sets.
+- Package `main` of `simple-ca` keeps the token and audit commands, the REPL, `serve`, the
+  signing API and the web UIs. `cmd/simple-ca-lite` is `simple-ca-lite`, the groups of
+  `cli.CertGroups()` alone, without `serve`, tokens, the REPL or embedded files, and does not
+  import serve-markdown.
+- The client code of `request-cert`, `token-setup`, `request-token` and `simple-ca-wif` is
+  `pkg/client`.
+- `simple-ca-wif` uses the Go standard library, `pkg/simpleca`, `pkg/simpleca/tokens`,
+  `pkg/client` and `golang.org/x/term`, and calls the Google REST APIs without the Google SDK.
 - `simple-ca-trust` uses each platform's standard library only: `cmd/simple-ca-trust` the Go
   standard library, `trust/windows` the .NET base class library, without NuGet packages, and
   `trust/macos` Swift with the system frameworks, without package dependencies.

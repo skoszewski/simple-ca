@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.18.0
+
+feat: simple-ca-lite runs the certificate commands of simple-ca alone, with its own archive and Debian package, and the shared code is split into a Go package per domain.
+
+- `simple-ca-lite` has the commands `ca create` and `show`; `cert create`, `sign`, `list`, `show`,
+  `revoke` and `pfx`; `crl create`; `key encrypt` and `decrypt`. It has the same options and help
+  as simple-ca, works on the same CA directory and writes the same audit records. It has no
+  `serve`, tokens, docs or session.
+- The release archives hold `simple-ca-lite-X.Y.Z-<goos>-<goarch>.tar.gz` (`.zip` for Windows),
+  and the Debian package `simple-ca-lite` installs it to `/usr/bin`. `build.mjs build`, `dist`,
+  `deb` and `dist --dpkg` build it as well.
+- `build.mjs` writes the intermediate files of a build to `.build/`, which `clean` removes:
+  the directories `dist` packs the archives from, the output of `dotnet publish` for Windows,
+  the context of the `container` build and the download of the page assets. `bin/` holds the
+  executables alone. The builds in Docker keep their temporary files in a tmpfs on `/tmp`, and
+  the release workflow packs the archives in the temporary directory of its runner.
+- The shared code is in `pkg/simpleca` and its subpackages: `jose`, `cert`, `tokens`, `acme`,
+  `oidc` and `cli`. Each package has its own tests.
+- Each request body of `serve` has the limit of its handler: 1 KiB for the setup-code exchange and
+  `/api/federation-token`, 64 KiB for the others. A larger body is answered with status 413
+  instead of being cut.
+- The guide [Simple CA Lite](docs/simple-ca-lite.md) describes it.
+
 ## 1.17.4
 
 fix: build.mjs dist writes the archive of the platform of the host alone.

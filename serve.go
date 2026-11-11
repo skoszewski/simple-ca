@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -46,6 +47,10 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/acme"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/oidc"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/tokens"
 )
 
 // ---- serve ------------------------------------------------------------------
@@ -208,7 +213,7 @@ func pageTheme(caDir string) template.CSS {
 // files, the URLs of its ACME directory and signing API, and the ID of its row, the name of an
 // issuing CA.
 type indexCA struct {
-	subjectView
+	cert.SubjectView
 	Role, Issuer, Serial, NotBefore, NotAfter, Expiry, Key, CRL, Path, ACME, API, SignForm, ID string
 	ExpiresSoon                                                                                bool
 	Fingerprint                                                                                []string
@@ -259,27 +264,27 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		}
 		for _, name := range dirs {
 			dir := filepath.Join(rootDir, name)
-			cert, err := simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem"))
+			crt, err := simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem"))
 			if err != nil {
 				slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 				http.Error(w, "could not read the CA certificates", http.StatusInternalServerError)
 				return
 			}
-			fingerprint := sha256.Sum256(cert.Raw)
+			fingerprint := sha256.Sum256(crt.Raw)
 			ca := indexCA{
-				subjectView: newSubjectView(nameString(cert.Subject)),
+				SubjectView: cert.NewSubjectView(cert.NameString(crt.Subject)),
 				Role:        "Root CA",
-				Issuer:      nameString(cert.Issuer),
-				Serial:      serialHex(cert.SerialNumber),
-				NotBefore:   cert.NotBefore.UTC().Format(displayTimeFormat),
-				NotAfter:    cert.NotAfter.UTC().Format(displayTimeFormat),
+				Issuer:      cert.NameString(crt.Issuer),
+				Serial:      cert.SerialHex(crt.SerialNumber),
+				NotBefore:   crt.NotBefore.UTC().Format(cert.DisplayTimeFormat),
+				NotAfter:    crt.NotAfter.UTC().Format(cert.DisplayTimeFormat),
 				Expiry:      "expired",
-				Key:         keyOf(cert).String(),
-				Fingerprint: []string{colonHex(fingerprint[:8]), colonHex(fingerprint[8:16]),
-					colonHex(fingerprint[16:24]), colonHex(fingerprint[24:])},
+				Key:         cert.KeyOf(crt).String(),
+				Fingerprint: []string{cert.ColonHex(fingerprint[:8]), cert.ColonHex(fingerprint[8:16]),
+					cert.ColonHex(fingerprint[16:24]), cert.ColonHex(fingerprint[24:])},
 				Path: "/",
 			}
-			if left := time.Until(cert.NotAfter); left > 0 {
+			if left := time.Until(crt.NotAfter); left > 0 {
 				days := int(math.Ceil(left.Hours() / 24))
 				ca.Expiry = fmt.Sprintf("%d days left", days)
 				if days == 1 {
@@ -288,14 +293,14 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 				ca.ExpiresSoon = days < 30
 			}
 			if name == "" {
-				title = cert.Subject.CommonName
+				title = crt.Subject.CommonName
 			} else {
 				ca.Role, ca.Path, ca.ID = "Subordinate CA", "/"+name+"/", name
 			}
 			if len(cfg.ACME.Domains) > 0 && simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.ACME = origin + ca.Path + "acme/directory"
 			}
-			if simpleca.FileExists(filepath.Join(dir, simpleca.TokensFile)) && simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
+			if simpleca.FileExists(filepath.Join(dir, tokens.TokensFile)) && simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.API = origin + ca.Path + "api/sign"
 			}
 			if simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
@@ -306,7 +311,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 				if block, _ := pem.Decode(b); block != nil {
 					if crl, err := x509.ParseRevocationList(block.Bytes); err == nil {
 						ca.CRL = fmt.Sprintf("number %s, %d revoked, next update %s", crl.Number,
-							len(crl.RevokedCertificateEntries), crl.NextUpdate.UTC().Format(displayTimeFormat))
+							len(crl.RevokedCertificateEntries), crl.NextUpdate.UTC().Format(cert.DisplayTimeFormat))
 						if time.Now().After(crl.NextUpdate) {
 							ca.CRL += " (overdue)"
 						}
@@ -316,15 +321,15 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			cas = append(cas, ca)
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		tokens, certs := "", ""
+		toks, certs := "", ""
 		if webui {
-			tokens, certs = tokensPath, certsPath
+			toks, certs = tokensPath, certsPath
 		}
 		if err := pageTemplates.ExecuteTemplate(w, "index.html", struct {
 			Title, Script, Tokens, Certs string
 			Theme                        template.CSS
 			CAs                          []indexCA
-		}{title, tailwindPath, tokens, certs, pageTheme(rootDir), cas}); err != nil {
+		}{title, tailwindPath, toks, certs, pageTheme(rootDir), cas}); err != nil {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		}
 	})
@@ -429,11 +434,11 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	}
 
 	// The ACME server of the root CA at /acme/ and of each issuing CA at /CA/acme/.
-	acme := newACMEServer()
+	acmeServer := acme.NewServer()
 	for _, p := range []string{"directory", "new-nonce", "new-account", "new-order", "revoke-cert", "acct/{id}",
 		"acct/{id}/orders", "order/{id}", "order/{id}/finalize", "authz/{id}", "chall/{id}/{type}", "cert/{id}"} {
 		mux.HandleFunc("/acme/"+p, func(w http.ResponseWriter, r *http.Request) {
-			acme.handle(w, r, rootDir, rootDir, "/acme", strings.TrimPrefix(r.URL.Path, "/acme/"))
+			acmeServer.Handle(w, r, rootDir, rootDir, "/acme", strings.TrimPrefix(r.URL.Path, "/acme/"))
 		})
 		mux.HandleFunc("/{ca}/acme/"+p, func(w http.ResponseWriter, r *http.Request) {
 			dir, ok := issuingCADir(rootDir, r)
@@ -442,7 +447,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 				return
 			}
 			prefix := "/" + r.PathValue("ca") + "/acme"
-			acme.handle(w, r, rootDir, dir, prefix, strings.TrimPrefix(r.URL.Path, prefix+"/"))
+			acmeServer.Handle(w, r, rootDir, dir, prefix, strings.TrimPrefix(r.URL.Path, prefix+"/"))
 		})
 	}
 
@@ -477,10 +482,10 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	}
 
 	// The OIDC sign-in.
-	oidc := newOIDCClient(rootDir)
-	mux.HandleFunc("GET /api/oidc", oidc.apiSettings)
-	mux.HandleFunc("POST /api/oidc-token", oidc.apiToken)
-	mux.HandleFunc("GET "+oidcCallbackPath, oidc.callbackPage)
+	oidcClient := oidc.NewClient(rootDir)
+	mux.HandleFunc("GET /api/oidc", oidcClient.APISettings)
+	mux.HandleFunc("POST /api/oidc-token", oidcClient.APIToken)
+	mux.HandleFunc("GET "+oidc.CallbackPath, oidcClient.CallbackPage)
 
 	// The JWTs of the token types for the tokens of the root CA at /api/federation-token and of each
 	// issuing CA at /CA/api/federation-token.
@@ -563,4 +568,29 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	}
 	top.Handle("/", mux)
 	return top
+}
+
+// init sets the hooks of the ACME server and the OIDC sign-in.
+func init() {
+	acme.ClientAddr = clientAddr
+	oidc.ClientAddr = clientAddr
+	oidc.StatusError = func(status int, format string, args ...any) error { return apiErr(status, format, args...) }
+	oidc.ErrorStatus = func(err error) (int, string, bool) {
+		var e *apiError
+		if errors.As(err, &e) {
+			return e.status, e.msg, true
+		}
+		return 0, "", false
+	}
+	oidc.Reply = webuiReply
+	oidc.Fail = webuiFail
+	oidc.Attempt = func(w http.ResponseWriter, r *http.Request, dir string, try func() error) error {
+		return guard.attempt(w, r, dir, try)
+	}
+	oidc.Page = func(w io.Writer, rootDir, title string) error {
+		return pageTemplates.ExecuteTemplate(w, "oidc-callback.html", struct {
+			Title, Script string
+			Theme         template.CSS
+		}{title, tailwindPath, pageTheme(rootDir)})
+	}
 }

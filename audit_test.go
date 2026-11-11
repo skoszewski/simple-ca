@@ -20,16 +20,18 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/tokens"
 )
 
 func TestAudit(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	rootDir := t.TempDir()
-	if err := makeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
+	if err := cert.MakeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(rootDir, "Servers CA", 0, "servers", "", "rsa"); err != nil {
+	if err := cert.MakeCA(rootDir, "Servers CA", 0, "servers", "", "rsa"); err != nil {
 		t.Fatalf("makeCA servers: %v", err)
 	}
 	serversDir := filepath.Join(rootDir, "servers")
@@ -87,11 +89,11 @@ func TestAudit(t *testing.T) {
 	shared := guard
 	guard = newAuthGuard()
 	t.Cleanup(func() { authFreeFailures, guard = free, shared })
-	admin, err := simpleca.MakeToken(rootDir, "admin", time.Hour, []string{"*"}, nil, []string{"example.com"}, nil, nil)
+	admin, err := tokens.MakeToken(rootDir, "admin", time.Hour, []string{"*"}, nil, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := simpleca.MakeToken(serversDir, "signer", time.Hour, []string{"sign", "audit"}, []string{"server"}, []string{"example.com"}, nil, nil)
+	signer, err := tokens.MakeToken(serversDir, "signer", time.Hour, []string{"sign", "audit"}, []string{"server"}, []string{"example.com"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +171,7 @@ func TestAudit(t *testing.T) {
 	if seen := cas(admin); !seen["servers"] || !seen[""] {
 		t.Errorf("the CAs of the records of a root CA token: %v, want the root CA and servers", seen)
 	}
-	if web, err := simpleca.MakeToken(serversDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
+	if web, err := tokens.MakeToken(serversDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	} else if status, _ := call(web, "GET", "/audit/api/entries", nil); status != http.StatusForbidden {
 		t.Errorf("the audit page without the scope audit: %d, want 403", status)

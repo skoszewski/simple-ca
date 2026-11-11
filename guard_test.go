@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/tokens"
 )
 
 func TestAuthGuard(t *testing.T) {
@@ -85,10 +86,10 @@ func TestAuthGuard(t *testing.T) {
 	guard = newAuthGuard()
 	t.Cleanup(func() { guard = shared })
 	rootDir := t.TempDir()
-	if err := makeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
+	if err := cert.MakeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	admin, err := simpleca.MakeToken(rootDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	admin, err := tokens.MakeToken(rootDir, "admin", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

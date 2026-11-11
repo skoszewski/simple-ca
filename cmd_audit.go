@@ -29,13 +29,14 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cli"
 )
 
 // ---- audit commands ---------------------------------------------------------
 
 // runAuditList runs audit list.
 func runAuditList(args []string) error {
-	fs := newFlagSet("audit list", "",
+	fs := cli.NewFlagSet("audit list", "",
 		"Print the records of the audit log of the root CA of the CA in --ca-dir, in the order they\n"+
 			"were written, those of the filters given alone.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
@@ -44,7 +45,7 @@ func runAuditList(args []string) error {
 	actor := fs.String("actor", "", "`actor`: an OS user, a token name, an OIDC user or an ACME account")
 	since := fs.String("since", "", "records from this `time` on: RFC 3339, such as 2026-11-03T21:00:00Z, or a date")
 	until := fs.String("until", "", "records before this `time`: RFC 3339 or a date")
-	_, given, err := parseArgs(fs, args, 0, 0)
+	_, given, err := cli.ParseArgs(fs, args, 0, 0)
 	if err != nil {
 		return err
 	}
@@ -67,7 +68,7 @@ func runAuditList(args []string) error {
 			return err
 		}
 	}
-	rootDir, _, err := simpleca.LocateCA(resolveCADir(*caDir))
+	rootDir, _, err := simpleca.LocateCA(cli.ResolveCADir(*caDir))
 	if err != nil {
 		return err
 	}

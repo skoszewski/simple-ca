@@ -151,51 +151,6 @@ func TestContextValues(t *testing.T) {
 	}
 }
 
-func TestOIDCResolved(t *testing.T) {
-	const path = "simple-ca.json"
-	if c, on, err := (OIDCConfig{ClientID: "x"}).Resolved(path); err != nil || on || c.Provider != "" {
-		t.Errorf("Resolved without an issuer: %+v, %v, %v, want it off", c, on, err)
-	}
-	for _, c := range []struct {
-		in                  OIDCConfig
-		label               string
-		scopes              []string
-		user, groups, roles ClaimPaths
-	}{
-		{OIDCConfig{Issuer: "https://idp.example.com", ClientID: "simple-ca"}, "OIDC",
-			[]string{"openid", "profile", "email"}, ClaimPaths{"sub"}, ClaimPaths{"groups"}, ClaimPaths{"roles"}},
-		{OIDCConfig{Provider: "keycloak", Issuer: "http://idp.example.com/realms/lab", ClientID: "simple-ca"}, "Keycloak",
-			[]string{"openid", "profile", "email"}, ClaimPaths{"preferred_username"}, ClaimPaths{"groups"},
-			ClaimPaths{"realm_access.roles", "resource_access.CLIENT_ID.roles"}},
-		{OIDCConfig{Provider: "entra", Issuer: "https://login.example.com/tenant/v2.0", ClientID: "simple-ca",
-			Scopes: []string{"email"}}, "Entra ID",
-			[]string{"openid", "email"}, ClaimPaths{"preferred_username"}, ClaimPaths{"groups"}, ClaimPaths{"roles"}},
-		{OIDCConfig{Issuer: "https://idp.example.com", ClientID: "simple-ca", Scopes: []string{"profile", "openid"},
-			Label: "Lab", UserClaim: ClaimPaths{"email"}, GroupsClaim: ClaimPaths{"teams"}, RolesClaim: ClaimPaths{"app.roles"}},
-			"Lab", []string{"profile", "openid"}, ClaimPaths{"email"}, ClaimPaths{"teams"}, ClaimPaths{"app.roles"}},
-	} {
-		got, on, err := c.in.Resolved(path)
-		if err != nil || !on || got.Label != c.label || !slices.Equal(got.Scopes, c.scopes) ||
-			!slices.Equal(got.UserClaim, c.user) || !slices.Equal(got.GroupsClaim, c.groups) ||
-			!slices.Equal(got.RolesClaim, c.roles) {
-			t.Errorf("Resolved of %+v: %+v, %v, %v", c.in, got, on, err)
-		}
-	}
-	for _, c := range []struct {
-		in   OIDCConfig
-		want string
-	}{
-		{OIDCConfig{Provider: "other", Issuer: "https://idp.example.com", ClientID: "x"}, "must be one of entra, generic, keycloak"},
-		{OIDCConfig{Issuer: "https://idp.example.com"}, "oidc.client_id"},
-		{OIDCConfig{Issuer: "idp.example.com", ClientID: "x"}, "not an HTTP or HTTPS URL"},
-	} {
-		if _, on, err := c.in.Resolved(path); err == nil || on || !strings.Contains(err.Error(), c.want) ||
-			!strings.Contains(err.Error(), path) {
-			t.Errorf("Resolved of %+v: %v, want an error with %q", c.in, err, c.want)
-		}
-	}
-}
-
 func TestClaimPaths(t *testing.T) {
 	var c OIDCConfig
 	if err := json.Unmarshal([]byte(`{"user_claim": "email", "groups_claim": ["a.b", "c"]}`), &c); err != nil ||
@@ -204,17 +159,5 @@ func TestClaimPaths(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(`{"roles_claim": 5}`), &c); err == nil || !strings.Contains(err.Error(), "dotted path") {
 		t.Errorf("a claim of a number: %v, want an error", err)
-	}
-}
-
-func TestACMELimits(t *testing.T) {
-	if got := (ACMEConfig{}).Limits(); got.MaxAccounts != 1000 || got.MaxOrders != 50 || got.MaxNames != 100 ||
-		got.MaxContacts != 10 || got.MaxNonces != 100000 {
-		t.Errorf("default limits %+v", got)
-	}
-	got := ACMEConfig{Days: 30, MaxAccounts: 5, MaxOrders: -1, MaxNames: 2, MaxContacts: 1, MaxNonces: 7}.Limits()
-	if got.Days != 30 || got.MaxAccounts != 5 || got.MaxOrders != 50 || got.MaxNames != 2 || got.MaxContacts != 1 ||
-		got.MaxNonces != 7 {
-		t.Errorf("limits set %+v, want them kept and the negative one the default", got)
 	}
 }

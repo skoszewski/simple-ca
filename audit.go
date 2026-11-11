@@ -24,7 +24,6 @@ package main
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"log/slog"
 	"os"
@@ -72,13 +71,6 @@ type logWriter struct{}
 func (logWriter) Write(p []byte) (int, error) {
 	slog.Info("log", "message", strings.TrimSpace(string(p)))
 	return len(p), nil
-}
-
-// auditIssued audits the certificate cert of the type certType the CA in caDir issued, with the
-// actor pairs of args.
-func auditIssued(caDir string, cert *x509.Certificate, certType string, args ...any) {
-	simpleca.Audit(caDir, "cert.issue", append([]any{"serial", serialHex(cert.SerialNumber), "subject", nameString(cert.Subject),
-		"type", certType}, args...)...)
 }
 
 // streamStderr writes line to stderr, the stream of serve outside the systemd journal.

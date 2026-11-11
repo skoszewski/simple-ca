@@ -16,6 +16,7 @@ menu:
       - Signing API clients: docs/examples.md
       - systemd: docs/systemd.md
       - Docker: docs/docker.md
+      - Simple CA Lite: docs/simple-ca-lite.md
       - Simple CA Mini: docs/simple-ca-mini.md
       - Development: docs/development.md
   - Changelog: CHANGELOG.md

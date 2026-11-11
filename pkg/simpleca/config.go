@@ -27,11 +27,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 )
 
 const (
@@ -65,21 +62,6 @@ type ACMEConfig struct {
 	MaxNames    int      `json:"max_names,omitempty"`
 	MaxContacts int      `json:"max_contacts,omitempty"`
 	MaxNonces   int      `json:"max_nonces,omitempty"`
-}
-
-// Limits returns the settings with the default of each limit that is not set.
-func (c ACMEConfig) Limits() ACMEConfig {
-	set := func(limit *int, byDefault int) {
-		if *limit < 1 {
-			*limit = byDefault
-		}
-	}
-	set(&c.MaxAccounts, 1000)
-	set(&c.MaxOrders, 50)
-	set(&c.MaxNames, 100)
-	set(&c.MaxContacts, 10)
-	set(&c.MaxNonces, 100000)
-	return c
 }
 
 // ServeConfig holds the settings of serve: the addresses and prefixes of the proxies whose
@@ -158,55 +140,6 @@ func (p *ClaimPaths) UnmarshalJSON(b []byte) error {
 	}
 	*p = list
 	return nil
-}
-
-// oidcProviders are the label and claim defaults of each provider.
-var oidcProviders = map[string]struct {
-	label               string
-	user, groups, roles ClaimPaths
-}{
-	"generic":  {"OIDC", ClaimPaths{"sub"}, ClaimPaths{"groups"}, ClaimPaths{"roles"}},
-	"keycloak": {"Keycloak", ClaimPaths{"preferred_username"}, ClaimPaths{"groups"}, ClaimPaths{"realm_access.roles", "resource_access.CLIENT_ID.roles"}},
-	"entra":    {"Entra ID", ClaimPaths{"preferred_username"}, ClaimPaths{"groups"}, ClaimPaths{"roles"}},
-}
-
-// Resolved returns c validated, with the defaults of its provider, and false when it is off.
-func (c OIDCConfig) Resolved(path string) (OIDCConfig, bool, error) {
-	if c.Issuer == "" {
-		return c, false, nil
-	}
-	if c.Provider == "" {
-		c.Provider = "generic"
-	}
-	preset, ok := oidcProviders[c.Provider]
-	switch {
-	case !ok:
-		return c, false, fmt.Errorf("oidc.provider of %s: unknown provider '%s': must be one of %s", path, c.Provider,
-			strings.Join(slices.Sorted(maps.Keys(oidcProviders)), ", "))
-	case !strings.HasPrefix(c.Issuer, "https://") && !strings.HasPrefix(c.Issuer, "http://"):
-		return c, false, fmt.Errorf("oidc.issuer of %s: '%s' is not an HTTP or HTTPS URL", path, c.Issuer)
-	case c.ClientID == "":
-		return c, false, fmt.Errorf("oidc.client_id of %s is required with oidc.issuer", path)
-	}
-	if len(c.Scopes) == 0 {
-		c.Scopes = []string{"openid", "profile", "email"}
-	}
-	if !slices.Contains(c.Scopes, "openid") {
-		c.Scopes = append([]string{"openid"}, c.Scopes...)
-	}
-	if c.Label == "" {
-		c.Label = preset.label
-	}
-	if len(c.UserClaim) == 0 {
-		c.UserClaim = preset.user
-	}
-	if len(c.GroupsClaim) == 0 {
-		c.GroupsClaim = preset.groups
-	}
-	if len(c.RolesClaim) == 0 {
-		c.RolesClaim = preset.roles
-	}
-	return c, true, nil
 }
 
 // ContextConfig is the context section of simple-ca.json: the option values of the commands of

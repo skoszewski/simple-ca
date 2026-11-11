@@ -345,19 +345,64 @@ carry their value in the ID token, unlike Entra ID groups, which are object IDs 
 token past 200. The rules come first, so a named user or a group can be given a profile other
 than that of the user's roles.
 
-## The CA core is the package pkg/simpleca, and the client code pkg/client
+## The CA core is pkg/simpleca with a subpackage per domain, and the client code pkg/client
 
-`simple-ca-wif` creates tokens and edits `simple-ca.json` as `simple-ca` does, so both use one
-code for them, the public package `pkg/simpleca`: the settings of `simple-ca.json`, the files and
-keys of a CA, the certificate and token types, the tokens, the JWTs of token types and the audit
-log. Package `main` keeps what only `simple-ca` runs, the CLI, the REPL, `serve`, the web UIs,
-ACME and OIDC, and calls the exported names of the package, which is public, under `pkg/`. The
-tests that run commands through `run` stay in package `main` and test the core through its
-exported names; the tests of the core alone are in the package.
+`simple-ca`, `simple-ca-lite` and `simple-ca-wif` share the code of a CA, so it is the public
+package `pkg/simpleca`, under `pkg/`, split into a subpackage per domain. A program imports the
+domains it runs and no others, so `simple-ca-lite` links no ACME, OIDC or token code, and each
+package is read and tested alone. Each package imports only the packages of the rows before it,
+so there are no import cycles:
+
+| Package | Holds |
+|---|---|
+| `pkg/simpleca`, the base | the settings of `simple-ca.json` and their types, keys and the passphrase, the helpers, the audit log and `LockFile` |
+| `jose`, `cert` | JWS, JWK and the signing of JWTs; the certificate types, CAs, certificates, requests, revocation, CRLs, `index.txt`, PKCS#12 and `openssl.cnf` |
+| `tokens`, `acme` | the token store, setup codes, token types and the JWTs of federation; the ACME server with its handlers |
+| `oidc` | the OIDC client, the profiles of `oidc-users.json` and the sign-in handlers |
+| `cli` | the commands of the groups `ca`, `cert`, `crl` and `key` |
+
+`Config` holds the sections of every domain by value, so their types stay in the base package,
+which imports no subpackage. The logic over a section is a function of the package that owns
+it, not a method on `Config`: `cert.Types`, `tokens.Types`, `tokens.Issuer`, `acme.Limits` and
+`oidc.Resolved`. Only `cert` imports go-pkcs12.
+
+`acme` and `oidc` take what belongs to `serve` through hooks, package globals that `main` sets
+at its start, in an `init`: for both, the client address, which reads the trusted proxies of
+`serve`, and for `oidc` also the JSON replies and errors of `serve`, the guard of refused
+credentials and the sign-in page, which `main` renders with its templates and theme. `serve` is
+one per process, so a global holds what a parameter would pass on every call, and the packages
+need nothing of `main`.
+
+Package `main` of `simple-ca` keeps what only it runs: the token and audit commands, the REPL,
+`serve`, the signing API and the web UIs. The tests of a package's own functions are in the
+package; those that run commands through the command table are in `cli`, and those of what
+`main` keeps stay in `main`.
 
 The client code that `request-cert`, `token-setup`, `request-token` and `simple-ca-wif` share,
 the requests to `serve` and to the clouds and the keys of `federation.json`, is the package
 `pkg/client`, so each program reads and writes `federation.json` with the same code.
+
+## simple-ca-lite is a program of its own over cert and cli
+
+A host that only makes and signs certificates, such as one keeping a root CA offline, needs no
+server, tokens, pages or session. `simple-ca-lite` is a program of its own, `cmd/simple-ca-lite`,
+rather than a build tag or a mode of `simple-ca`, so its archive and its Debian package hold one
+small executable with nothing of `serve`, embedded files or serve-markdown, and a release builds
+it as it builds the other programs. Its commands are the groups of `cli.CertGroups()`, the same
+functions `simple-ca` runs, so the two have the same options, help, files and audit records, and
+either works on the same CA. `simple-ca-mini.py` stays the program for a system with `openssl`
+and Python alone.
+
+The issuing CA names that the pages of `serve` take are refused by `cert`, so a CA made by
+`simple-ca-lite` can be served by `simple-ca` later.
+
+## The limit of a request body is set by its handler
+
+Each handler that reads a request body sets its own limit, `http.MaxBytesReader` with a constant
+beside it: the signing API, the setup code exchange, the forms, the pages, ACME and the OIDC
+sign-in. A handler knows the largest body it accepts, as a setup code is short and a request with
+a CSR is not, and a package has no limit of another package to depend on, so `acme` and `oidc`
+need nothing of `main` or of each other for it.
 
 ## simple-ca-wif calls the Google REST APIs with Application Default Credentials or a given token
 

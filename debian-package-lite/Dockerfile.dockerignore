@@ -1,0 +1,11 @@
+# The build of the Debian package of simple-ca-lite needs the Go module, the shared packages of
+# pkg/, the source of simple-ca-lite, the package sources, the licence and the guide of
+# simple-ca-lite.
+*
+!go.mod
+!go.sum
+!pkg
+!cmd/simple-ca-lite
+!debian-package-lite/debian
+!LICENSE
+!docs/simple-ca-lite.md

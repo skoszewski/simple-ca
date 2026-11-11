@@ -5,41 +5,58 @@ title: Development
 ## Building
 
 `./build.mjs` needs Node.js and Go; the tests need `openssl` on the `PATH`. It writes the
-executables to `bin/`, which `.gitignore` leaves out.
+executables to `bin/`, and the intermediate files of a build, such as the directories the
+archives are packed from, to `.build/`; `.gitignore` leaves both out.
 
 ```sh
-./build.mjs                    # build simple-ca, request-cert, token-setup, request-token and
-                               # simple-ca-wif for the host, and simple-ca-trust on Linux
+./build.mjs                    # build simple-ca, request-cert, token-setup, request-token,
+                               # simple-ca-wif and simple-ca-lite for the host, and
+                               # simple-ca-trust on Linux
 ./build.mjs build linux/arm64  # build simple-ca-linux-arm64, request-cert-linux-arm64,
                                # token-setup-linux-arm64, request-token-linux-arm64,
-                               # simple-ca-wif-linux-arm64 and simple-ca-trust-linux-arm64
+                               # simple-ca-wif-linux-arm64, simple-ca-lite-linux-arm64 and
+                               # simple-ca-trust-linux-arm64
 ./build.mjs trust              # build simple-ca-trust for the host with its own toolchain
 ./build.mjs trust darwin/amd64 # build simple-ca-trust-darwin-amd64, on macOS only
 ./build.mjs trust --self-contained windows/arm64
                                # build simple-ca-trust-windows-arm64.exe carrying the .NET runtime
 ./build.mjs test               # run the tests
 ./build.mjs check              # check formatting, vet and run the tests
-./build.mjs clean              # remove bin/, dist/ and the build files of trust/macos and
-                               # trust/windows
+./build.mjs clean              # remove bin/, .build/, dist/ and the build files of trust/macos
+                               # and trust/windows
 ./build.mjs assets             # download the browser files of the /help/ and /docs/ pages
 ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]
                                # build simple-ca:<version> and simple-ca:latest; --push pushes them;
                                # the registry defaults to SIMPLE_CA_REGISTRY
-./build.mjs deb                # build the Debian package for the architecture of the host
-./build.mjs dist [--dpkg]      # write the archive of an internal release for the host to dist/,
-                               # and with --dpkg its Debian package
+./build.mjs deb                # build the Debian packages for the architecture of the host
+./build.mjs dist [--dpkg]      # write the archives of an internal release for the host to
+                               # dist/, and with --dpkg the Debian packages
 ```
 
-`./build.mjs deb` builds the package of `debian-package/` with `docker buildx`, for the
-architecture of the host, also when the Docker engine runs on another one: the image of
-`debian-package/Dockerfile` compiles `simple-ca`, `request-cert`, `token-setup`, `request-token`,
-`simple-ca-wif` and `simple-ca-trust` and runs `dpkg-buildpackage`, and buildx writes
-`simple-ca_<version>_<arch>.deb` to `dist/`. The version is `X.Y.Z-1` for the newest
-`CHANGELOG.md` entry `X.Y.Z`, and `X.Y.Z-N` for an entry `X.Y.Z-N`, whose programs are those of
-`vX.Y.Z`; while `vX.Y.Z` is not tagged it is `X.Y.Z~rc-N`, which dpkg orders before `X.Y.Z-N`. `debian-package/debian/changelog`, which `.gitignore` leaves out, is written from that
-entry for each build, and the units are those of `systemd/` with `/usr/bin` paths. The page's
+`./build.mjs deb` builds two packages with `docker buildx`, for the architecture of the host,
+also when the Docker engine runs on another one:
+
+- `simple-ca`, of `debian-package/`: the image of `debian-package/Dockerfile` compiles
+  `simple-ca`, `request-cert`, `token-setup`, `request-token`, `simple-ca-wif` and
+  `simple-ca-trust` and runs `dpkg-buildpackage`, and buildx writes
+  `simple-ca_<version>_<arch>.deb` to `dist/`; its units are those of `systemd/` with `/usr/bin`
+  paths;
+- `simple-ca-lite`, of `debian-package-lite/`: the image of `debian-package-lite/Dockerfile`
+  compiles `simple-ca-lite` alone, and buildx writes `simple-ca-lite_<version>_<arch>.deb`, which
+  installs `/usr/bin/simple-ca-lite` and its guide, and has no units and no system user.
+
+The version of both is `X.Y.Z-1` for the newest `CHANGELOG.md` entry `X.Y.Z`, and `X.Y.Z-N` for
+an entry `X.Y.Z-N`, whose programs are those of `vX.Y.Z`; while `vX.Y.Z` is not tagged it is
+`X.Y.Z~rc-N`, which dpkg orders before `X.Y.Z-N`. The `debian/changelog` of each directory, which
+`.gitignore` leaves out, is written from that entry for each build. The page's
 browser files are downloaded first when `assets/markdown/` holds another release, and the build
-fails when that fails. [systemd](systemd.md#debian-package) describes the installed package.
+fails when that fails. [systemd](systemd.md#debian-package) describes the installed `simple-ca`
+package, and [Simple CA Lite](simple-ca-lite.md#installation) the `simple-ca-lite` package.
+
+The builds in Docker, of the packages, of the image and of `Dockerfile.test`, keep their
+temporary files in a tmpfs on `/tmp`, and the release workflow packs the archives in the
+temporary directory of its runner, `$RUNNER_TEMP`; only local builds of `build.mjs` use
+`.build/`.
 
 The `/help/` page, `help/index.md`, and the `/docs/` pages of `serve --docs`, the files of
 `docs/`, are drawn by the `render` package of
@@ -77,21 +94,24 @@ version for `linux/amd64` and `linux/arm64`, the macOS version for `darwin/amd64
 into the archive of its platform, `simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` for Windows,
 with `simple-ca`, `request-cert`, `token-setup`, `request-token` and `simple-ca-wif`;
 [Trust stores](trust.md) has
-the commands for building it by hand. It also builds the Debian package with `./build.mjs deb`
-for amd64 and arm64, each on a runner of its architecture with a `docker-container` builder of
-buildx, and adds `simple-ca_X.Y.Z-1_amd64.deb` and `simple-ca_X.Y.Z-1_arm64.deb` to the release.
+the commands for building it by hand. Beside it, each platform has the archive of
+`simple-ca-lite` alone, `simple-ca-lite-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` for Windows. The
+workflow also builds the Debian packages with `./build.mjs deb` for amd64 and arm64, each on a
+runner of its architecture with a `docker-container` builder of buildx, and adds
+`simple-ca_X.Y.Z-1_<arch>.deb` and `simple-ca-lite_X.Y.Z-1_<arch>.deb` of both to the release.
 
-`./build.mjs dist` writes the archive the release workflow builds for the platform of the host
+`./build.mjs dist` writes the archives the release workflow builds for the platform of the host
 to `dist/`, for an internal release of [release.mjs --no-tag](#releasing):
-`simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` on Windows, with the six programs built as the
-workflow builds them and versioned `vX.Y.Z` of the newest `CHANGELOG.md` entry. Only the release
-workflow builds the other platforms. It refuses uncommitted changes, an entry that no commit has
-the summary line of, and a host without the toolchain of its `simple-ca-trust`: Swift on macOS
-and the .NET SDK on Windows. The programs are packed from `bin/pack-<goos>-<goarch>/`. With
-`--dpkg`, it also builds the Debian package `X.Y.Z-1` as
-`./build.mjs deb` does, for the architecture of the host, also when the container engine runs on
-another one: with Apple's `container` CLI on macOS when it is installed, and with `docker buildx`
-otherwise.
+`simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz` with the six programs, and
+`simple-ca-lite-X.Y.Z-<goos>-<goarch>.tar.gz` with `simple-ca-lite`, each a `.zip` on Windows,
+built as the workflow builds them and versioned `vX.Y.Z` of the newest `CHANGELOG.md` entry. Only
+the release workflow builds the other platforms. It refuses uncommitted changes, an entry that no
+commit has the summary line of, and a host without the toolchain of its `simple-ca-trust`: Swift
+on macOS and the .NET SDK on Windows. The programs of each archive are packed from
+`.build/pack-<archive>/`, removed afterwards. With `--dpkg`, it also builds both Debian packages
+`X.Y.Z-1` as `./build.mjs deb` does, for the architecture of the host, also when the container
+engine runs on another one: with Apple's `container` CLI on macOS when it is installed, and with
+`docker buildx` otherwise.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
 are run with `./build.mjs test` or `./build.mjs check`. It refuses a tag that is not on `main` or

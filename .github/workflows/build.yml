@@ -3,11 +3,12 @@
 # - check: gofmt and go vet.
 # - build: for each platform, simple-ca, request-cert, token-setup, request-token, simple-ca-wif
 #   and simple-ca-trust, versioned with the tag, in one archive,
-#   simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz, .zip for Windows.
-# - deb: the Debian package of ./build.mjs deb for amd64 and arm64, each on a runner of its
-#   architecture, simple-ca_X.Y.Z-1_<arch>.deb.
+#   simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz, .zip for Windows, and simple-ca-lite in its own,
+#   simple-ca-lite-X.Y.Z-<goos>-<goarch>.tar.gz, .zip for Windows.
+# - deb: the Debian packages of ./build.mjs deb for amd64 and arm64, each on a runner of its
+#   architecture, simple-ca_X.Y.Z-1_<arch>.deb and simple-ca-lite_X.Y.Z-1_<arch>.deb.
 # - release: refuses a tag that is not semver, not on main, or not the newest CHANGELOG.md entry;
-#   creates the release with the archives and the package, and the tag's message as notes, a
+#   creates the release with the archives and the packages, and the tag's message as notes, a
 #   prerelease for -PRE.
 
 name: build
@@ -69,7 +70,8 @@ jobs:
       # Downloads the browser files of serve-markdown's page, which simple-ca embeds.
       - name: Page assets
         run: node build.mjs assets
-      # Builds the six programs for the platform and packs them into its archive.
+      # Builds the six programs for the platform and packs them into its archive, and simple-ca-lite
+      # into its own, from directories in the temporary directory of the runner.
       - name: Build
         id: build
         env:
@@ -84,39 +86,50 @@ jobs:
             exe=".exe"
           fi
           version="${TAG#v}"
-          mkdir -p bin/pack dist
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/simple-ca$exe" .
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-cert$exe" ./cmd/request-cert
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/token-setup$exe" ./cmd/token-setup
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/request-token$exe" ./cmd/request-token
-          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "bin/pack/simple-ca-wif$exe" ./cmd/simple-ca-wif
+          mkdir -p "$RUNNER_TEMP/pack" "$RUNNER_TEMP/pack-lite" dist
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "$RUNNER_TEMP/pack/simple-ca$exe" .
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "$RUNNER_TEMP/pack/request-cert$exe" ./cmd/request-cert
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "$RUNNER_TEMP/pack/token-setup$exe" ./cmd/token-setup
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "$RUNNER_TEMP/pack/request-token$exe" ./cmd/request-token
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "$RUNNER_TEMP/pack/simple-ca-wif$exe" ./cmd/simple-ca-wif
           # simple-ca-trust is the Go program on Linux, the Swift one on macOS, the .NET one on Windows.
           case "$GOOS" in
             linux)
-              go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o bin/pack/simple-ca-trust ./cmd/simple-ca-trust
+              go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "$RUNNER_TEMP/pack/simple-ca-trust" ./cmd/simple-ca-trust
               ;;
             darwin)
               printf '/// The version simple-ca-trust prints; a release build replaces this file.\nlet version = "%s"\n' "$TAG" \
                 > trust/macos/Sources/simple-ca-trust/Version.swift
               node build.mjs trust "darwin/$GOARCH"
-              cp "bin/simple-ca-trust-darwin-$GOARCH" bin/pack/simple-ca-trust
+              cp "bin/simple-ca-trust-darwin-$GOARCH" "$RUNNER_TEMP/pack/simple-ca-trust"
               ;;
             windows)
               node build.mjs trust "windows/$GOARCH"
-              cp "bin/simple-ca-trust-windows-$GOARCH.exe" bin/pack/simple-ca-trust.exe
+              cp "bin/simple-ca-trust-windows-$GOARCH.exe" "$RUNNER_TEMP/pack/simple-ca-trust.exe"
               ;;
           esac
+          go build -trimpath -ldflags "-X main.buildVersion=$TAG" -o "$RUNNER_TEMP/pack-lite/simple-ca-lite$exe" ./cmd/simple-ca-lite
           if [ "$GOOS" = "windows" ]; then
             archive="simple-ca-$version-$GOOS-$GOARCH.zip"
-            (cd bin/pack && zip -9 "../../dist/$archive" *)
+            lite_archive="simple-ca-lite-$version-$GOOS-$GOARCH.zip"
+            (cd "$RUNNER_TEMP/pack" &&zip -9 "$GITHUB_WORKSPACE/dist/$archive" *)
+            (cd "$RUNNER_TEMP/pack-lite" &&zip -9 "$GITHUB_WORKSPACE/dist/$lite_archive" *)
           else
             archive="simple-ca-$version-$GOOS-$GOARCH.tar.gz"
-            (cd bin/pack && tar -czf "../../dist/$archive" *)
+            lite_archive="simple-ca-lite-$version-$GOOS-$GOARCH.tar.gz"
+            (cd "$RUNNER_TEMP/pack" &&tar -czf "$GITHUB_WORKSPACE/dist/$archive" *)
+            (cd "$RUNNER_TEMP/pack-lite" &&tar -czf "$GITHUB_WORKSPACE/dist/$lite_archive" *)
           fi
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "lite_archive=$lite_archive" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           path: dist/${{ steps.build.outputs.archive }}
+          archive: false
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/${{ steps.build.outputs.lite_archive }}
           archive: false
           if-no-files-found: error
 
@@ -138,18 +151,25 @@ jobs:
           node-version: lts/*
       # A docker-container builder, which writes the package with --output type=local.
       - uses: docker/setup-buildx-action@v4
-      # Builds the package in Docker for the architecture of the runner.
-      - name: Debian package
+      # Builds the packages in Docker for the architecture of the runner.
+      - name: Debian packages
         id: deb
         env:
           ARCH: ${{ matrix.arch }}
         run: |
           node build.mjs deb
           package="$(cd dist && ls "simple-ca_"*"_$ARCH.deb")"
+          lite_package="$(cd dist && ls "simple-ca-lite_"*"_$ARCH.deb")"
           echo "package=$package" >> "$GITHUB_OUTPUT"
+          echo "lite_package=$lite_package" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         with:
           path: dist/${{ steps.deb.outputs.package }}
+          archive: false
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/${{ steps.deb.outputs.lite_package }}
           archive: false
           if-no-files-found: error
 
@@ -198,7 +218,7 @@ jobs:
           path: dist
           merge-multiple: true
           skip-decompress: true
-      # Creates the release with the archives and the package, a prerelease for a tag with a -PRE
+      # Creates the release with the archives and the packages, a prerelease for a tag with a -PRE
       # part.
       - name: Release
         env:

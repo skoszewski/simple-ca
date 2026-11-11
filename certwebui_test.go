@@ -17,24 +17,26 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/tokens"
 )
 
 func TestCertWebUI(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	caDir := t.TempDir()
-	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
+	if err := cert.MakeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
+	if err := cert.MakeCA(caDir, "Issuing CA", 0, "issuing-ca", "", "rsa"); err != nil {
 		t.Fatalf("makeCA issuing: %v", err)
 	}
 	issuingDir := filepath.Join(caDir, "issuing-ca")
-	key, err := simpleca.MakeToken(caDir, "operator", time.Hour, []string{"certs"}, nil, nil, nil, nil)
+	key, err := tokens.MakeToken(caDir, "operator", time.Hour, []string{"certs"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}
-	tokensOnly, err := simpleca.MakeToken(caDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
+	tokensOnly, err := tokens.MakeToken(caDir, "tokens-only", time.Hour, []string{"tokens"}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("makeToken: %v", err)
 	}

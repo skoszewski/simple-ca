@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cli"
 )
 
 // newHierarchy makes a root CA with the issuing CA servers in a new directory, and returns it with
@@ -18,10 +20,10 @@ import (
 func newHierarchy(t *testing.T) string {
 	t.Helper()
 	caDir := t.TempDir()
-	if err := makeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
+	if err := cert.MakeCA(caDir, "Test CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatal(err)
 	}
-	if err := makeCA(caDir, "Servers CA", 0, "servers", "", "rsa"); err != nil {
+	if err := cert.MakeCA(caDir, "Servers CA", 0, "servers", "", "rsa"); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { sessionRoot, sessionCA = "", "" })
@@ -67,10 +69,10 @@ func TestSessionStart(t *testing.T) {
 		prompt() != "simple-ca:servers> " {
 		t.Fatalf("issuing CA: %v, %q %q %q", err, sessionRoot, sessionCA, prompt())
 	}
-	if got := resolveCADir(""); got != filepath.Join(root, "servers") {
+	if got := cli.ResolveCADir(""); got != filepath.Join(root, "servers") {
 		t.Fatalf("resolveCADir of the session = %s", got)
 	}
-	if got := resolveCADir("/other"); got != "/other" {
+	if got := cli.ResolveCADir("/other"); got != "/other" {
 		t.Fatalf("resolveCADir with --ca-dir = %s", got)
 	}
 
@@ -112,7 +114,7 @@ func TestRunScript(t *testing.T) {
 		want   error
 	}{
 		{"# a comment\n\n  ca show\nsimple-ca cert list\n", nil},
-		{"ca show\nnosuch\nca show\n", errUsage},
+		{"ca show\nnosuch\nca show\n", cli.ErrUsage},
 		{"ca show\nserve\n", errReported},
 		{"simple-ca serve --port 8080\n", errReported},
 		{"exit\nnosuch\n", nil},
@@ -126,7 +128,7 @@ func TestRunScript(t *testing.T) {
 	if !simpleca.FileExists(filepath.Join(caDir, "servers", "web_cert.pem")) {
 		t.Fatal("cert create of the script did not issue from the issuing CA servers")
 	}
-	if err := run([]string{"context", "list"}); !errors.Is(err, errUsage) {
+	if err := run([]string{"context", "list"}); !errors.Is(err, cli.ErrUsage) {
 		t.Fatalf("context on the command line = %v, want errUsage", err)
 	}
 }
@@ -198,37 +200,37 @@ func TestContextValues(t *testing.T) {
 
 	// newSet returns a flag set with --ca-dir, --valid and a repeated --domain.
 	newSet := func() (*flag.FlagSet, *time.Duration, *[]string) {
-		fs := newFlagSet("test", "", "test")
+		fs := cli.NewFlagSet("test", "", "test")
 		fs.String("ca-dir", "", "")
-		valid := durationVar(fs, "valid", time.Hour, "")
+		valid := cli.DurationVar(fs, "valid", time.Hour, "")
 		var domains []string
 		fs.Func("domain", "", func(s string) error { domains = append(domains, s); return nil })
 		return fs, valid, &domains
 	}
 
 	fs, valid, domains := newSet()
-	_, given, err := parseArgs(fs, []string{"--ca-dir", caDir}, 0, 0)
+	_, given, err := cli.ParseArgs(fs, []string{"--ca-dir", caDir}, 0, 0)
 	if err != nil || *valid != 45*24*time.Hour || !slices.Equal(*domains, []string{"a.example", "b.example"}) ||
 		!given["valid"] || !given["domain"] {
 		t.Fatalf("root CA: %v, %v %v %v", err, *valid, *domains, given)
 	}
 
 	fs, valid, _ = newSet()
-	if _, _, err := parseArgs(fs, []string{"--ca-dir", caDir, "--valid", "2h"}, 0, 0); err != nil || *valid != 2*time.Hour {
+	if _, _, err := cli.ParseArgs(fs, []string{"--ca-dir", caDir, "--valid", "2h"}, 0, 0); err != nil || *valid != 2*time.Hour {
 		t.Fatalf("an option on the line: %v, %v", err, *valid)
 	}
 
 	fs, valid, domains = newSet()
-	if _, _, err := parseArgs(fs, []string{"--ca-dir", filepath.Join(caDir, "servers")}, 0, 0); err != nil ||
+	if _, _, err := cli.ParseArgs(fs, []string{"--ca-dir", filepath.Join(caDir, "servers")}, 0, 0); err != nil ||
 		*valid != 8*time.Hour || len(*domains) != 0 {
 		t.Fatalf("issuing CA: %v, %v %v", err, *valid, *domains)
 	}
 
 	// A value the option refuses fails the command.
-	fs = newFlagSet("test", "", "test")
+	fs = cli.NewFlagSet("test", "", "test")
 	fs.String("ca-dir", "", "")
 	fs.Int("days", 1, "")
-	if _, _, err := parseArgs(fs, []string{"--ca-dir", caDir}, 0, 0); err == nil || !strings.Contains(err.Error(), "'days'") {
+	if _, _, err := cli.ParseArgs(fs, []string{"--ca-dir", caDir}, 0, 0); err == nil || !strings.Contains(err.Error(), "'days'") {
 		t.Fatalf("a refused value: %v", err)
 	}
 }

@@ -23,12 +23,15 @@
 package simpleca
 
 import (
+	"cmp"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math"
 	"net/netip"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -122,4 +125,35 @@ func RandomID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// TokensLockWait is how long a command or serve waits for the lock of tokens-db.json.
+var TokensLockWait = 10 * time.Second
+
+// LockFile locks the file for the commands and serve by creating FILE.lock, which one of them at
+// a time can create, holding the PID of the locker. It waits up to TokensLockWait for the lock,
+// and returns the function that unlocks it.
+func LockFile(file string) (func(), error) {
+	path := file + ".lock"
+	deadline := time.Now().Add(TokensLockWait)
+	for {
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			_, err = fmt.Fprintf(f, "%d\n", os.Getpid())
+			if err := cmp.Or(err, f.Close()); err != nil {
+				os.Remove(path)
+				return nil, err
+			}
+			return func() { os.Remove(path) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+		if time.Now().After(deadline) {
+			pid, _ := os.ReadFile(path)
+			return nil, fmt.Errorf("%s is locked by process %s; remove %s if that process is gone",
+				file, strings.TrimSpace(string(pid)), path)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }

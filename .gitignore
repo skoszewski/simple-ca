@@ -42,12 +42,14 @@ DerivedData/
 *.csproj.user
 *.suo
 /bin/
+/.build/
 /dist/
 /tmp/
 /ca/
 /assets/markdown/*
 !/assets/markdown/.gitkeep
 /debian-package/debian/changelog
+/debian-package-lite/debian/changelog
 
 # env file
 *.env

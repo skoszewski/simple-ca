@@ -21,25 +21,27 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/oidc"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/tokens"
 )
 
 func TestOIDC(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	rootDir := t.TempDir()
-	if err := makeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
+	if err := cert.MakeCA(rootDir, "Root CA", 3650, "", "", "rsa"); err != nil {
 		t.Fatalf("makeCA: %v", err)
 	}
-	if err := makeCA(rootDir, "Clients CA", 0, "clients", "", "rsa"); err != nil {
+	if err := cert.MakeCA(rootDir, "Clients CA", 0, "clients", "", "rsa"); err != nil {
 		t.Fatalf("makeCA clients: %v", err)
 	}
 
-	// A test provider, counting the JWKS fetches.
+	// A test provider.
 	b64 := base64.RawURLEncoding.EncodeToString
 	newKey := func() *rsa.PrivateKey {
 		k, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -51,9 +53,8 @@ func TestOIDC(t *testing.T) {
 	jwk := func(kid string, k *rsa.PrivateKey) map[string]string {
 		return map[string]string{"kty": "RSA", "kid": kid, "use": "sig", "n": b64(k.N.Bytes()), "e": "AQAB"}
 	}
-	key1, key2, stranger := newKey(), newKey(), newKey()
-	var mu sync.Mutex
-	keys, fetches := []map[string]string{jwk("k1", key1)}, 0
+	key1, stranger := newKey(), newKey()
+	keys := []map[string]string{jwk("k1", key1)}
 	var idp *httptest.Server
 	idp = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -62,10 +63,7 @@ func TestOIDC(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]string{"issuer": idp.URL, "authorization_endpoint": idp.URL + "/authorize",
 				"token_endpoint": idp.URL + "/token", "jwks_uri": idp.URL + "/jwks"})
 		case "/jwks":
-			mu.Lock()
-			fetches++
 			json.NewEncoder(w).Encode(map[string]any{"keys": keys})
-			mu.Unlock()
 		default:
 			http.NotFound(w, r)
 		}
@@ -137,7 +135,7 @@ func TestOIDC(t *testing.T) {
 	}
 
 	write(simpleca.ConfigFile, `{"oidc": {"provider": "entra", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
-	write(oidcUsersFile, `{
+	write(oidc.UsersFile, `{
   "profiles": [
     {"name": "ca-admin", "token": {"valid": "8h", "scopes": ["tokens", "certs"]}},
     {"name": "web-signer", "ca": "clients", "token": {"scopes": ["sign"], "domains": ["example.com"]}},
@@ -152,7 +150,7 @@ func TestOIDC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkOIDC(rootDir, cfg); err != nil {
+	if err := oidc.Check(rootDir, cfg); err != nil {
 		t.Fatalf("checkOIDC: %v", err)
 	}
 	status, answer := do("GET", "/api/oidc", "", nil)
@@ -232,14 +230,14 @@ func TestOIDC(t *testing.T) {
 	if status, answer := signIn(idToken("k1", key1, user("alice@example.com", nil))); status != http.StatusOK {
 		t.Errorf("sign-in of alice with the token revoked: %d %v, want 200", status, answer)
 	}
-	db, _ := simpleca.LoadTokens(rootDir)
+	db, _ := tokens.LoadTokens(rootDir)
 	if tok := db.Tokens["alice-example-com"]; tok.OIDC == nil || tok.Expires.Sub(tok.Issued) != 8*time.Hour {
 		t.Errorf("the token of alice: %+v, want the OIDC user, valid for 8h", tok)
 	}
 	if _, err := renewToken(rootDir, "alice-example-com", 0); err != nil {
 		t.Fatal(err)
 	}
-	if db, _ := simpleca.LoadTokens(rootDir); db.Tokens["alice-example-com"].OIDC == nil {
+	if db, _ := tokens.LoadTokens(rootDir); db.Tokens["alice-example-com"].OIDC == nil {
 		t.Error("the renewed token of alice lost its OIDC user")
 	}
 
@@ -279,7 +277,7 @@ func TestOIDC(t *testing.T) {
 	if status, _ := signIn(idToken("k1", key1, user("erin@example.com", map[string]any{"roles": []string{"other"}}))); status != http.StatusForbidden {
 		t.Errorf("sign-in of erin without a profile: %d, want 403", status)
 	}
-	if _, err := simpleca.MakeToken(rootDir, "henry-example-com", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
+	if _, err := tokens.MakeToken(rootDir, "henry-example-com", time.Hour, []string{"tokens"}, nil, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if status, _ := signIn(idToken("k1", key1, user("henry@example.com", nil))); status != http.StatusConflict {
@@ -304,30 +302,6 @@ func TestOIDC(t *testing.T) {
 		}
 	}
 
-	// A new JWKS key is fetched after oidcKeysRefetch.
-	mu.Lock()
-	keys = append(keys, jwk("k2", key2))
-	before := fetches
-	mu.Unlock()
-	client := newOIDCClient(rootDir)
-	oc, _, _ := cfg.OIDC.Resolved(cfg.Path)
-	if _, err := client.checkIDToken(oc, idToken("k1", key1, user("alice@example.com", nil))); err != nil {
-		t.Fatalf("checkIDToken: %v", err)
-	}
-	client.keys = map[string]crypto.PublicKey{"k1": &key1.PublicKey}
-	if _, err := client.checkIDToken(oc, idToken("k2", key2, user("alice@example.com", nil))); err == nil {
-		t.Error("checkIDToken with a key of the JWKS not fetched again yet succeeded, want an error")
-	}
-	client.keysAt = time.Now().Add(-oidcKeysRefetch)
-	if _, err := client.checkIDToken(oc, idToken("k2", key2, user("alice@example.com", nil))); err != nil {
-		t.Errorf("checkIDToken with the new key k2: %v", err)
-	}
-	mu.Lock()
-	if fetches != before+2 {
-		t.Errorf("JWKS fetches: %d, want %d", fetches-before, 2)
-	}
-	mu.Unlock()
-
 	// Keycloak realm and client roles.
 	write(simpleca.ConfigFile, `{"oidc": {"provider": "keycloak", "issuer": "`+idp.URL+`", "client_id": "simple-ca"}}`)
 	status, answer = signIn(idToken("k1", key1, user("frank", map[string]any{"realm_access": map[string]any{"roles": []string{"web-signer"}}})))
@@ -338,35 +312,5 @@ func TestOIDC(t *testing.T) {
 		"simple-ca": map[string]any{"roles": []string{"ca-admin"}}, "other": map[string]any{"roles": []string{"web-signer"}}}})))
 	if status != http.StatusOK || answer["ca"] != "" {
 		t.Errorf("sign-in of grace with the client role ca-admin: %d %v, want ca-admin", status, answer)
-	}
-
-	// Invalid settings and profiles.
-	for name, c := range map[string]string{
-		"an unknown provider": `{"oidc": {"provider": "other", "issuer": "https://idp.example.com", "client_id": "x"}}`,
-		"no client ID":        `{"oidc": {"issuer": "https://idp.example.com"}}`,
-		"an issuer not a URL": `{"oidc": {"issuer": "idp.example.com", "client_id": "x"}}`,
-	} {
-		cfg := &simpleca.Config{Path: simpleca.ConfigFile}
-		if err := json.Unmarshal([]byte(c), cfg); err != nil {
-			t.Fatal(err)
-		}
-		if err := checkOIDC(rootDir, cfg); err == nil {
-			t.Errorf("checkOIDC with %s succeeded, want an error", name)
-		}
-	}
-	for name, users := range map[string]string{
-		"an unknown CA":       `{"profiles": [{"name": "a", "ca": "nowhere", "token": {"scopes": ["certs"]}}]}`,
-		"a profile name":      `{"profiles": [{"name": "CA Admin", "token": {"scopes": ["certs"]}}]}`,
-		"a profile twice":     `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}, {"name": "a", "token": {"scopes": ["certs"]}}]}`,
-		"keep_expired":        `{"profiles": [{"name": "a", "token": {"scopes": ["certs"], "keep_expired": "1h"}}]}`,
-		"sign without names":  `{"profiles": [{"name": "a", "token": {"scopes": ["sign"]}}]}`,
-		"an unknown profile":  `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}], "rules": [{"users": ["x"], "profile": "b"}]}`,
-		"a rule without whom": `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}], "rules": [{"profile": "a"}]}`,
-		"an unknown key":      `{"profiles": [], "groups": []}`,
-	} {
-		write(oidcUsersFile, users)
-		if err := checkOIDC(rootDir, cfg); err == nil {
-			t.Errorf("checkOIDC with %s in %s succeeded, want an error", name, oidcUsersFile)
-		}
 	}
 }

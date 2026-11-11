@@ -248,6 +248,7 @@ Any other error is `{"error": "..."}` with the status:
   kebab-case token name, or a client the token of the profile is not accepted from;
 - `404 Not Found` - the sign-in is off;
 - `409 Conflict` without `active` - the name of the token belongs to another token;
+- `413 Request Entity Too Large` - a body larger than 64 KiB;
 - `415 Unsupported Media Type` - a body that is not `application/json`;
 - `500 Internal Server Error` - `simple-ca.json` cannot be read;
 - `429 Too Many Requests` - a client held back after refused ID tokens, as described in

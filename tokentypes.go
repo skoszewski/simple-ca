@@ -30,6 +30,8 @@ import (
 	"path/filepath"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/jose"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/tokens"
 )
 
 // ---- token issuer -----------------------------------------------------------
@@ -49,7 +51,7 @@ func serveTokenIssuer(w http.ResponseWriter, r *http.Request, rootDir, caID stri
 		http.Error(w, "could not read the settings", http.StatusInternalServerError)
 		return
 	}
-	issuer := cfg.TokenIssuer(caID)
+	issuer := tokens.Issuer(cfg, caID)
 	if issuer == "" {
 		http.NotFound(w, r)
 		return
@@ -59,11 +61,11 @@ func serveTokenIssuer(w http.ResponseWriter, r *http.Request, rootDir, caID stri
 		var cert *x509.Certificate
 		if cert, err = simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem")); err == nil {
 			b, err = json.MarshalIndent(map[string]any{"issuer": issuer, "jwks_uri": issuer + "/jwks.json",
-				"id_token_signing_alg_values_supported": []string{simpleca.JWTAlg(cert.PublicKey)},
+				"id_token_signing_alg_values_supported": []string{jose.JWTAlg(cert.PublicKey)},
 				"response_types_supported":              []string{"id_token"}, "subject_types_supported": []string{"public"}}, "", "  ")
 		}
 	} else {
-		b, err = simpleca.CAJWKS(dir)
+		b, err = tokens.CAJWKS(dir)
 	}
 	if err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())

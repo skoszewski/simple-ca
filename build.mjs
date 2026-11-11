@@ -6,15 +6,17 @@
 //        ./build.mjs deb
 //        ./build.mjs dist [--dpkg]
 //
-// The executables are written to bin/, which clean removes. The build action writes simple-ca,
+// The executables are written to bin/, and the intermediate files to .build/, both of which clean
+// removes. The build action writes simple-ca,
 // request-cert, the Go client of the signing API in cmd/request-cert, token-setup, which exchanges
 // a setup code, in cmd/token-setup, request-token, the client of /api/federation-token and of the
-// clouds, in cmd/request-token, simple-ca-wif of cmd/simple-ca-wif, and on Linux simple-ca-trust of
+// clouds, in cmd/request-token, simple-ca-wif of cmd/simple-ca-wif, simple-ca-lite, the
+// certificate commands of simple-ca, in cmd/simple-ca-lite, and on Linux simple-ca-trust of
 // cmd/simple-ca-trust. The platform defaults to the host's. Naming one builds for it instead,
 // writing simple-ca-<goos>-<goarch>, request-cert-<goos>-<goarch>, token-setup-<goos>-<goarch>,
-// request-token-<goos>-<goarch> and simple-ca-wif-<goos>-<goarch>, and for linux
-// simple-ca-trust-linux-<goarch>. While the newest CHANGELOG.md entry is not tagged, the Go
-// programs report its release candidate, vX.Y.Z-rc, as their version. Releases are made by
+// request-token-<goos>-<goarch>, simple-ca-wif-<goos>-<goarch> and simple-ca-lite-<goos>-<goarch>,
+// and for linux simple-ca-trust-linux-<goarch>. While the newest CHANGELOG.md entry is not tagged,
+// the Go programs report its release candidate, vX.Y.Z-rc, as their version. Releases are made by
 // release.mjs.
 //
 // The trust action writes simple-ca-trust for the host, or simple-ca-trust-<goos>-<goarch> for
@@ -30,22 +32,22 @@
 // the registry --registry names, else SIMPLE_CA_REGISTRY when it is set, and pushes it with
 // --push.
 //
-// The deb action builds the Debian package of debian-package/ with docker buildx, for the
-// architecture of the host, whatever that of the Docker engine, compiling the programs in the
-// image of debian-package/Dockerfile, and writes simple-ca_<version>_<arch>.deb to dist/. Its
-// version is X.Y.Z-1 for the newest CHANGELOG.md entry X.Y.Z, or X.Y.Z-N for an entry X.Y.Z-N,
-// with the programs of vX.Y.Z, and X.Y.Z~rc-N while vX.Y.Z is not tagged;
-// debian-package/debian/changelog is written from the entry. It downloads the browser files of
-// serve-markdown's page first when assets/markdown holds another version, and fails when that
-// fails.
+// The deb action builds the Debian packages of debian-package/ and debian-package-lite/ with
+// docker buildx, for the architecture of the host, whatever that of the Docker engine, compiling
+// the programs in the image of each directory's Dockerfile, and writes
+// simple-ca_<version>_<arch>.deb and simple-ca-lite_<version>_<arch>.deb to dist/. Their version
+// is X.Y.Z-1 for the newest CHANGELOG.md entry X.Y.Z, or X.Y.Z-N for an entry X.Y.Z-N, with the
+// programs of vX.Y.Z, and X.Y.Z~rc-N while vX.Y.Z is not tagged; the debian/changelog of each
+// directory is written from the entry. It downloads the browser files of serve-markdown's page
+// first when assets/markdown holds another version, and fails when that fails.
 //
-// The dist action makes the files of an internal release in dist/: the archive the GitHub
-// workflow builds for the platform of the host, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz, .zip on
-// Windows, with the programs versioned vX.Y.Z of the newest CHANGELOG.md entry. It refuses
-// uncommitted changes, an entry that no commit has the summary line of, and a host without the
-// toolchain of its simple-ca-trust, swift on macOS and dotnet on Windows. With --dpkg it also
-// builds the Debian package X.Y.Z-1 for the architecture of the host, with the container CLI on
-// macOS when it is installed, else with docker buildx.
+// The dist action makes the files of an internal release in dist/: the archives the GitHub
+// workflow builds for the platform of the host, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz and
+// simple-ca-lite-X.Y.Z-<goos>-<goarch>.tar.gz, .zip on Windows, with the programs versioned vX.Y.Z
+// of the newest CHANGELOG.md entry. It refuses uncommitted changes, an entry that no commit has the
+// summary line of, and a host without the toolchain of its simple-ca-trust, swift on macOS and
+// dotnet on Windows. With --dpkg it also builds both Debian packages X.Y.Z-1 for the architecture
+// of the host, with the container CLI on macOS when it is installed, else with docker buildx.
 //
 // The assets action downloads the browser files of serve-markdown's page, for the version of
 // serve-markdown in go.mod, from its GitHub release into assets/markdown, which serve embeds
@@ -54,8 +56,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -140,7 +141,7 @@ async function fetchMarkdownAssets() {
   if (pinned !== actual) {
     throw new Error(`${url}: SHA-256 ${actual} is not the one assets/markdown.sha256 has for ${tag}, ${pinned ?? "none"}`);
   }
-  const scratch = mkdtempSync(join(tmpdir(), "simple-ca-assets-"));
+  const scratch = scratchDir("assets");
   try {
     const archive = join(scratch, "assets.tar.gz");
     writeFileSync(archive, bytes);
@@ -169,6 +170,18 @@ const tagged = spawnSync("git", ["tag", "--list", `v${changelogVersion}`], { cwd
 const candidate = changelogVersion !== "" && tagged.status === 0 && tagged.stdout.trim() === "" ?
   `v${changelogVersion}-rc` : "";
 const binDir = join(root, "bin");
+
+// The intermediate files of a build are in .build/, which clean removes.
+const buildDir = join(root, ".build");
+
+// scratchDir returns the directory name in .build/, made anew and empty.
+function scratchDir(name) {
+  const dir = join(buildDir, name);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 const goBuild = (output, pkg) => {
   mkdirSync(binDir, { recursive: true });
   run("go", ["build", ...(candidate ? ["-ldflags", `-X main.buildVersion=${candidate}`] : []), "-o",
@@ -237,24 +250,29 @@ function buildTrust(goos, goarch, out, version = "") {
 
 </Project>
 `);
-    const publish = join(binDir, `trust-windows-${goarch}`);
-    run("dotnet", ["publish", project, "-c", "Release",
-      "-r", `win-${{ amd64: "x64", arm64: "arm64" }[goarch] ?? goarch}`, "-o", publish],
-      { env: version ? { ...process.env, InformationalVersion: version } : process.env });
-    copyFileSync(join(publish, "simple-ca-trust.exe"), out);
+    // dotnet publishes to .build/, of which only simple-ca-trust.exe is kept.
+    const publish = scratchDir(`trust-windows-${goarch}`);
+    try {
+      run("dotnet", ["publish", project, "-c", "Release",
+        "-r", `win-${{ amd64: "x64", arm64: "arm64" }[goarch] ?? goarch}`, "-o", publish],
+        { env: version ? { ...process.env, InformationalVersion: version } : process.env });
+      copyFileSync(join(publish, "simple-ca-trust.exe"), out);
+    } finally {
+      rmSync(publish, { recursive: true, force: true });
+    }
     return true;
   }
   return false;
 }
 
 /**
- * Builds the Debian package of the newest CHANGELOG.md entry to dist/ with the container engine
- * engine, docker or container, after writing debian-package/debian/changelog from the entry. The
- * version is X.Y.Z-N, with the programs of vX.Y.Z, and X.Y.Z~rc-N with those of vX.Y.Z-rc while
- * vX.Y.Z is not tagged, unless internal, the package of an internal release. It is built for the
- * architecture of the host, whatever that of the engine.
+ * Builds the Debian package of the directory dir, the source package source, for the newest
+ * CHANGELOG.md entry to dist/ with the container engine engine, docker or container, after writing
+ * dir/debian/changelog from the entry. The version is X.Y.Z-N, with the programs of vX.Y.Z, and
+ * X.Y.Z~rc-N with those of vX.Y.Z-rc while vX.Y.Z is not tagged, unless internal, the package of an
+ * internal release. It is built for the architecture of the host, whatever that of the engine.
  */
-function buildDeb(engine, internal = false) {
+function buildDeb(engine, dir, source, internal = false) {
   if (!changelogVersion) {
     console.error("CHANGELOG.md has no \"## x.y.z\" entry");
     process.exit(1);
@@ -270,36 +288,36 @@ function buildDeb(engine, internal = false) {
   const prerelease = !internal && upstreamTag.status === 0 && upstreamTag.stdout.trim() === "";
   const debVersion = prerelease ? `${upstream}~rc-${revision}` : `${upstream}-${revision}`;
   const date = new Date().toUTCString().replace(/GMT$/, "+0000");
-  writeFileSync(join(root, "debian-package", "debian", "changelog"),
-    `simple-ca (${debVersion}) unstable; urgency=medium\n\n  ${summary}\n\n${items.join("\n")}\n\n` +
+  writeFileSync(join(root, dir, "debian", "changelog"),
+    `${source} (${debVersion}) unstable; urgency=medium\n\n  ${summary}\n\n${items.join("\n")}\n\n` +
     ` -- Slawomir Koszewski <slawek@koszewscy.waw.pl>  ${date}\n`);
   const args = ["--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`, "--platform", `linux/${hostArch}`];
   if (engine !== "container") {
-    run("docker", ["buildx", "build", "-f", "debian-package/Dockerfile", ...args,
+    run("docker", ["buildx", "build", "-f", `${dir}/Dockerfile`, ...args,
       "--output", `type=local,dest=${join(root, "dist")}`, "."]);
     return;
   }
   // The container CLI fails to send a context filtered by the re-includes of an ignore file
   // ("changes out of order"); it gets a context of the files Dockerfile.dockerignore re-includes.
-  const scratch = mkdtempSync(join(tmpdir(), "simple-ca-deb-"));
+  const scratch = scratchDir(`deb-${source}`);
   const context = join(scratch, "context");
   try {
-    const ignore = readFileSync(join(root, "debian-package", "Dockerfile.dockerignore"), "utf8");
+    const ignore = readFileSync(join(root, dir, "Dockerfile.dockerignore"), "utf8");
     for (const pattern of ignore.split("\n").filter((line) => line.startsWith("!")).map((line) => line.slice(1).trim())) {
-      const dir = dirname(pattern);
+      const parent = dirname(pattern);
       const base = basename(pattern);
       const match = new RegExp(`^${base.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}$`);
-      const names = !base.includes("*") ? [base] : existsSync(join(root, dir)) ?
-        readdirSync(join(root, dir)).filter((name) => match.test(name)) : [];
-      for (const name of names.filter((name) => existsSync(join(root, dir, name)))) {
-        cpSync(join(root, dir, name), join(context, dir, name), { recursive: true });
+      const names = !base.includes("*") ? [base] : existsSync(join(root, parent)) ?
+        readdirSync(join(root, parent)).filter((name) => match.test(name)) : [];
+      for (const name of names.filter((name) => existsSync(join(root, parent, name)))) {
+        cpSync(join(root, parent, name), join(context, parent, name), { recursive: true });
       }
     }
-    cpSync(join(root, "debian-package", "Dockerfile"), join(context, "debian-package", "Dockerfile"));
+    cpSync(join(root, dir, "Dockerfile"), join(context, dir, "Dockerfile"));
     // The container CLI writes a local output below dest, in out.tar/<os>_<arch>/; the packages
     // are moved from there to dist/.
     const out = join(scratch, "out");
-    run("container", ["build", "-f", join(context, "debian-package", "Dockerfile"), ...args,
+    run("container", ["build", "-f", join(context, dir, "Dockerfile"), ...args,
       "--output", `type=local,dest=${out}`, context]);
     mkdirSync(join(root, "dist"), { recursive: true });
     for (const file of readdirSync(out, { recursive: true }).filter((file) => file.endsWith(".deb"))) {
@@ -310,6 +328,9 @@ function buildDeb(engine, internal = false) {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
+
+// The directories of the Debian packages and their source package names.
+const debPackages = [["debian-package", "simple-ca"], ["debian-package-lite", "simple-ca-lite"]];
 
 if (!["build", "trust", "test", "check", "clean", "assets", "docker", "deb", "dist"].includes(action) ||
   (selfContained && action !== "trust") || (push && action !== "docker") || (dpkg && action !== "dist") ||
@@ -372,6 +393,7 @@ switch (action) {
     goBuild(`token-setup${nameSuffix}`, "./cmd/token-setup");
     goBuild(`request-token${nameSuffix}`, "./cmd/request-token");
     goBuild(`simple-ca-wif${nameSuffix}`, "./cmd/simple-ca-wif");
+    goBuild(`simple-ca-lite${nameSuffix}`, "./cmd/simple-ca-lite");
     if (platform !== "" ? env.GOOS === "linux" : process.platform === "linux") {
       goBuild(`simple-ca-trust${nameSuffix}`, "./cmd/simple-ca-trust");
     }
@@ -403,7 +425,9 @@ switch (action) {
     break;
   }
   case "deb":
-    buildDeb("docker");
+    for (const [dir, source] of debPackages) {
+      buildDeb("docker", dir, source);
+    }
     break;
   case "dist": {
     if (!changelogVersion) {
@@ -439,28 +463,40 @@ switch (action) {
       console.error(`dist: simple-ca-trust for ${goos} needs ${toolchain}`);
       process.exit(1);
     }
-    // The programs are packed from bin/pack-<goos>-<goarch>, made anew.
+    // The programs of each archive are packed from .build/pack-<archive>, removed afterwards.
     const exe = goos === "windows" ? ".exe" : "";
-    const pack = join(binDir, `pack-${goos}-${goarch}`);
-    rmSync(pack, { recursive: true, force: true });
-    mkdirSync(pack, { recursive: true });
-    for (const [name, pkg] of programs) {
-      run("go", ["build", "-trimpath", "-ldflags", `-X main.buildVersion=${version}`, "-o",
-        join(pack, `${name}${exe}`), pkg], { env: { ...env, GOOS: goos, GOARCH: goarch } });
+    const archives = [["simple-ca", programs], ["simple-ca-lite", [["simple-ca-lite", "./cmd/simple-ca-lite"]]]];
+    for (const [archiveName, packPrograms] of archives) {
+      const pack = scratchDir(`pack-${archiveName}`);
+      try {
+        for (const [name, pkg] of packPrograms) {
+          run("go", ["build", "-trimpath", "-ldflags", `-X main.buildVersion=${version}`, "-o",
+            join(pack, `${name}${exe}`), pkg], { env: { ...env, GOOS: goos, GOARCH: goarch } });
+        }
+        // simple-ca-trust is in the simple-ca archive alone.
+        if (archiveName === "simple-ca") {
+          buildTrust(goos, goarch, join(pack, `simple-ca-trust${exe}`), version);
+        }
+        const archive = join(distDir,
+          `${archiveName}-${changelogVersion}-${goos}-${goarch}${goos === "windows" ? ".zip" : ".tar.gz"}`);
+        rmSync(archive, { force: true });
+        const files = readdirSync(pack);
+        // A windows archive is a zip, made by the tar of Windows.
+        if (goos === "windows") {
+          run("tar", ["-a", "-cf", archive, ...files], { cwd: pack });
+        } else {
+          run("tar", ["-czf", archive, ...files], { cwd: pack });
+        }
+        console.log(`dist/${archive.slice(distDir.length + 1)}`);
+      } finally {
+        rmSync(pack, { recursive: true, force: true });
+      }
     }
-    buildTrust(goos, goarch, join(pack, `simple-ca-trust${exe}`), version);
-    const archive = join(distDir, `simple-ca-${changelogVersion}-${goos}-${goarch}${goos === "windows" ? ".zip" : ".tar.gz"}`);
-    rmSync(archive, { force: true });
-    const files = readdirSync(pack);
-    // A windows archive is a zip, made by the tar of Windows.
-    if (goos === "windows") {
-      run("tar", ["-a", "-cf", archive, ...files], { cwd: pack });
-    } else {
-      run("tar", ["-czf", archive, ...files], { cwd: pack });
-    }
-    console.log(`dist/${archive.slice(distDir.length + 1)}`);
     if (dpkg) {
-      buildDeb(host === "darwin" && works("container", ["--version"]) ? "container" : "docker", true);
+      const engine = host === "darwin" && works("container", ["--version"]) ? "container" : "docker";
+      for (const [dir, source] of debPackages) {
+        buildDeb(engine, dir, source, true);
+      }
     }
     break;
   }
@@ -479,6 +515,7 @@ switch (action) {
   }
   case "clean":
     rmSync(binDir, { recursive: true, force: true });
+    rmSync(buildDir, { recursive: true, force: true });
     rmSync(`${root}/dist`, { recursive: true, force: true });
     for (const dir of ["trust/macos/.build", "trust/windows/bin", "trust/windows/obj", "trust/windows/simple-ca-trust.csproj"]) {
       rmSync(join(root, dir), { recursive: true, force: true });

@@ -4,7 +4,8 @@
 # with arguments it runs them as a command, such as "ca create NAME". The Go client of the signing
 # API, request-cert, token-setup, which exchanges a setup code, request-token, the client of
 # /api/federation-token and of the clouds, and simple-ca-wif, which sets up Google workload
-# identity federation for the CA, are installed beside it.
+# identity federation for the CA, are installed beside it. The temporary files of the build are in
+# a tmpfs on /tmp.
 
 FROM golang:1.27 AS build
 WORKDIR /src
@@ -27,7 +28,8 @@ RUN tag="$(go list -m -f '{{.Version}}' github.com/skoszewski/serve-markdown/v3)
     && curl -fsSL "https://github.com/skoszewski/serve-markdown/releases/download/$tag/serve-markdown-assets-${tag#v}.tar.gz" \
     | tar -xz -C assets/markdown
 ARG VERSION=""
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${VERSION}" -o /out/simple-ca . \
+RUN --mount=type=tmpfs,target=/tmp \
+    CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${VERSION}" -o /out/simple-ca . \
     && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${VERSION}" -o /out/request-cert ./cmd/request-cert \
     && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${VERSION}" -o /out/token-setup ./cmd/token-setup \
     && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${VERSION}" -o /out/request-token ./cmd/request-token \

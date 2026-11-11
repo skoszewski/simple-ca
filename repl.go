@@ -36,16 +36,13 @@ import (
 	"strings"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cli"
 	"golang.org/x/term"
 )
 
 // sessionRoot is the root CA directory of the hierarchy of the REPL, empty without one, and
 // sessionCA the issuing CA of its active context, empty for the root CA.
 var sessionRoot, sessionCA string
-
-// commandInput is what commands read as their standard input: empty in a script, whose lines
-// stdin holds.
-var commandInput io.Reader = os.Stdin
 
 // errReported reports a failure whose message was already written.
 var errReported = errors.New("reported")
@@ -54,23 +51,23 @@ var errReported = errors.New("reported")
 const historyLimit = 500
 
 // contextGroup is the group of the REPL alone, of the CAs of the hierarchy and their option values.
-var contextGroup = command{name: "context", summary: "Switch the CA of the session and keep option values for each CA.",
-	sub: []command{
-		{name: "list", summary: "List the CAs of the hierarchy, the active one marked.", run: runContextList},
-		{name: "use", summary: "Make an issuing CA, or the root CA, the CA of the commands.", run: runContextUse},
-		{name: "set", summary: "Set the values of an option in the active context.", run: runContextSet},
-		{name: "add", summary: "Add values to an option in the active context.", run: runContextAdd},
-		{name: "delete", summary: "Delete values, or an option, from the active context.", run: runContextDelete},
-		{name: "show", summary: "Show the option values of the active context.", run: runContextShow},
+var contextGroup = cli.Command{Name: "context", Summary: "Switch the CA of the session and keep option values for each CA.",
+	Sub: []cli.Command{
+		{Name: "list", Summary: "List the CAs of the hierarchy, the active one marked.", Run: runContextList},
+		{Name: "use", Summary: "Make an issuing CA, or the root CA, the CA of the commands.", Run: runContextUse},
+		{Name: "set", Summary: "Set the values of an option in the active context.", Run: runContextSet},
+		{Name: "add", Summary: "Add values to an option in the active context.", Run: runContextAdd},
+		{Name: "delete", Summary: "Delete values, or an option, from the active context.", Run: runContextDelete},
+		{Name: "show", Summary: "Show the option values of the active context.", Run: runContextShow},
 	}}
 
 // runREPL runs the commands of a session on a terminal, else the lines of stdin as a script.
 func runREPL() error {
-	placeCA(resolveCADir(""))
+	placeCA(cli.ResolveCADir(""))
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		return runInteractive()
 	}
-	commandInput = strings.NewReader("")
+	cli.Input = strings.NewReader("")
 	return runScript(os.Stdin)
 }
 
@@ -101,7 +98,7 @@ func findCA(dir string) (string, string, error) {
 
 // sessionCAs returns the IDs of the CAs of the hierarchy of the session, empty for the root CA.
 func sessionCAs() []string {
-	return slices.DeleteFunc(caIDs(sessionRoot), func(id string) bool {
+	return slices.DeleteFunc(simpleca.CAIDs(sessionRoot), func(id string) bool {
 		return !isCADir(filepath.Join(sessionRoot, id))
 	})
 }
@@ -157,7 +154,7 @@ func runInteractive() error {
 			err = runLine(args)
 		}
 		switch {
-		case err == nil, errors.Is(err, flag.ErrHelp), errors.Is(err, errUsage):
+		case err == nil, errors.Is(err, flag.ErrHelp), errors.Is(err, cli.ErrUsage):
 		default:
 			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		}
@@ -183,9 +180,9 @@ func runScript(r io.Reader) error {
 		}
 		switch {
 		case err == nil, errors.Is(err, flag.ErrHelp):
-		case errors.Is(err, errUsage):
+		case errors.Is(err, cli.ErrUsage):
 			fmt.Fprintf(os.Stderr, "line %d: invalid command line\n", n)
-			return errUsage
+			return cli.ErrUsage
 		default:
 			fmt.Fprintf(os.Stderr, "line %d: ERROR: %v\n", n, err)
 			return errReported
@@ -215,37 +212,37 @@ func runLine(args []string) error {
 	case "context":
 		err = runGroup(&contextGroup, args[1:])
 	case "-h", "-help", "--help", "help":
-		printUsage(os.Stdout, nil)
-		fmt.Printf("\nIn a session:\n  %-8s %s\n  %-8s %s\n", contextGroup.name, contextGroup.summary,
+		cli.PrintUsage(os.Stdout, commands, nil)
+		fmt.Printf("\nIn a session:\n  %-8s %s\n  %-8s %s\n", contextGroup.Name, contextGroup.Summary,
 			"exit", "End the session; quit, Ctrl-D and Ctrl-C too.")
 	default:
 		err = run(args)
 	}
 	// A session started outside a CA works on the root CA ca create made.
 	if sessionRoot == "" {
-		placeCA(resolveCADir(""))
+		placeCA(cli.ResolveCADir(""))
 	}
 	return err
 }
 
 // runGroup runs the command of the group g that args name, or prints its usage.
-func runGroup(g *command, args []string) error {
+func runGroup(g *cli.Command, args []string) error {
 	if len(args) == 0 {
-		printUsage(os.Stderr, g)
-		return errUsage
+		cli.PrintUsage(os.Stderr, commands, g)
+		return cli.ErrUsage
 	}
 	switch args[0] {
 	case "-h", "-help", "--help", "help":
-		printUsage(os.Stdout, g)
+		cli.PrintUsage(os.Stdout, commands, g)
 		return nil
 	}
-	i := slices.IndexFunc(g.sub, func(c command) bool { return c.name == args[0] })
+	i := slices.IndexFunc(g.Sub, func(c cli.Command) bool { return c.Name == args[0] })
 	if i < 0 {
-		fmt.Fprintf(os.Stderr, "simple-ca %s: unknown command %q\n\n", g.name, args[0])
-		printUsage(os.Stderr, g)
-		return errUsage
+		fmt.Fprintf(os.Stderr, "simple-ca %s: unknown command %q\n\n", g.Name, args[0])
+		cli.PrintUsage(os.Stderr, commands, g)
+		return cli.ErrUsage
 	}
-	return g.sub[i].run(args[1:])
+	return g.Sub[i].Run(args[1:])
 }
 
 // splitLine splits a line into arguments as a shell does, with '...' and "..." quotes and \
@@ -317,13 +314,13 @@ func complete(t *term.Terminal, line string, pos int) (string, int, bool) {
 	switch {
 	case len(words) == 0:
 		for _, g := range groups {
-			candidates = append(candidates, g.name)
+			candidates = append(candidates, g.Name)
 		}
 		candidates = append(candidates, "help", "exit", "quit")
 	case len(words) == 1:
-		if i := slices.IndexFunc(groups, func(c command) bool { return c.name == words[0] }); i >= 0 {
-			for _, c := range groups[i].sub {
-				candidates = append(candidates, c.name)
+		if i := slices.IndexFunc(groups, func(c cli.Command) bool { return c.Name == words[0] }); i >= 0 {
+			for _, c := range groups[i].Sub {
+				candidates = append(candidates, c.Name)
 			}
 		}
 	case len(words) == 2 && words[0] == "context" && words[1] == "use" && sessionRoot != "":
@@ -368,8 +365,8 @@ func requireHierarchy() error {
 }
 
 func runContextList(args []string) error {
-	fs := newFlagSet("context list", "", "List the CAs of the hierarchy of the session, the root CA first, the active one\nmarked with *.")
-	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
+	fs := cli.NewFlagSet("context list", "", "List the CAs of the hierarchy of the session, the root CA first, the active one\nmarked with *.")
+	if _, _, err := cli.ParseArgs(fs, args, 0, 0); err != nil {
 		return err
 	}
 	if err := requireHierarchy(); err != nil {
@@ -386,10 +383,10 @@ func runContextList(args []string) error {
 }
 
 func runContextUse(args []string) error {
-	fs := newFlagSet("context use", "[NAME]", "Make the issuing CA NAME of the hierarchy, or the root CA without NAME, the CA the\n"+
+	fs := cli.NewFlagSet("context use", "[NAME]", "Make the issuing CA NAME of the hierarchy, or the root CA without NAME, the CA the\n"+
 		"commands of the session work on. With --ca-dir, move to the hierarchy of that CA directory.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA, of another hierarchy")
-	rest, _, err := parseArgs(fs, args, 0, 1)
+	rest, _, err := cli.ParseArgs(fs, args, 0, 1)
 	if err != nil {
 		return err
 	}
@@ -442,9 +439,9 @@ func editContext(edit func(values map[string][]string) error) error {
 }
 
 func runContextSet(args []string) error {
-	fs := newFlagSet("context set", "NAME VALUE...", "Set the values of the option --NAME in the active context, replacing those it held. A\n"+
+	fs := cli.NewFlagSet("context set", "NAME VALUE...", "Set the values of the option --NAME in the active context, replacing those it held. A\n"+
 		"command on this CA takes them for the option when it is not given, on the command line too.")
-	rest, _, err := parseArgs(fs, args, 2, -1)
+	rest, _, err := cli.ParseArgs(fs, args, 2, -1)
 	if err != nil {
 		return err
 	}
@@ -459,9 +456,9 @@ func runContextSet(args []string) error {
 }
 
 func runContextAdd(args []string) error {
-	fs := newFlagSet("context add", "NAME VALUE...", "Add values to the option --NAME in the active context, for an option given several\n"+
+	fs := cli.NewFlagSet("context add", "NAME VALUE...", "Add values to the option --NAME in the active context, for an option given several\n"+
 		"times, such as --scope or --domain.")
-	rest, _, err := parseArgs(fs, args, 2, -1)
+	rest, _, err := cli.ParseArgs(fs, args, 2, -1)
 	if err != nil {
 		return err
 	}
@@ -476,9 +473,9 @@ func runContextAdd(args []string) error {
 }
 
 func runContextDelete(args []string) error {
-	fs := newFlagSet("context delete", "NAME [VALUE...]", "Delete the values given from the option --NAME in the active context, or the option\n"+
+	fs := cli.NewFlagSet("context delete", "NAME [VALUE...]", "Delete the values given from the option --NAME in the active context, or the option\n"+
 		"with all its values without them.")
-	rest, _, err := parseArgs(fs, args, 1, -1)
+	rest, _, err := cli.ParseArgs(fs, args, 1, -1)
 	if err != nil {
 		return err
 	}
@@ -508,8 +505,8 @@ func runContextDelete(args []string) error {
 }
 
 func runContextShow(args []string) error {
-	fs := newFlagSet("context show", "", "Show the option values of the active context, as the options the commands take.")
-	if _, _, err := parseArgs(fs, args, 0, 0); err != nil {
+	fs := cli.NewFlagSet("context show", "", "Show the option values of the active context, as the options the commands take.")
+	if _, _, err := cli.ParseArgs(fs, args, 0, 0); err != nil {
 		return err
 	}
 	if err := requireHierarchy(); err != nil {
@@ -602,3 +599,13 @@ func (h *fileHistory) Len() int { return len(h.entries) }
 
 // At returns a line of the history, 0 the newest.
 func (h *fileHistory) At(idx int) string { return h.entries[len(h.entries)-1-idx] }
+
+// init lets the commands work on the CA of the active context of the REPL.
+func init() {
+	cli.SessionCADir = func() string {
+		if sessionRoot == "" {
+			return ""
+		}
+		return filepath.Join(sessionRoot, sessionCA)
+	}
+}

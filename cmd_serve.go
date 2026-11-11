@@ -33,13 +33,15 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cli"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/oidc"
 )
 
 // ---- serve ------------------------------------------------------------------
 
 // runServe runs serve until it fails or is interrupted.
 func runServe(args []string) error {
-	fs := newFlagSet("serve", "", "Serve the certificates and CRLs of the root CA of the CA in --ca-dir, and of its\n"+
+	fs := cli.NewFlagSet("serve", "", "Serve the certificates and CRLs of the root CA of the CA in --ca-dir, and of its\n"+
 		"issuing CAs, over HTTP.\n\n"+
 		"With --webui, it also serves the token page at /tokens/, the certificate page at\n"+
 		"/certificates/ and the audit page at /audit/. Sign in with a token that has the scope\n"+
@@ -62,14 +64,14 @@ func runServe(args []string) error {
 		proxies = append(proxies, s)
 		return nil
 	})
-	_, given, err := parseArgs(fs, args, 0, 0)
+	_, given, err := cli.ParseArgs(fs, args, 0, 0)
 	if err != nil {
 		return err
 	}
 	if *address == "" {
 		fmt.Fprintf(fs.Output(), "%s: --address must not be empty; 0.0.0.0 is all interfaces\n", fs.Name())
 		fs.Usage()
-		return errUsage
+		return cli.ErrUsage
 	}
 	if *tlsCert, *tlsKey, err = resolveTLS(*tlsCert, *tlsKey); err != nil {
 		return err
@@ -78,7 +80,7 @@ func runServe(args []string) error {
 		return errors.New("--docs needs the browser files of serve-markdown's page, which this executable " +
 			"was built without; see docs/development.md")
 	}
-	rootDir, _, err := simpleca.LocateCA(resolveCADir(*caDir))
+	rootDir, _, err := simpleca.LocateCA(cli.ResolveCADir(*caDir))
 	if err != nil {
 		return err
 	}
@@ -90,7 +92,7 @@ func runServe(args []string) error {
 	if *tlsKey != "" {
 		keys = append(keys, *tlsKey)
 	}
-	for _, id := range caIDs(rootDir) {
+	for _, id := range simpleca.CAIDs(rootDir) {
 		if _, err := loadTheme(filepath.Join(rootDir, id)); err != nil {
 			return err
 		}
@@ -99,7 +101,7 @@ func runServe(args []string) error {
 	if err := simpleca.ReadKeyPassphrase(keys...); err != nil {
 		return err
 	}
-	if err := checkOIDC(rootDir, cfg); err != nil {
+	if err := oidc.Check(rootDir, cfg); err != nil {
 		return err
 	}
 	option := "--trusted-proxy"

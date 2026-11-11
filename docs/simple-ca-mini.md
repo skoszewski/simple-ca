@@ -8,6 +8,8 @@ certificates, writes PKCS#12 bundles and serves the CA certificates and the CA b
 
 The script controls the `openssl` command, which does every key generation, signature,
 fingerprint and PKCS#12 operation; Simple CA Mini is for systems with OpenSSL installed.
+[Simple CA Lite](simple-ca-lite.md), `simple-ca-lite`, is the Go program with the certificate
+commands of `simple-ca`.
 
 ## Requirements
 

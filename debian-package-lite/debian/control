@@ -1,0 +1,19 @@
+Source: simple-ca-lite
+Section: admin
+Priority: optional
+Maintainer: Slawomir Koszewski <slawek@koszewscy.waw.pl>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://github.com/skoszewski/simple-ca
+
+Package: simple-ca-lite
+Architecture: any
+Depends: ${misc:Depends}
+Description: Certificate commands of the simple-ca certificate authority
+ simple-ca-lite keeps a root CA and its issuing CAs in a directory, issues and
+ revokes certificates, publishes CRLs and encrypts or decrypts the private
+ keys, with the ca, cert, crl and key commands of simple-ca. It has no HTTP
+ server, no tokens and no embedded documentation.
+ .
+ Its CA directory is that of simple-ca, so either program works on it.

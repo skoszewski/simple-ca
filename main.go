@@ -23,19 +23,14 @@
 package main
 
 import (
-	"cmp"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"maps"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 	"slices"
-	"strings"
 
-	"github.com/skoszewski/simple-ca/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/pkg/simpleca/cli"
 )
 
 // ---- version ----------------------------------------------------------------
@@ -58,22 +53,6 @@ func version() string {
 
 // ---- CLI --------------------------------------------------------------------
 
-// resolveCADir returns the --ca-dir value, else the CA of the active context of the REPL, else
-// $SIMPLE_CA_DIR, else the working directory.
-func resolveCADir(flagVal string) string {
-	if flagVal != "" {
-		return flagVal
-	}
-	if sessionRoot != "" {
-		return filepath.Join(sessionRoot, sessionCA)
-	}
-	if env := os.Getenv("SIMPLE_CA_DIR"); env != "" {
-		return env
-	}
-	cwd, _ := os.Getwd()
-	return cwd
-}
-
 // resolveTLS returns the --tls-cert and --tls-key values, each else $SIMPLE_CA_TLS_CERT or
 // $SIMPLE_CA_TLS_KEY, and an error when only one of the two is given.
 func resolveTLS(cert, key string) (string, string, error) {
@@ -89,198 +68,33 @@ func resolveTLS(cert, key string) (string, string, error) {
 	return cert, key, nil
 }
 
-// errUsage reports a command line that was rejected after its usage was printed.
-var errUsage = errors.New("invalid command line")
+// commands lists the groups and the commands of simple-ca in the order of the usage text: the
+// groups of cli.CertGroups with token before key, then audit and serve.
+var commands = func() []cli.Command {
+	groups := cli.CertGroups()
+	key := slices.IndexFunc(groups, func(c cli.Command) bool { return c.Name == "key" })
+	return slices.Concat(groups[:key], []cli.Command{
+		{Name: "token", Summary: "Manage the tokens of the signing API and the web pages of serve.", Sub: []cli.Command{
+			{Name: "create", Summary: "Create a token of a CA.", Run: runTokenCreate},
+			{Name: "list", Summary: "List the tokens of a CA.", Run: runTokenList},
+			{Name: "describe", Summary: "Print the attributes of a token of a CA, or of a token itself.", Run: runTokenDescribe},
+			{Name: "revoke", Summary: "Revoke a token of a CA.", Run: runTokenRevoke},
+			{Name: "renew", Summary: "Renew a token of a CA, expired or not.", Run: runTokenRenew},
+			{Name: "purge", Summary: "Remove the expired and revoked tokens of a CA.", Run: runTokenPurge},
+			{Name: "issue", Summary: "Print a JWT of a token type, not stored, for workload identity federation.", Run: runTokenIssue},
+			{Name: "jwks", Summary: "Print the JSON Web Key Set verifying the tokens of a CA.", Run: runTokenJWKS},
+		}},
+	}, groups[key:], []cli.Command{
+		{Name: "audit", Summary: "Read the audit log of a root CA and its issuing CAs.", Sub: []cli.Command{
+			{Name: "list", Summary: "Print the records of the audit log, filtered.", Run: runAuditList},
+		}},
+		{Name: "serve", Summary: "Serve the CA certificates, CRLs, ACME, the signing API and the web pages over HTTP.", Run: runServe},
+	})
+}()
 
-// command is a command of simple-ca, run by run, or a group of the commands in sub.
-type command struct {
-	name, summary string
-	run           func(args []string) error
-	sub           []command
-}
-
-// commands lists the groups and the commands in the order of the usage text.
-var commands = []command{
-	{name: "ca", summary: "Create and show root and issuing CAs.", sub: []command{
-		{name: "create", summary: "Create a root or issuing CA.", run: runCACreate},
-		{name: "show", summary: "Show a CA, its certificate counts and its CRL.", run: runCAShow},
-	}},
-	{name: "cert", summary: "Create, sign, export, revoke, list and show certificates.", sub: []command{
-		{name: "create", summary: "Create a server, user or none certificate signed by the CA.", run: runCertCreate},
-		{name: "sign", summary: "Sign a certificate signing request with the CA.", run: runCertSign},
-		{name: "pfx", summary: "Create a PKCS#12 (PFX) bundle for a leaf certificate.", run: runCertPFX},
-		{name: "revoke", summary: "Revoke a certificate.", run: runCertRevoke},
-		{name: "list", summary: "List the certificates a CA issued.", run: runCertList},
-		{name: "show", summary: "Show the certificates in a file.", run: runCertShow},
-	}},
-	{name: "crl", summary: "Create certificate revocation lists.", sub: []command{
-		{name: "create", summary: "Create the CRL of a CA, or of a root CA and all its issuing CAs.", run: runCRLCreate},
-	}},
-	{name: "token", summary: "Manage the tokens of the signing API and the web pages of serve.", sub: []command{
-		{name: "create", summary: "Create a token of a CA.", run: runTokenCreate},
-		{name: "list", summary: "List the tokens of a CA.", run: runTokenList},
-		{name: "describe", summary: "Print the attributes of a token of a CA, or of a token itself.", run: runTokenDescribe},
-		{name: "revoke", summary: "Revoke a token of a CA.", run: runTokenRevoke},
-		{name: "renew", summary: "Renew a token of a CA, expired or not.", run: runTokenRenew},
-		{name: "purge", summary: "Remove the expired and revoked tokens of a CA.", run: runTokenPurge},
-		{name: "issue", summary: "Print a JWT of a token type, not stored, for workload identity federation.", run: runTokenIssue},
-		{name: "jwks", summary: "Print the JSON Web Key Set verifying the tokens of a CA.", run: runTokenJWKS},
-	}},
-	{name: "key", summary: "Encrypt and decrypt the private keys of CAs and certificates.", sub: []command{
-		{name: "encrypt", summary: "Encrypt the private keys of a CA with the passphrase.", run: runKeyEncrypt},
-		{name: "decrypt", summary: "Decrypt the private keys of a CA.", run: runKeyDecrypt},
-	}},
-	{name: "audit", summary: "Read the audit log of a root CA and its issuing CAs.", sub: []command{
-		{name: "list", summary: "Print the records of the audit log, filtered.", run: runAuditList},
-	}},
-	{name: "serve", summary: "Serve the CA certificates, CRLs, ACME, the signing API and the web pages over HTTP.", run: runServe},
-}
-
-// printUsage writes the usage of simple-ca to w, or of the group g when it is not nil.
-func printUsage(w io.Writer, g *command) {
-	list, usage, what := commands, "simple-ca GROUP COMMAND [options] [ARGS]\n       simple-ca serve [options]\n"+
-		"       simple-ca                 the commands of a session on a terminal, else of stdin",
-		"Create and manage a simple Certificate Authority."
-	if g != nil {
-		list, usage, what = g.sub, "simple-ca "+g.name+" COMMAND [options] [ARGS]", g.summary
-	}
-	fmt.Fprintf(w, "Usage: %s\n\n%s\n\nCommands:\n", usage, what)
-	for _, c := range list {
-		fmt.Fprintf(w, "  %-8s %s\n", c.name, c.summary)
-	}
-	if g == nil {
-		fmt.Fprint(w, "\nOptions:\n  -h, --help   print this help\n  --version    print the version\n\n"+
-			"Run \"simple-ca GROUP -h\" for the commands of a group, and \"simple-ca GROUP COMMAND -h\"\n"+
-			"for the options of a command.\n")
-		return
-	}
-	fmt.Fprintf(w, "\nRun \"simple-ca %s COMMAND -h\" for the options of a command.\n", g.name)
-}
-
-// hiddenFlags are the former names of options, accepted as aliases and left out of the usage, by
-// subcommand, those of every subcommand under "".
-var hiddenFlags = map[string][]string{"": {"ca-publish-base-url"}, "token create": {"type"}}
-
-// newFlagSet returns the flag set of the subcommand name, whose usage names its arguments and
-// summary, and its options without its hiddenFlags.
-func newFlagSet(name, arguments, summary string) *flag.FlagSet {
-	fs := flag.NewFlagSet("simple-ca "+name, flag.ContinueOnError)
-	fs.Usage = func() {
-		line := strings.TrimSpace("simple-ca " + name + " [options] " + arguments)
-		fmt.Fprintf(fs.Output(), "Usage: %s\n\n%s\n\nOptions:\n", line, summary)
-		shown := flag.NewFlagSet(fs.Name(), flag.ContinueOnError)
-		shown.SetOutput(fs.Output())
-		fs.VisitAll(func(f *flag.Flag) {
-			if !slices.Contains(hiddenFlags[""], f.Name) && !slices.Contains(hiddenFlags[name], f.Name) {
-				shown.Var(f.Value, f.Name, f.Usage)
-				shown.Lookup(f.Name).DefValue = f.DefValue
-			}
-		})
-		shown.PrintDefaults()
-	}
-	return fs
-}
-
-// parseArgs parses the options of a subcommand, which come before its arguments, and checks that
-// it was given from minArgs to maxArgs arguments, maxArgs -1 for any number. An option not given
-// takes the values of the context of its CA in simple-ca.json. It returns the arguments and the
-// names of the options given or taken from the context.
-func parseArgs(fs *flag.FlagSet, args []string, minArgs, maxArgs int) ([]string, map[string]bool, error) {
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil, nil, err
-		}
-		return nil, nil, errUsage
-	}
-	if fs.NArg() < minArgs || (maxArgs >= 0 && fs.NArg() > maxArgs) {
-		fmt.Fprintf(fs.Output(), "%s: wrong number of arguments\n", fs.Name())
-		fs.Usage()
-		return nil, nil, errUsage
-	}
-	if err := applyContext(fs); err != nil {
-		return nil, nil, err
-	}
-	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
-	return fs.Args(), given, nil
-}
-
-// applyContext sets each option of fs not given that the context of its CA holds, the CA of its
-// --ca-dir, once for each value; a command without --ca-dir, or outside a CA, takes none.
-func applyContext(fs *flag.FlagSet) error {
-	caDirFlag := fs.Lookup("ca-dir")
-	if caDirFlag == nil {
-		return nil
-	}
-	rootDir, caID, err := simpleca.LocateCA(resolveCADir(caDirFlag.Value.String()))
-	if err != nil {
-		return nil
-	}
-	cfg, err := simpleca.LoadConfig(rootDir)
-	if err != nil {
-		return err
-	}
-	values := cfg.ContextValues(caID)
-	if len(values) == 0 {
-		return nil
-	}
-	given := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
-	for _, key := range slices.Sorted(maps.Keys(values)) {
-		name := strings.ReplaceAll(key, "_", "-")
-		if name == "ca-dir" || given[name] || fs.Lookup(name) == nil {
-			continue
-		}
-		for _, value := range values[key] {
-			if err := fs.Set(name, value); err != nil {
-				return fmt.Errorf("context value '%s' of the option '%s' of %s: %w", value, name, cmp.Or(caID, "root"), err)
-			}
-		}
-	}
-	return nil
-}
-
-// run runs the command named by args, a group and one of its commands or serve, or prints the
-// usage of simple-ca or of a group, or the version.
+// run runs the command line args of simple-ca with its commands.
 func run(args []string) error {
-	if len(args) == 0 {
-		printUsage(os.Stderr, nil)
-		return errUsage
-	}
-	switch args[0] {
-	case "-h", "-help", "--help", "help":
-		printUsage(os.Stdout, nil)
-		return nil
-	case "-version", "--version":
-		fmt.Println("simple-ca version", version())
-		return nil
-	}
-	i := slices.IndexFunc(commands, func(c command) bool { return c.name == args[0] })
-	if i < 0 {
-		fmt.Fprintf(os.Stderr, "simple-ca: unknown command %q\n\n", args[0])
-		printUsage(os.Stderr, nil)
-		return errUsage
-	}
-	g := &commands[i]
-	if g.run != nil {
-		return g.run(args[1:])
-	}
-	if len(args) == 1 {
-		printUsage(os.Stderr, g)
-		return errUsage
-	}
-	switch args[1] {
-	case "-h", "-help", "--help", "help":
-		printUsage(os.Stdout, g)
-		return nil
-	}
-	j := slices.IndexFunc(g.sub, func(c command) bool { return c.name == args[1] })
-	if j < 0 {
-		fmt.Fprintf(os.Stderr, "simple-ca %s: unknown command %q\n\n", g.name, args[1])
-		printUsage(os.Stderr, g)
-		return errUsage
-	}
-	return g.sub[j].run(args[2:])
+	return cli.Run(commands, args)
 }
 
 func main() {
@@ -292,7 +106,7 @@ func main() {
 	}
 	switch {
 	case err == nil, errors.Is(err, flag.ErrHelp):
-	case errors.Is(err, errUsage):
+	case errors.Is(err, cli.ErrUsage):
 		os.Exit(2)
 	case errors.Is(err, errReported):
 		os.Exit(1)
@@ -300,4 +114,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// init sets the version of simple-ca, the usage line of its REPL and the former option names of
+// token create for the commands of cli.
+func init() {
+	cli.Version = version()
+	cli.UsageLines = []string{"simple-ca                 the commands of a session on a terminal, else of stdin"}
+	cli.HiddenFlags["token create"] = []string{"type"}
 }

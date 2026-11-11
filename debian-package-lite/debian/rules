@@ -1,0 +1,21 @@
+#!/usr/bin/make -f
+
+# The version the program reports, vX.Y.Z or vX.Y.Z-rc, from the VERSION of the builder image.
+GO_BUILD = CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=$(SIMPLE_CA_VERSION)"
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(GO_BUILD) -o debian/bin/simple-ca-lite ./cmd/simple-ca-lite
+
+override_dh_auto_clean:
+	rm -rf debian/bin
+
+# The tests are run with ./build.mjs test.
+override_dh_auto_test:
+
+# The Go program is a static executable.
+override_dh_strip:
+
+override_dh_dwz:
