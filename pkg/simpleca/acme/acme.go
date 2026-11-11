@@ -57,6 +57,10 @@ import (
 // ClientAddr returns the address of the client of a request; the program serving ACME sets it.
 var ClientAddr func(r *http.Request) netip.Addr
 
+// Origin returns the origin of a request as its client sees it, such as https://pki.example.com;
+// the program serving ACME sets it.
+var Origin func(r *http.Request) string
+
 // stateFile is the file of the ACME state of a CA, an order lives acmeOrderLifetime, a nonce
 // acmeNonceLifetime, and maxBody is the largest body of a request, in bytes.
 const (
@@ -260,11 +264,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request, rootDir, caDir, 
 		http.NotFound(w, r)
 		return
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	origin := scheme + "://" + r.Host
+	origin := Origin(r)
 	ca := &acmeCA{Server: s, dir: caDir, origin: origin, base: origin + prefix, domains: cfg.ACME.Domains,
 		limits: Limits(cfg.ACME), client: ClientAddr(r)}
 	w.Header().Set("Link", fmt.Sprintf("<%s/directory>;rel=\"index\"", ca.base))

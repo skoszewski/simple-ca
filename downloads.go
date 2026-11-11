@@ -227,10 +227,7 @@ func aptPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 	}
 	slices.Sort(packages)
 	_, keyErr := root.Stat("key.asc")
-	origin := "http://" + r.Host
-	if r.TLS != nil {
-		origin = "https://" + r.Host
-	}
+	origin := requestOrigin(r)
 	commands := "BASE_URL=" + origin + "\n\n" +
 		"sudo install -d -m 0755 /etc/apt/keyrings\n" +
 		"sudo curl -fsSL -o /etc/apt/keyrings/simple-ca.asc \"$BASE_URL" + aptPath + "key.asc\"\n" +
@@ -250,7 +247,7 @@ func aptPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 		Theme                   template.CSS
 		Packages                []string
 		NoKey, PlainHTTP        bool
-	}{title, tailwindPath, commands, pageTheme(rootDir), packages, keyErr != nil, r.TLS == nil}); err != nil {
+	}{title, tailwindPath, commands, pageTheme(rootDir), packages, keyErr != nil, strings.HasPrefix(origin, "http://")}); err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 	}
 }

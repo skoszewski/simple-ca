@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.19.6
+
+fix: serve takes the scheme from X-Forwarded-Proto of a trusted proxy.
+
+- Behind a trusted proxy that terminates HTTPS, the index page, the ACME directory and the apt
+  page give `https://` URLs, from the last value of the proxy's `X-Forwarded-Proto`, and the apt
+  page no longer warns about plain HTTP. The header of any other peer is not read.
+
 ## 1.19.5
 
 fix: the Docker guide prepares container CLI volumes and runs with --rm.

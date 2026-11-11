@@ -797,6 +797,25 @@ func clientAddr(r *http.Request) netip.Addr {
 	return client
 }
 
+// requestOrigin returns the origin of r as its client sees it, with the host of r: https for a
+// request over TLS, or for one from a trusted proxy whose X-Forwarded-Proto ends with https, else
+// http.
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	peer, _ := netip.ParseAddrPort(r.RemoteAddr)
+	if slices.ContainsFunc(trustedProxies, func(p netip.Prefix) bool { return p.Contains(peer.Addr().Unmap()) }) {
+		// The value of the last proxy, the one that sent the request, is the last one.
+		values := strings.Split(strings.Join(r.Header.Values("X-Forwarded-Proto"), ","), ",")
+		if proto := strings.ToLower(strings.TrimSpace(values[len(values)-1])); proto == "http" || proto == "https" {
+			scheme = proto
+		}
+	}
+	return scheme + "://" + r.Host
+}
+
 // signWithToken signs the CSR csrData, PEM or DER, with the CA in caDir as a certificate of the
 // type certType, valid for days, with the extended key usages ekus and the key usages kus added to
 // those of the type, for the JWT token of the CA's tokens-db.json used from the address client,

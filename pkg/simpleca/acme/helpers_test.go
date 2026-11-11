@@ -34,11 +34,18 @@ import (
 	"github.com/skoszewski/simple-ca/pkg/simpleca"
 )
 
-// init sets ClientAddr, which the program serving ACME sets, to the address of the peer.
+// init sets ClientAddr and Origin, which the program serving ACME sets, to the address of the
+// peer and the origin of the connection.
 func init() {
 	ClientAddr = func(r *http.Request) netip.Addr {
 		ap, _ := netip.ParseAddrPort(r.RemoteAddr)
 		return ap.Addr()
+	}
+	Origin = func(r *http.Request) string {
+		if r.TLS != nil {
+			return "https://" + r.Host
+		}
+		return "http://" + r.Host
 	}
 }
 

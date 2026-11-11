@@ -53,6 +53,13 @@ not a trusted proxy, so an address a client puts in the header itself is not tak
 of any other peer is not read, and without trusted proxies the client is always the address the
 request comes from.
 
+The `X-Forwarded-Proto` header of a trusted proxy gives the scheme the client used, so that a
+proxy that terminates HTTPS and forwards plain HTTP to `serve` gets `https://` URLs on the index
+page, in the [ACME](acme.md) directory and on the apt page: its last value, `http` or `https`,
+is taken. Without it, and for any other peer, the scheme is `https` when `serve` itself serves
+HTTPS, and `http` otherwise. nginx sends the header with
+`proxy_set_header X-Forwarded-Proto $scheme;`.
+
 ```sh
 simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 ```
@@ -221,7 +228,8 @@ simple-ca serve --ca-dir /etc/simple-ca --packages "$PACKAGES"
 machine how to set up the repository: the commands below with `BASE_URL` set to the address the
 page was opened at, a copy button for them, and the packages, the names of the `Package:` lines
 of `Packages`. It warns when the repository has no `key.asc`, and when the page is served over
-plain HTTP. The index page links to it as "Apt" in its header, beside "Downloads", and every
+plain HTTP, which behind a proxy that terminates HTTPS needs its `X-Forwarded-Proto`, as
+described above. The index page links to it as "Apt" in its header, beside "Downloads", and every
 page below the page.
 
 A client trusts the key of the repository, `key.asc`, and adds the repository as a flat one,

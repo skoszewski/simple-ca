@@ -263,10 +263,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			http.Error(w, "could not read the configuration", http.StatusInternalServerError)
 			return
 		}
-		origin := "http://" + r.Host
-		if r.TLS != nil {
-			origin = "https://" + r.Host
-		}
+		origin := requestOrigin(r)
 		dirs := []string{""}
 		entries, _ := os.ReadDir(rootDir)
 		for _, e := range entries {
@@ -598,6 +595,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 // init sets the hooks of the ACME server and the OIDC sign-in.
 func init() {
 	acme.ClientAddr = clientAddr
+	acme.Origin = requestOrigin
 	oidc.ClientAddr = clientAddr
 	oidc.StatusError = func(status int, format string, args ...any) error { return apiErr(status, format, args...) }
 	oidc.ErrorStatus = func(err error) (int, string, bool) {

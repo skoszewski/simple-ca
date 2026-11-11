@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,6 +126,44 @@ func TestServeDownloads(t *testing.T) {
 			t.Errorf("/apt/: status %d, want %q in the page:\n%s", resp.StatusCode, want, page)
 		}
 	}
+	// Behind a trusted proxy that terminates TLS, X-Forwarded-Proto names the scheme; from any
+	// other peer the header is not read.
+	getProto := func(proto string) string {
+		t.Helper()
+		req, err := http.NewRequest("GET", server.URL+"/apt/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-Forwarded-Proto", proto)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	httpsURL := "BASE_URL=https://" + strings.TrimPrefix(server.URL, "http://")
+	if page := getProto("https"); strings.Contains(page, httpsURL) || !strings.Contains(page, "plain HTTP") {
+		t.Error("/apt/ takes X-Forwarded-Proto from a peer that is not a trusted proxy")
+	}
+	savedProxies := trustedProxies
+	t.Cleanup(func() { trustedProxies = savedProxies })
+	trustedProxies = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")}
+	if page := getProto("https"); !strings.Contains(page, httpsURL) || strings.Contains(page, "plain HTTP") {
+		t.Errorf("/apt/ behind a trusted proxy with X-Forwarded-Proto https: want %q and no warning:\n%s", httpsURL, page)
+	}
+	if page := getProto("http, https"); !strings.Contains(page, httpsURL) {
+		t.Error("/apt/ does not take the last value of X-Forwarded-Proto")
+	}
+	if page := getProto("ftp"); strings.Contains(page, httpsURL) {
+		t.Error("/apt/ takes an X-Forwarded-Proto that is neither http nor https")
+	}
+	trustedProxies = savedProxies
+
 	write(apt, "key.asc", "public key\n")
 	if _, page := get(server, "/apt/"); strings.Contains(page, "<code class=\"font-mono\">key.asc</code>, so") {
 		t.Error("/apt/ warns about key.asc while the repository has it")
