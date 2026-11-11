@@ -39,11 +39,11 @@
 // serve-markdown's page first when assets/markdown holds another version, and fails when that
 // fails.
 //
-// The dist action makes the files of an internal release in dist/: the archives the GitHub
-// workflow builds, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz, .zip for windows, of linux, darwin and
-// windows for the architecture of the host, with the programs versioned vX.Y.Z of the newest
-// CHANGELOG.md entry. It refuses uncommitted changes and an entry that no commit has the summary
-// line of. A platform whose simple-ca-trust the host cannot build is skipped: darwin needs macOS with swift, windows dotnet. With --dpkg it also
+// The dist action makes the files of an internal release in dist/: the archive the GitHub
+// workflow builds for the platform of the host, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz, .zip on
+// Windows, with the programs versioned vX.Y.Z of the newest CHANGELOG.md entry. It refuses
+// uncommitted changes, an entry that no commit has the summary line of, and a host without the
+// toolchain of its simple-ca-trust, swift on macOS and dotnet on Windows. With --dpkg it also
 // builds the Debian package X.Y.Z-1 for the architecture of the host, with the container CLI on
 // macOS when it is installed, else with docker buildx.
 //
@@ -427,37 +427,38 @@ switch (action) {
     mkdirSync(distDir, { recursive: true });
     const programs = [["simple-ca", "."], ["request-cert", "./cmd/request-cert"], ["token-setup", "./cmd/token-setup"],
       ["request-token", "./cmd/request-token"], ["simple-ca-wif", "./cmd/simple-ca-wif"]];
-    const goarch = hostArch;
-    for (const goos of ["linux", "darwin", "windows"]) {
-      if ((goos === "darwin" && (host !== "darwin" || !works("swift", ["--version"]))) ||
-        (goos === "windows" && !works("dotnet", ["--version"]))) {
-        console.error(`note: ${goos}/${goarch} skipped; simple-ca-trust for ${goos} needs ` +
-          (goos === "darwin" ? "macOS with swift" : "dotnet"));
-        continue;
-      }
-      // The programs of a platform are packed from bin/pack-<goos>-<goarch>, made anew.
-      const exe = goos === "windows" ? ".exe" : "";
-      const pack = join(binDir, `pack-${goos}-${goarch}`);
-      rmSync(pack, { recursive: true, force: true });
-      mkdirSync(pack, { recursive: true });
-      for (const [name, pkg] of programs) {
-        run("go", ["build", "-trimpath", "-ldflags", `-X main.buildVersion=${version}`, "-o",
-          join(pack, `${name}${exe}`), pkg], { env: { ...env, GOOS: goos, GOARCH: goarch } });
-      }
-      buildTrust(goos, goarch, join(pack, `simple-ca-trust${exe}`), version);
-      const archive = join(distDir, `simple-ca-${changelogVersion}-${goos}-${goarch}${goos === "windows" ? ".zip" : ".tar.gz"}`);
-      rmSync(archive, { force: true });
-      const files = readdirSync(pack);
-      // A windows archive is a zip, made by the tar of Windows on a Windows host.
-      if (goos !== "windows") {
-        run("tar", ["-czf", archive, ...files], { cwd: pack });
-      } else if (host === "windows") {
-        run("tar", ["-a", "-cf", archive, ...files], { cwd: pack });
-      } else {
-        run("zip", ["-q", "-9", archive, ...files], { cwd: pack });
-      }
-      console.log(`dist/${archive.slice(distDir.length + 1)}`);
+    // The archive is that of the host's platform, whose simple-ca-trust needs swift on macOS and
+    // dotnet on Windows.
+    const [goos, goarch] = [host, hostArch];
+    if (!["linux", "darwin", "windows"].includes(goos) || !["amd64", "arm64"].includes(goarch)) {
+      console.error(`dist: the release workflow builds no archive for ${goos}/${goarch}`);
+      process.exit(1);
     }
+    const toolchain = { darwin: "swift", windows: "dotnet" }[goos];
+    if (toolchain && !works(toolchain, ["--version"])) {
+      console.error(`dist: simple-ca-trust for ${goos} needs ${toolchain}`);
+      process.exit(1);
+    }
+    // The programs are packed from bin/pack-<goos>-<goarch>, made anew.
+    const exe = goos === "windows" ? ".exe" : "";
+    const pack = join(binDir, `pack-${goos}-${goarch}`);
+    rmSync(pack, { recursive: true, force: true });
+    mkdirSync(pack, { recursive: true });
+    for (const [name, pkg] of programs) {
+      run("go", ["build", "-trimpath", "-ldflags", `-X main.buildVersion=${version}`, "-o",
+        join(pack, `${name}${exe}`), pkg], { env: { ...env, GOOS: goos, GOARCH: goarch } });
+    }
+    buildTrust(goos, goarch, join(pack, `simple-ca-trust${exe}`), version);
+    const archive = join(distDir, `simple-ca-${changelogVersion}-${goos}-${goarch}${goos === "windows" ? ".zip" : ".tar.gz"}`);
+    rmSync(archive, { force: true });
+    const files = readdirSync(pack);
+    // A windows archive is a zip, made by the tar of Windows.
+    if (goos === "windows") {
+      run("tar", ["-a", "-cf", archive, ...files], { cwd: pack });
+    } else {
+      run("tar", ["-czf", archive, ...files], { cwd: pack });
+    }
+    console.log(`dist/${archive.slice(distDir.length + 1)}`);
     if (dpkg) {
       buildDeb(host === "darwin" && works("container", ["--version"]) ? "container" : "docker", true);
     }

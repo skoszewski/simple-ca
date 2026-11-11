@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.17.4
+
+fix: build.mjs dist writes the archive of the platform of the host alone.
+
+- `build.mjs dist` builds the archive of the host's operating system and architecture only,
+  instead of those of `linux`, `darwin` and `windows`; the release workflow builds the others.
+- It refuses a host without the toolchain of its `simple-ca-trust`, `swift` on macOS and `dotnet`
+  on Windows, instead of skipping the archive.
+
 ## 1.17.3
 
 fix: build.mjs dist --dpkg with the container CLI writes the Debian package to dist/ instead of dist/out.tar/.

@@ -26,8 +26,8 @@ executables to `bin/`, which `.gitignore` leaves out.
                                # build simple-ca:<version> and simple-ca:latest; --push pushes them;
                                # the registry defaults to SIMPLE_CA_REGISTRY
 ./build.mjs deb                # build the Debian package for the architecture of the host
-./build.mjs dist [--dpkg]      # write the archives of an internal release to dist/, and with
-                               # --dpkg its Debian package
+./build.mjs dist [--dpkg]      # write the archive of an internal release for the host to dist/,
+                               # and with --dpkg its Debian package
 ```
 
 `./build.mjs deb` builds the package of `debian-package/` with `docker buildx`, for the
@@ -81,14 +81,14 @@ the commands for building it by hand. It also builds the Debian package with `./
 for amd64 and arm64, each on a runner of its architecture with a `docker-container` builder of
 buildx, and adds `simple-ca_X.Y.Z-1_amd64.deb` and `simple-ca_X.Y.Z-1_arm64.deb` to the release.
 
-`./build.mjs dist` writes the archives of the release workflow to `dist/` for an internal release
-of [release.mjs --no-tag](#releasing): `simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` for
-Windows, for `linux`, `darwin` and `windows` on the architecture of the host, with the six
-programs built as the workflow builds them and versioned `vX.Y.Z` of the newest `CHANGELOG.md`
-entry. It refuses uncommitted changes, and an entry that no commit has the summary line of. A
-platform whose `simple-ca-trust` the host cannot build is skipped with a note: `darwin` needs
-macOS with Swift, and `windows` the .NET SDK. The programs of each platform are packed from
-`bin/pack-<goos>-<goarch>/`. With `--dpkg`, it also builds the Debian package `X.Y.Z-1` as
+`./build.mjs dist` writes the archive the release workflow builds for the platform of the host
+to `dist/`, for an internal release of [release.mjs --no-tag](#releasing):
+`simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz`, a `.zip` on Windows, with the six programs built as the
+workflow builds them and versioned `vX.Y.Z` of the newest `CHANGELOG.md` entry. Only the release
+workflow builds the other platforms. It refuses uncommitted changes, an entry that no commit has
+the summary line of, and a host without the toolchain of its `simple-ca-trust`: Swift on macOS
+and the .NET SDK on Windows. The programs are packed from `bin/pack-<goos>-<goarch>/`. With
+`--dpkg`, it also builds the Debian package `X.Y.Z-1` as
 `./build.mjs deb` does, for the architecture of the host, also when the container engine runs on
 another one: with Apple's `container` CLI on macOS when it is installed, and with `docker buildx`
 otherwise.
