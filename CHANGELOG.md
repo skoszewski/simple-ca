@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.19.5
+
+fix: the Docker guide prepares container CLI volumes and runs with --rm.
+
+- The Docker guide gives a new volume of Apple's `container` CLI, which is owned by root, to the
+  user 1000 of the image with `chown` of a busybox container, before `ca create` writes to it.
+- Every `docker run` and `container run` example of the Docker guide removes its container when
+  it stops, with `--rm`, also those that start `serve` with `-d`.
+
 ## 1.19.4
 
 fix: simple-ca-full gets the archives and packages of every platform.

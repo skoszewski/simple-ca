@@ -26,6 +26,23 @@ of another architecture needs no emulation on the engine. `--push` pushes the im
 the platform of its Linux VM unless a platform is named, and takes the same options; `--push`
 pushes both tags with `container image push`. The image is then run with `container run`.
 
+A new volume of the `container` CLI is owned by root, while Docker gives a new named volume the
+owner of `/data` in the image. The user 1000 of the image can then not write it, and `ca create`
+fails with `open /data/simple-ca.json: permission denied`, so the volume is given to the user
+1000 once, by `chown` of a busybox container, before the image uses it:
+
+```sh
+IMAGE=${SIMPLE_CA_REGISTRY:+$SIMPLE_CA_REGISTRY/}simple-ca
+
+container volume create simple-ca
+container run --rm -v simple-ca:/data docker.io/library/busybox chown 1000:1000 /data
+container run --rm -v simple-ca:/data "$IMAGE" ca create \
+  --ca-url http://pki.example.com:8080 "My Root CA"
+container run -d --rm --name simple-ca -p 8080:8080 -v simple-ca:/data "$IMAGE"
+```
+
+The same goes for `simple-ca-full`, with its image in `IMAGE`.
+
 Both take a comma-separated list of platforms for a multi-platform image, one image index with
 an image of each platform:
 
@@ -46,7 +63,7 @@ docker volume create simple-ca
 docker run --rm -v simple-ca:/data "$IMAGE" ca create \
   --ca-url http://pki.example.com:8080 "My Root CA"
 docker run --rm -v simple-ca:/data "$IMAGE" ca create --issuing-ca servers "My Servers CA"
-docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data "$IMAGE"
+docker run -d --rm --name simple-ca -p 8080:8080 -v simple-ca:/data "$IMAGE"
 docker exec simple-ca simple-ca cert list --ca-dir /data/servers
 ```
 
@@ -62,15 +79,16 @@ directories, so `/data` is mounted read-write. With
 mount:
 
 ```sh
-docker run -d -p 8443:8443 -v simple-ca:/data simple-ca serve --address 0.0.0.0 --port 8443 \
+docker run -d --rm -p 8443:8443 -v simple-ca:/data simple-ca serve --address 0.0.0.0 --port 8443 \
   --tls-cert /data/servers/pki_cert.pem --tls-key /data/servers/pki_key.pem
 ```
 
 `SIMPLE_CA_TLS_CERT` and `SIMPLE_CA_TLS_KEY` name them in the environment instead:
 
 ```sh
-docker run -d -p 8443:8443 -v simple-ca:/data -e SIMPLE_CA_TLS_CERT=/data/servers/pki_cert.pem \
-  -e SIMPLE_CA_TLS_KEY=/data/servers/pki_key.pem simple-ca serve --address 0.0.0.0 --port 8443
+docker run -d --rm -p 8443:8443 -v simple-ca:/data \
+  -e SIMPLE_CA_TLS_CERT=/data/servers/pki_cert.pem -e SIMPLE_CA_TLS_KEY=/data/servers/pki_key.pem \
+  simple-ca serve --address 0.0.0.0 --port 8443
 ```
 
 `request-cert` runs with `--entrypoint`. It writes the key, the certificate and the chain to its
@@ -88,7 +106,8 @@ named by `SIMPLE_CA_KEY_PASSWORD_FILE`:
 
 ```sh
 KEY_PASSWORD_FILE=$HOME/.config/simple-ca/key-password
-docker run -d -p 8080:8080 -v simple-ca:/data -v "$KEY_PASSWORD_FILE:/run/secrets/key-password:ro" \
+docker run -d --rm -p 8080:8080 -v simple-ca:/data \
+  -v "$KEY_PASSWORD_FILE:/run/secrets/key-password:ro" \
   -e SIMPLE_CA_KEY_PASSWORD_FILE=/run/secrets/key-password simple-ca serve --address 0.0.0.0
 ```
 
@@ -148,7 +167,7 @@ IMAGE=${SIMPLE_CA_REGISTRY:+$SIMPLE_CA_REGISTRY/}simple-ca-full
 docker volume create simple-ca
 docker run --rm -v simple-ca:/data "$IMAGE" ca create \
   --ca-url http://pki.example.com:8080 "My Root CA"
-docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data "$IMAGE"
+docker run -d --rm --name simple-ca -p 8080:8080 -v simple-ca:/data "$IMAGE"
 ```
 
 `IMAGE` is the name `build.mjs` gives the image, below `SIMPLE_CA_REGISTRY` when it is set; with
@@ -158,10 +177,10 @@ Built on another host before the tag, the `darwin` archives lack `simple-ca-trus
 packages are those of the architecture of the Docker engine; without `--all`, `./build.mjs dist`
 writes the archives of the host only. The image offers what `dist/` holds.
 
-The `FROM` of `Dockerfile.full` reads `simple-ca:X.Y.Z` where the builder reads images: the local images for the `docker`
-driver of buildx and for the `container` CLI, and the registry for a `docker-container` builder,
-so that a multi-platform build of `docker` needs `--push`, which pushes `simple-ca` before
-`simple-ca-full` is built.
+The `FROM` of `Dockerfile.full` reads `simple-ca:X.Y.Z` where the builder reads images: the
+local images for the `docker` driver of buildx and for the `container` CLI, and the registry for
+a `docker-container` builder, so that a multi-platform build of `docker` needs `--push`, which
+pushes `simple-ca` before `simple-ca-full` is built.
 
 ## Docker Compose
 
