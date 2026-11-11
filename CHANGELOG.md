@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.2
+
+fix: build.mjs dist --dpkg builds the Debian package with the container CLI of macOS.
+
+- With the `container` CLI, the package is built from a context of the files that
+  `debian-package/Dockerfile.dockerignore` lists, which `container build` sends without the error
+  "changes out of order".
+
 ## 1.17.1
 
 fix: the local builds of build.mjs are for the architecture of the host alone, also with a Docker engine of another one.

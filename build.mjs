@@ -54,9 +54,9 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]\n" +
@@ -273,12 +273,31 @@ function buildDeb(engine, internal = false) {
   writeFileSync(join(root, "debian-package", "debian", "changelog"),
     `simple-ca (${debVersion}) unstable; urgency=medium\n\n  ${summary}\n\n${items.join("\n")}\n\n` +
     ` -- Slawomir Koszewski <slawek@koszewscy.waw.pl>  ${date}\n`);
-  const args = ["-f", "debian-package/Dockerfile", "--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`,
-    "--platform", `linux/${hostArch}`];
-  if (engine === "container") {
-    run("container", ["build", ...args, "--output", "type=local,dest=dist", "."]);
-  } else {
-    run("docker", ["buildx", "build", ...args, "--output", "type=local,dest=dist", "."]);
+  const args = ["--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`, "--platform", `linux/${hostArch}`,
+    "--output", `type=local,dest=${join(root, "dist")}`];
+  if (engine !== "container") {
+    run("docker", ["buildx", "build", "-f", "debian-package/Dockerfile", ...args, "."]);
+    return;
+  }
+  // The container CLI fails to send a context filtered by the re-includes of an ignore file
+  // ("changes out of order"); it gets a context of the files Dockerfile.dockerignore re-includes.
+  const context = mkdtempSync(join(tmpdir(), "simple-ca-deb-"));
+  try {
+    const ignore = readFileSync(join(root, "debian-package", "Dockerfile.dockerignore"), "utf8");
+    for (const pattern of ignore.split("\n").filter((line) => line.startsWith("!")).map((line) => line.slice(1).trim())) {
+      const dir = dirname(pattern);
+      const base = basename(pattern);
+      const match = new RegExp(`^${base.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}$`);
+      const names = !base.includes("*") ? [base] : existsSync(join(root, dir)) ?
+        readdirSync(join(root, dir)).filter((name) => match.test(name)) : [];
+      for (const name of names.filter((name) => existsSync(join(root, dir, name)))) {
+        cpSync(join(root, dir, name), join(context, dir, name), { recursive: true });
+      }
+    }
+    cpSync(join(root, "debian-package", "Dockerfile"), join(context, "debian-package", "Dockerfile"));
+    run("container", ["build", "-f", join(context, "debian-package", "Dockerfile"), ...args, context]);
+  } finally {
+    rmSync(context, { recursive: true, force: true });
   }
 }
 
