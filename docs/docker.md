@@ -107,20 +107,41 @@ and that of the repository, `apt/` by default, and refuses to build when the fir
 archive of `X.Y.Z` or the second has no `Release`, `InRelease` or `key.asc`. The repository is
 copied as it is, so it is built for the same version first with `./build.mjs apt`.
 
+The archives and the Debian packages are built first:
+
+```sh
+./build.mjs dist
+./build.mjs deb
+```
+
+The repository is signed with the gpg key of [Development](development.md#building). A key
+without a passphrase:
+
 ```sh
 SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
 
-./build.mjs dist
-./build.mjs deb
 ./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE"
+```
+
+A key with a passphrase, held in a file of its own:
+
+```sh
+SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
+
+./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE" --passphrase-file "$SIMPLE_CA_GPG_PASSPHRASE_FILE"
+```
+
+Then both images are built, and `simple-ca-full` is run. As with `simple-ca`, `serve` needs a CA
+in `/data`, so the CA is created first:
+
+```sh
 ./build.mjs docker --full
 docker volume create simple-ca
 docker run --rm -v simple-ca:/data simple-ca-full ca create \
   --ca-url http://pki.example.com:8080 "My Root CA"
 docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data simple-ca-full
 ```
-
-As with `simple-ca`, `serve` needs a CA in `/data`, so the CA is created first.
 
 `./build.mjs dist` writes the archives of the host only; archives of other platforms, such as
 those of a release, are put into the directory given to `--full`. The `FROM` of `Dockerfile.full`

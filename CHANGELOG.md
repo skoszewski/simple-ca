@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.19.2
+
+fix: the simple-ca-full guide shows a signing key with a passphrase.
+
+- The simple-ca-full section of the Docker guide shows the repository signed with a gpg key
+  without a passphrase and with one, `--passphrase-file`, in blocks of their own, beside the
+  build of the packages and of the images.
+
 ## 1.19.1
 
 fix: build.mjs apt and --full take only the files of the current version.
