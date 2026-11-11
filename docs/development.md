@@ -36,7 +36,8 @@ archives are packed from, to `.build/`; `.gitignore` leaves both out.
 ./build.mjs dist [--dpkg]      # write the archives of an internal release for the host to
                                # dist/, and with --dpkg the Debian packages
 ./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]
-                               # write the signed apt repository of the .deb files of SOURCE,
+                               # write the signed apt repository of the Debian packages of the
+                               # newest CHANGELOG.md entry in SOURCE,
                                # dist/ by default, to DEST, apt/ by default
 ./build.mjs sums DIR [GLOB]    # write NAME.sha256 for each file of DIR, or each matching GLOB
 ```
@@ -69,8 +70,10 @@ fails when that fails. [systemd](systemd.md#debian-package) describes the instal
 package, and [Simple CA Lite](simple-ca-lite.md#installation) the `simple-ca-lite` package.
 
 `./build.mjs apt` builds the flat apt repository that `serve --packages` serves at `/apt/` (see
-[serve](serve.md#apt-repository)) from the `.deb` files of `SOURCE`, `dist/` by default, with the
-image of `apt-repo/Dockerfile`: `apt-repo/build-repo.sh` runs `apt-ftparchive` for `Packages`,
+[serve](serve.md#apt-repository)) from the Debian packages of the newest `CHANGELOG.md` entry in
+`SOURCE`, `dist/` by default, named as `./build.mjs deb` names them, `X.Y.Z-N` or `X.Y.Z~rc-N`;
+packages of other versions in `SOURCE` are left out. The image of `apt-repo/Dockerfile` builds
+it: `apt-repo/build-repo.sh` runs `apt-ftparchive` for `Packages`,
 `Packages.gz` and `Release`, signs `Release` with gpg as `InRelease` and `Release.gpg`, and
 exports the public key as `key.asc`. `--key` names the armored secret key, as
 `gpg --export-secret-keys --armor` writes it, and `--passphrase-file` a file holding its

@@ -406,9 +406,10 @@ switch (action) {
     // With --full, the release archives and the apt repository are checked before any build.
     const [downloadsDir = join(root, "dist"), repoDir = join(root, "apt")] = fullDirs ?? [];
     const archives = fullDirs !== null && existsSync(downloadsDir) ?
-      readdirSync(downloadsDir).filter((name) => /^simple-ca(-lite)?-[0-9].*\.(tar\.gz|zip)$/.test(name)) : [];
+      readdirSync(downloadsDir).filter((name) => name.startsWith(`simple-ca-${version}-`) ||
+        name.startsWith(`simple-ca-lite-${version}-`)).filter((name) => /\.(tar\.gz|zip)$/.test(name)) : [];
     if (fullDirs !== null && archives.length === 0) {
-      console.error(`--full: ${downloadsDir} holds no release archives; see ./build.mjs dist`);
+      console.error(`--full: ${downloadsDir} holds no release archives of ${version}; see ./build.mjs dist`);
       process.exit(1);
     }
     const missing = fullDirs === null ? [] :
@@ -548,9 +549,12 @@ switch (action) {
     }
     keyFile = resolve(keyFile);
     passphraseFile = passphraseFile === null ? null : resolve(passphraseFile);
-    const debs = existsSync(debDir) ? readdirSync(debDir).filter((name) => name.endsWith(".deb")) : [];
+    // The packages of the newest entry: X.Y.Z-N, or X.Y.Z~rc-N before the tag, as buildDeb names them.
+    const [, upstream, revision = "1"] = changelogVersion.match(/^(.*?)(?:-([0-9]+))?$/);
+    const debs = existsSync(debDir) ? readdirSync(debDir).filter((name) =>
+      new RegExp(`^simple-ca(-lite)?_${upstream.replaceAll(".", "\\.")}(~rc)?-${revision}_[a-z0-9]+\\.deb$`).test(name)) : [];
     if (debs.length === 0) {
-      console.error(`apt: ${debDir} holds no .deb files`);
+      console.error(`apt: ${debDir} holds no Debian packages of ${changelogVersion}; see ./build.mjs deb`);
       process.exit(1);
     }
     for (const file of [keyFile, passphraseFile].filter((file) => file !== null && !existsSync(file))) {

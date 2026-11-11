@@ -94,8 +94,9 @@ docker run -d -p 8080:8080 -v simple-ca:/data -v "$KEY_PASSWORD_FILE:/run/secret
 `simple-ca:X.Y.Z` of the same build, below the same registry, and pushed with it by `--push`. It
 adds one layer:
 
-- the release archives, `simple-ca-*.tar.gz` and `simple-ca-lite-*.tar.gz` and their `.zip`
-  files, with a `.sha256` file written for each, in `/srv/simple-ca/downloads`;
+- the release archives of `X.Y.Z`, `simple-ca-X.Y.Z-*.tar.gz` and `simple-ca-lite-X.Y.Z-*.tar.gz`
+  and their `.zip` files, with a `.sha256` file written for each, in `/srv/simple-ca/downloads`;
+  archives of other versions in the directory are left out;
 - the apt repository of `./build.mjs apt` in `/srv/simple-ca/apt`.
 
 Its command replaces the one of `simple-ca`: without arguments, the container runs `serve` on
@@ -103,7 +104,8 @@ port 8080 with `--downloads /srv/simple-ca/downloads` and `--packages /srv/simpl
 offers the archives at `/downloads/` and the repository, with its setup page, at `/apt/` (see
 [serve](serve.md#downloads)). `--full` takes the directory of the archives, `dist/` by default,
 and that of the repository, `apt/` by default, and refuses to build when the first holds no
-archive or the second has no `Release`, `InRelease` or `key.asc`.
+archive of `X.Y.Z` or the second has no `Release`, `InRelease` or `key.asc`. The repository is
+copied as it is, so it is built for the same version first with `./build.mjs apt`.
 
 ```sh
 SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.19.1
+
+fix: build.mjs apt and --full take only the files of the current version.
+
+- `./build.mjs apt` builds the repository from the Debian packages of the newest `CHANGELOG.md`
+  entry alone, `X.Y.Z-N` or `X.Y.Z~rc-N`, and leaves the packages of other versions in its
+  source directory out.
+- `./build.mjs docker|container --full` puts only the release archives of the newest entry into
+  `simple-ca-full`, and leaves the archives of other versions out.
+
 ## 1.19.0
 
 feat: serve offers checked downloads and an apt repository to clients.
