@@ -4,7 +4,7 @@
 // Usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
 //        ./build.mjs docker|container [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]
 //        ./build.mjs deb
-//        ./build.mjs dist [--dpkg]
+//        ./build.mjs dist [--all] [--dpkg]
 //        ./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]
 //        ./build.mjs sums DIR [GLOB]
 
@@ -17,13 +17,14 @@ import { fileURLToPath } from "node:url";
 const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]\n" +
   "       ./build.mjs docker|container [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]\n" +
   "       ./build.mjs deb\n" +
-  "       ./build.mjs dist [--dpkg]\n" +
+  "       ./build.mjs dist [--all] [--dpkg]\n" +
   "       ./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]\n" +
   "       ./build.mjs sums DIR [GLOB]";
 const root = dirname(fileURLToPath(import.meta.url));
 let selfContained = false;
 let push = false;
 let dpkg = false;
+let allPlatforms = false;
 let registry = null;
 let keyFile = null;
 let passphraseFile = null;
@@ -37,6 +38,8 @@ for (let i = 2; i < process.argv.length; i++) {
     push = true;
   } else if (arg === "--dpkg") {
     dpkg = true;
+  } else if (arg === "--all") {
+    allPlatforms = true;
   } else if (arg === "--registry") {
     registry = process.argv[++i] ?? "";
   } else if (arg.startsWith("--registry=")) {
@@ -260,7 +263,10 @@ function stageContext(ignoreFile, dockerfile, context) {
   cpSync(join(root, dockerfile), join(context, dockerfile));
 }
 
-/** Builds the Debian package of dir, the source package source, to dist/ with engine. */
+/**
+ * Builds the Debian package of dir, the source package source, to dist/ with engine: for the
+ * architecture of the engine with docker, and for amd64 and arm64 with the container CLI.
+ */
 function buildDeb(engine, dir, source, internal = false) {
   if (!changelogVersion) {
     console.error("CHANGELOG.md has no \"## x.y.z\" entry");
@@ -290,10 +296,10 @@ function buildDeb(engine, dir, source, internal = false) {
   const context = join(scratch, "context");
   try {
     stageContext(join(dir, "Dockerfile.dockerignore"), join(dir, "Dockerfile"), context);
-    // The container CLI writes a local output to out.tar/<os>_<arch>/ below dest.
+    // The container CLI builds both architectures and writes them to out.tar/<os>_<arch>/ below dest.
     const out = join(scratch, "out");
     run("container", ["build", "-f", join(context, dir, "Dockerfile"), ...args,
-      "--output", `type=local,dest=${out}`, context]);
+      "--platform", "linux/amd64", "--platform", "linux/arm64", "--output", `type=local,dest=${out}`, context]);
     mkdirSync(join(root, "dist"), { recursive: true });
     for (const file of readdirSync(out, { recursive: true }).filter((file) => file.endsWith(".deb"))) {
       copyFileSync(join(out, file), join(root, "dist", basename(file)));
@@ -314,6 +320,7 @@ if (!["build", "trust", "test", "check", "clean", "assets", "docker", "container
   (passphraseFile !== null && (action !== "apt" || passphraseFile === "")) ||
   (fullDirs !== null && !imageBuild) ||
   (selfContained && action !== "trust") || (push && !imageBuild) || (dpkg && action !== "dist") ||
+  (allPlatforms && action !== "dist") ||
   (registry !== null && (!imageBuild || registry === "")) ||
   (["deb", "dist"].includes(action) && platform !== "")) {
   console.error(usage);
@@ -494,30 +501,64 @@ switch (action) {
     mkdirSync(distDir, { recursive: true });
     const programs = [["simple-ca", "."], ["request-cert", "./cmd/request-cert"], ["token-setup", "./cmd/token-setup"],
       ["request-token", "./cmd/request-token"], ["simple-ca-wif", "./cmd/simple-ca-wif"]];
-    const [goos, goarch] = [host, hostArch];
-    if (!["linux", "darwin", "windows"].includes(goos) || !["amd64", "arm64"].includes(goarch)) {
-      console.error(`dist: the release workflow builds no archive for ${goos}/${goarch}`);
+    // The platform of the host, or with --all every platform of the release workflow.
+    const targets = allPlatforms ? ["linux", "darwin", "windows"].flatMap((goos) =>
+      ["amd64", "arm64"].map((goarch) => [goos, goarch])) : [[host, hostArch]];
+    if (!allPlatforms && (!["linux", "darwin", "windows"].includes(host) || !["amd64", "arm64"].includes(hostArch))) {
+      console.error(`dist: the release workflow builds no archive for ${host}/${hostArch}`);
       process.exit(1);
     }
-    const toolchain = { darwin: "swift", windows: "dotnet" }[goos];
-    if (toolchain && !works(toolchain, ["--version"])) {
-      console.error(`dist: simple-ca-trust for ${goos} needs ${toolchain}`);
-      process.exit(1);
+    const archiveFile = (archiveName, goos, goarch) =>
+      `${archiveName}-${changelogVersion}-${goos}-${goarch}${goos === "windows" ? ".zip" : ".tar.gz"}`;
+
+    // A tagged entry is released on GitHub: --all and --dpkg download its files instead of building.
+    const released = tagged.status === 0 && tagged.stdout.trim() !== "";
+    const downloads = !released ? [] : [
+      ...(allPlatforms ? targets.flatMap(([goos, goarch]) =>
+        ["simple-ca", "simple-ca-lite"].map((archiveName) => archiveFile(archiveName, goos, goarch))) : []),
+      ...(dpkg ? ["amd64", "arm64"].flatMap((arch) =>
+        [`simple-ca_${changelogVersion}-1_${arch}.deb`, `simple-ca-lite_${changelogVersion}-1_${arch}.deb`]) : []),
+    ];
+    const module = readFileSync(join(root, "go.mod"), "utf8").match(/^module (\S+)/m)[1];
+    for (const name of downloads) {
+      const url = `https://${module}/releases/download/${version}/${name}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.error(`dist: ${url}: ${response.status} ${response.statusText}`);
+        process.exit(1);
+      }
+      writeFileSync(join(distDir, name), Buffer.from(await response.arrayBuffer()));
+      console.log(`dist/${name}`);
     }
-    const exe = goos === "windows" ? ".exe" : "";
+
+    // A simple-ca-trust the host cannot build is skipped on a partial build; that of the host,
+    // and on macOS every one of --all, must be built.
+    const dotnet = works("dotnet", ["--version"]);
+    const trustSkipped = (goos) => (goos === "darwin" && host !== "darwin") || (goos === "windows" && !dotnet);
+    const required = new Set(targets.map(([goos]) => goos).filter((goos) => goos === host || host === "darwin"));
+    for (const goos of released && allPlatforms ? [] : required) {
+      const toolchain = { darwin: "swift", windows: "dotnet" }[goos];
+      if (toolchain && !works(toolchain, ["--version"])) {
+        console.error(`dist: simple-ca-trust for ${goos} needs ${toolchain}`);
+        process.exit(1);
+      }
+    }
     const archives = [["simple-ca", programs], ["simple-ca-lite", [["simple-ca-lite", "./cmd/simple-ca-lite"]]]];
-    for (const [archiveName, packPrograms] of archives) {
+    for (const [goos, goarch] of released && allPlatforms ? [] : targets) for (const [archiveName, packPrograms] of archives) {
+      const exe = goos === "windows" ? ".exe" : "";
       const pack = scratchDir(`pack-${archiveName}`);
       try {
         for (const [name, pkg] of packPrograms) {
           run("go", ["build", "-trimpath", "-ldflags", `-X main.buildVersion=${version}`, "-o",
             join(pack, `${name}${exe}`), pkg], { env: { ...env, GOOS: goos, GOARCH: goarch } });
         }
-        if (archiveName === "simple-ca") {
+        if (archiveName === "simple-ca" && trustSkipped(goos)) {
+          console.error(`note: simple-ca-trust for ${goos} is built ${goos === "darwin" ? "on macOS only" : "with dotnet"}; ` +
+            `${archiveFile(archiveName, goos, goarch)} is packed without it`);
+        } else if (archiveName === "simple-ca") {
           buildTrust(goos, goarch, join(pack, `simple-ca-trust${exe}`), version);
         }
-        const archive = join(distDir,
-          `${archiveName}-${changelogVersion}-${goos}-${goarch}${goos === "windows" ? ".zip" : ".tar.gz"}`);
+        const archive = join(distDir, archiveFile(archiveName, goos, goarch));
         rmSync(archive, { force: true });
         const files = readdirSync(pack);
         if (goos === "windows") {
@@ -530,7 +571,7 @@ switch (action) {
         rmSync(pack, { recursive: true, force: true });
       }
     }
-    if (dpkg) {
+    if (dpkg && !released) {
       const engine = host === "darwin" && works("container", ["--version"]) ? "container" : "docker";
       for (const [dir, source] of debPackages) {
         buildDeb(engine, dir, source, true);

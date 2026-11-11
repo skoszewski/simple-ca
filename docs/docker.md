@@ -112,11 +112,12 @@ and that of the repository, `apt/` by default, and refuses to build when the fir
 archive of `X.Y.Z` or the second has no `Release`, `InRelease` or `key.asc`. The repository is
 copied as it is, so it is built for the same version first with `./build.mjs apt`.
 
-The archives and the Debian packages are built first:
+The archives of every platform and the Debian packages come first, see
+[Development](development.md#building): built on macOS before the version is tagged, and
+downloaded from its GitHub release after it:
 
 ```sh
-./build.mjs dist
-./build.mjs deb
+./build.mjs dist --all --dpkg
 ```
 
 The repository is signed with the gpg key of [Development](development.md#building). A key
@@ -153,9 +154,11 @@ docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data "$IMAGE"
 `IMAGE` is the name `build.mjs` gives the image, below `SIMPLE_CA_REGISTRY` when it is set; with
 `--registry REGISTRY`, it is `REGISTRY/simple-ca-full`.
 
-`./build.mjs dist` writes the archives of the host only; archives of other platforms, such as
-those of a release, are put into the directory given to `--full`. The `FROM` of `Dockerfile.full`
-reads `simple-ca:X.Y.Z` where the builder reads images: the local images for the `docker`
+Built on another host before the tag, the `darwin` archives lack `simple-ca-trust`, and the
+packages are those of the architecture of the Docker engine; without `--all`, `./build.mjs dist`
+writes the archives of the host only. The image offers what `dist/` holds.
+
+The `FROM` of `Dockerfile.full` reads `simple-ca:X.Y.Z` where the builder reads images: the local images for the `docker`
 driver of buildx and for the `container` CLI, and the registry for a `docker-container` builder,
 so that a multi-platform build of `docker` needs `--push`, which pushes `simple-ca` before
 `simple-ca-full` is built.

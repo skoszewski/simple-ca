@@ -33,8 +33,10 @@ archives are packed from, to `.build/`; `.gitignore` leaves both out.
 ./build.mjs container [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]
                                # the same image built on the local Mac with Apple's container CLI
 ./build.mjs deb                # build the Debian packages for the architecture of the Docker engine
-./build.mjs dist [--dpkg]      # write the archives of an internal release for the host to
-                               # dist/, and with --dpkg the Debian packages
+./build.mjs dist [--all] [--dpkg]
+                               # write the archives of an internal release for the host, or with
+                               # --all for every platform, to dist/, and with --dpkg the Debian
+                               # packages
 ./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]
                                # write the signed apt repository of the Debian packages of the
                                # newest CHANGELOG.md entry in SOURCE,
@@ -177,13 +179,27 @@ runner of its architecture with a `docker-container` builder of buildx, and adds
 to `dist/`, for an internal release of [release.mjs --no-tag](#releasing):
 `simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz` with the six programs, and
 `simple-ca-lite-X.Y.Z-<goos>-<goarch>.tar.gz` with `simple-ca-lite`, each a `.zip` on Windows,
-built as the workflow builds them and versioned `vX.Y.Z` of the newest `CHANGELOG.md` entry. Only
-the release workflow builds the other platforms. It refuses uncommitted changes, an entry that no
-commit has the summary line of, and a host without the toolchain of its `simple-ca-trust`: Swift
-on macOS and the .NET SDK on Windows. The programs of each archive are packed from
-`.build/pack-<archive>/`, removed afterwards. With `--dpkg`, it also builds both Debian packages
-`X.Y.Z-1` as `./build.mjs deb` does, for the architecture of the container engine: with Apple's
-`container` CLI on macOS when it is installed, and with `docker buildx` otherwise.
+built as the workflow builds them and versioned `vX.Y.Z` of the newest `CHANGELOG.md` entry. It
+refuses uncommitted changes, an entry that no commit has the summary line of, and a host without
+the toolchain of its own `simple-ca-trust`: Swift on macOS and the .NET SDK on Windows. The
+programs of each archive are packed from `.build/pack-<archive>/`, removed afterwards.
+
+`--all` writes the archives of every platform of the workflow, `linux`, `darwin` and `windows`,
+each for `amd64` and `arm64`, and `--dpkg` the Debian packages `X.Y.Z-1`. Where they come from
+depends on the newest entry:
+
+- **Not tagged, on macOS:** a full internal build. The Go programs are cross-compiled, and each
+  `simple-ca-trust` is built by its own toolchain, so `--all` needs Swift and the .NET SDK, and
+  is refused, before anything is built, without them. `--dpkg` builds the packages for amd64 and
+  arm64 with Apple's `container` CLI when it is installed, and else with `docker buildx`, for the
+  architecture of the Docker engine.
+- **Not tagged, on another host:** a partial internal build. The archives are built as on macOS,
+  but the `darwin` `simple-ca-trust`, which only macOS builds, is skipped with a note, and so is
+  the `windows` one without the .NET SDK; those `simple-ca` archives are packed without it.
+  `--dpkg` builds the packages with `docker buildx`, for the architecture of the Docker engine.
+- **Tagged `vX.Y.Z`:** the release build. The files of the release are downloaded from GitHub,
+  `https://github.com/skoszewski/simple-ca/releases/download/vX.Y.Z/`, where the release
+  workflow published them, and nothing is built; any host does it.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
 are run with `./build.mjs test` or `./build.mjs check`. It refuses a tag that is not on `main` or

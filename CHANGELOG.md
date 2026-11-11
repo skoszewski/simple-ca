@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.19.4
+
+fix: simple-ca-full gets the archives and packages of every platform.
+
+- `./build.mjs dist --all` writes the archives of every platform of the release workflow, `linux`,
+  `darwin` and `windows` for `amd64` and `arm64`. Before the entry is tagged, it builds them: on
+  macOS all of them, with the Go programs cross-compiled and each `simple-ca-trust` built by its
+  own toolchain, after checking Swift and the .NET SDK; on another host, the `darwin`
+  `simple-ca-trust`, and the `windows` one without the .NET SDK, are skipped with a note.
+- The Debian packages of `dist --dpkg` built with Apple's `container` CLI are built for amd64 and
+  arm64; with `docker`, they are still built for the architecture of the Docker engine.
+- For a tagged entry, `dist --all` and `dist --dpkg` download the archives and the packages of
+  its GitHub release instead of building them.
+
 ## 1.19.3
 
 fix: the Docker guide runs the image under its registry name.

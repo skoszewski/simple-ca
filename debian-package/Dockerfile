@@ -1,4 +1,4 @@
-# The builder of the Debian package of simple-ca, for the platform of the Docker host. The
+# The builder of the Debian package of simple-ca, for the platform the image is built for. The
 # programs are compiled in the image; ./build.mjs deb writes debian/changelog and the browser
 # files of assets/markdown first, and buildx writes the .deb of the out stage to dist/. The
 # temporary files of the build are in a tmpfs on /tmp.
