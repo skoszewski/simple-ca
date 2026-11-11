@@ -2,7 +2,7 @@
 
 // Builds, tests, checks and packages simple-ca; docs/development.md describes the actions.
 // Usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
-//        ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]
+//        ./build.mjs docker|container [--registry REGISTRY] [--push] [<os>/<arch>[,...]]
 //        ./build.mjs deb
 //        ./build.mjs dist [--dpkg]
 
@@ -13,7 +13,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]\n" +
-  "       ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]\n" +
+  "       ./build.mjs docker|container [--registry REGISTRY] [--push] [<os>/<arch>[,...]]\n" +
   "       ./build.mjs deb\n" +
   "       ./build.mjs dist [--dpkg]";
 const root = dirname(fileURLToPath(import.meta.url));
@@ -39,7 +39,8 @@ for (let i = 2; i < process.argv.length; i++) {
   }
 }
 const [action = "build", platform = ""] = positional;
-if (registry === null && action === "docker" && process.env.SIMPLE_CA_REGISTRY) {
+const imageBuild = action === "docker" || action === "container";
+if (registry === null && imageBuild && process.env.SIMPLE_CA_REGISTRY) {
   registry = process.env.SIMPLE_CA_REGISTRY;
 }
 const markdownAssets = join(root, "assets", "markdown");
@@ -198,6 +199,26 @@ function buildTrust(goos, goarch, out, version = "") {
   return false;
 }
 
+/**
+ * Copies the files the ignore file re-includes, and the Dockerfile, to the directory context.
+ * The container CLI fails on an ignore file with re-includes ("changes out of order"), so it
+ * builds from this context.
+ */
+function stageContext(ignoreFile, dockerfile, context) {
+  const ignore = readFileSync(join(root, ignoreFile), "utf8");
+  for (const pattern of ignore.split("\n").filter((line) => line.startsWith("!")).map((line) => line.slice(1).trim())) {
+    const parent = dirname(pattern);
+    const base = basename(pattern);
+    const match = new RegExp(`^${base.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}$`);
+    const names = !base.includes("*") ? [base] : existsSync(join(root, parent)) ?
+      readdirSync(join(root, parent)).filter((name) => match.test(name)) : [];
+    for (const name of names.filter((name) => existsSync(join(root, parent, name)))) {
+      cpSync(join(root, parent, name), join(context, parent, name), { recursive: true });
+    }
+  }
+  cpSync(join(root, dockerfile), join(context, dockerfile));
+}
+
 /** Builds the Debian package of dir, the source package source, to dist/ with engine. */
 function buildDeb(engine, dir, source, internal = false) {
   if (!changelogVersion) {
@@ -224,23 +245,10 @@ function buildDeb(engine, dir, source, internal = false) {
       "--output", `type=local,dest=${join(root, "dist")}`, "."]);
     return;
   }
-  // The container CLI fails on an ignore file with re-includes ("changes out of order"); it gets
-  // a staged context of the files Dockerfile.dockerignore re-includes.
   const scratch = scratchDir(`deb-${source}`);
   const context = join(scratch, "context");
   try {
-    const ignore = readFileSync(join(root, dir, "Dockerfile.dockerignore"), "utf8");
-    for (const pattern of ignore.split("\n").filter((line) => line.startsWith("!")).map((line) => line.slice(1).trim())) {
-      const parent = dirname(pattern);
-      const base = basename(pattern);
-      const match = new RegExp(`^${base.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}$`);
-      const names = !base.includes("*") ? [base] : existsSync(join(root, parent)) ?
-        readdirSync(join(root, parent)).filter((name) => match.test(name)) : [];
-      for (const name of names.filter((name) => existsSync(join(root, parent, name)))) {
-        cpSync(join(root, parent, name), join(context, parent, name), { recursive: true });
-      }
-    }
-    cpSync(join(root, dir, "Dockerfile"), join(context, dir, "Dockerfile"));
+    stageContext(join(dir, "Dockerfile.dockerignore"), join(dir, "Dockerfile"), context);
     // The container CLI writes a local output to out.tar/<os>_<arch>/ below dest.
     const out = join(scratch, "out");
     run("container", ["build", "-f", join(context, dir, "Dockerfile"), ...args,
@@ -258,9 +266,9 @@ function buildDeb(engine, dir, source, internal = false) {
 // The Debian package directories and source package names.
 const debPackages = [["debian-package", "simple-ca"], ["debian-package-lite", "simple-ca-lite"]];
 
-if (!["build", "trust", "test", "check", "clean", "assets", "docker", "deb", "dist"].includes(action) ||
-  (selfContained && action !== "trust") || (push && action !== "docker") || (dpkg && action !== "dist") ||
-  (registry !== null && (action !== "docker" || registry === "")) ||
+if (!["build", "trust", "test", "check", "clean", "assets", "docker", "container", "deb", "dist"].includes(action) ||
+  (selfContained && action !== "trust") || (push && !imageBuild) || (dpkg && action !== "dist") ||
+  (registry !== null && (!imageBuild || registry === "")) ||
   (["deb", "dist"].includes(action) && platform !== "")) {
   console.error(usage);
   process.exit(2);
@@ -272,7 +280,14 @@ if (action === "build" && platform === "") {
   nameSuffix = run("go", ["env", "GOEXE"], { env, capture: true }).trim();
 }
 
-if (platform !== "") {
+// The image builds take a comma-separated list of platforms.
+const platforms = platform === "" ? [] : platform.split(",");
+if (imageBuild && platforms.some((p) => !/^[a-z0-9]+\/[a-z0-9]+(\/[a-z0-9]+)?$/.test(p))) {
+  console.error("platforms must be given as <os>/<arch>[,<os>/<arch>...], e.g. linux/amd64,linux/arm64");
+  process.exit(2);
+}
+
+if (platform !== "" && !imageBuild) {
   const [goos, goarch, ...rest] = platform.split("/");
   if (!goos || !goarch || rest.length > 0) {
     console.error("platform must be given as <goos>/<goarch>, e.g. linux/amd64");
@@ -332,16 +347,36 @@ switch (action) {
     }
     break;
   }
-  case "docker": {
+  case "docker":
+  case "container": {
     const version = changelogVersion;
     if (!version) {
       console.error("CHANGELOG.md has no \"## x.y.z\" entry");
       process.exit(1);
     }
     const image = registry === null ? "simple-ca" : `${registry.replace(/\/+$/, "")}/simple-ca`;
-    run("docker", ["buildx", "build", ...(push ? ["--push"] : []), "--build-arg", `VERSION=v${version}`,
-      ...(platform === "" ? [] : ["--platform", platform]),
-      "-t", `${image}:${version}`, "-t", `${image}:latest`, "."]);
+    const tags = [`${image}:${version}`, `${image}:latest`];
+    const args = ["--build-arg", `VERSION=v${version}`, ...tags.flatMap((tag) => ["-t", tag])];
+    if (action === "docker") {
+      run("docker", ["buildx", "build", ...(push ? ["--push"] : []),
+        ...(platform === "" ? [] : ["--platform", platform]), ...args, "."]);
+      break;
+    }
+    args.push(...platforms.flatMap((p) => ["--platform", p]));
+    if (!works("container", ["--version"])) {
+      console.error("container: Apple's container CLI is not installed");
+      process.exit(1);
+    }
+    const context = scratchDir("image");
+    try {
+      stageContext(".dockerignore", "Dockerfile", context);
+      run("container", ["build", "-f", join(context, "Dockerfile"), ...args, context]);
+    } finally {
+      rmSync(context, { recursive: true, force: true });
+    }
+    for (const tag of push ? tags : []) {
+      run("container", ["image", "push", tag]);
+    }
     break;
   }
   case "deb":

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.18.2
+
+fix: build.mjs container builds the image on the local Mac with Apple's container CLI, also for several platforms.
+
+- `build.mjs container [--registry REGISTRY] [--push] [<os>/<arch>[,...]]` builds the image of
+  the `Dockerfile` with the `container` CLI, tagged as `build.mjs docker` tags it, from a context
+  of the files `.dockerignore` lists, and pushes both tags with `container image push` with
+  `--push`.
+- `build.mjs container` and `docker` take a comma-separated list of platforms, such as
+  `linux/amd64,linux/arm64`, for a multi-platform image.
+
 ## 1.18.1
 
 fix: the Docker builds of build.mjs are for the architecture of the Docker engine, and the image builds for another platform without emulation.

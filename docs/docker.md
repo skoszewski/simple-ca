@@ -22,6 +22,22 @@ a remote host of the docker context, and a platform such as `linux/arm64` builds
 The build stage runs on the platform of the engine and cross-compiles the programs, so a platform
 of another architecture needs no emulation on the engine. `--push` pushes the image too.
 
+`./build.mjs container` builds the same image on the local Mac with Apple's `container` CLI, for
+the platform of its Linux VM unless a platform is named, and takes the same options; `--push`
+pushes both tags with `container image push`. The image is then run with `container run`.
+
+Both take a comma-separated list of platforms for a multi-platform image, one image index with
+an image of each platform:
+
+```sh
+PLATFORMS=linux/amd64,linux/arm64
+
+./build.mjs container --push "$PLATFORMS"
+```
+
+The build stage of each platform runs on the platform of the builder and cross-compiles. A
+multi-platform image of `docker` needs a buildx builder that supports multi-platform builds.
+
 ```sh
 ./build.mjs docker
 docker volume create simple-ca

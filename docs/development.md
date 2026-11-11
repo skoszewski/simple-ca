@@ -25,9 +25,11 @@ archives are packed from, to `.build/`; `.gitignore` leaves both out.
 ./build.mjs clean              # remove bin/, .build/, dist/ and the build files of trust/macos
                                # and trust/windows
 ./build.mjs assets             # download the browser files of the /help/ and /docs/ pages
-./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]
+./build.mjs docker [--registry REGISTRY] [--push] [<os>/<arch>[,...]]
                                # build simple-ca:<version> and simple-ca:latest; --push pushes them;
                                # the registry defaults to SIMPLE_CA_REGISTRY
+./build.mjs container [--registry REGISTRY] [--push] [<os>/<arch>[,...]]
+                               # the same image built on the local Mac with Apple's container CLI
 ./build.mjs deb                # build the Debian packages for the architecture of the Docker engine
 ./build.mjs dist [--dpkg]      # write the archives of an internal release for the host to
                                # dist/, and with --dpkg the Debian packages
