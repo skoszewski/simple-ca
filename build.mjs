@@ -273,15 +273,16 @@ function buildDeb(engine, internal = false) {
   writeFileSync(join(root, "debian-package", "debian", "changelog"),
     `simple-ca (${debVersion}) unstable; urgency=medium\n\n  ${summary}\n\n${items.join("\n")}\n\n` +
     ` -- Slawomir Koszewski <slawek@koszewscy.waw.pl>  ${date}\n`);
-  const args = ["--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`, "--platform", `linux/${hostArch}`,
-    "--output", `type=local,dest=${join(root, "dist")}`];
+  const args = ["--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`, "--platform", `linux/${hostArch}`];
   if (engine !== "container") {
-    run("docker", ["buildx", "build", "-f", "debian-package/Dockerfile", ...args, "."]);
+    run("docker", ["buildx", "build", "-f", "debian-package/Dockerfile", ...args,
+      "--output", `type=local,dest=${join(root, "dist")}`, "."]);
     return;
   }
   // The container CLI fails to send a context filtered by the re-includes of an ignore file
   // ("changes out of order"); it gets a context of the files Dockerfile.dockerignore re-includes.
-  const context = mkdtempSync(join(tmpdir(), "simple-ca-deb-"));
+  const scratch = mkdtempSync(join(tmpdir(), "simple-ca-deb-"));
+  const context = join(scratch, "context");
   try {
     const ignore = readFileSync(join(root, "debian-package", "Dockerfile.dockerignore"), "utf8");
     for (const pattern of ignore.split("\n").filter((line) => line.startsWith("!")).map((line) => line.slice(1).trim())) {
@@ -295,9 +296,18 @@ function buildDeb(engine, internal = false) {
       }
     }
     cpSync(join(root, "debian-package", "Dockerfile"), join(context, "debian-package", "Dockerfile"));
-    run("container", ["build", "-f", join(context, "debian-package", "Dockerfile"), ...args, context]);
+    // The container CLI writes a local output below dest, in out.tar/<os>_<arch>/; the packages
+    // are moved from there to dist/.
+    const out = join(scratch, "out");
+    run("container", ["build", "-f", join(context, "debian-package", "Dockerfile"), ...args,
+      "--output", `type=local,dest=${out}`, context]);
+    mkdirSync(join(root, "dist"), { recursive: true });
+    for (const file of readdirSync(out, { recursive: true }).filter((file) => file.endsWith(".deb"))) {
+      copyFileSync(join(out, file), join(root, "dist", basename(file)));
+      console.log(`dist/${basename(file)}`);
+    }
   } finally {
-    rmSync(context, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   }
 }
 

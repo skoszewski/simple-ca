@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.17.3
+
+fix: build.mjs dist --dpkg with the container CLI writes the Debian package to dist/ instead of dist/out.tar/.
+
+- With the `container` CLI, the package is taken from the `out.tar/<os>_<arch>/` directory that
+  `container build` writes, and copied to `dist/simple-ca_<version>_<arch>.deb`.
+
 ## 1.17.2
 
 fix: build.mjs dist --dpkg builds the Debian package with the container CLI of macOS.
