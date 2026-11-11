@@ -33,8 +33,8 @@ so the release notes, are the entries since the last tagged one. A version x.y.z
 a release of the documentation or the packaging alone: --push moves main to dev and pushes them
 without a tag, so nothing is built, and the entry goes into the notes of the next tagged release.
 With --no-tag, the entry of any version is an internal release: it is committed on dev as without
---push, and --push pushes dev alone, so main and the builds stay at the last tagged release; the
-entry goes into the notes of the next tagged release.`;
+--push, and --push pushes dev alone, without a tag and without moving main; the entry goes into
+the notes of the next tagged release.`;
 
 let values;
 try {

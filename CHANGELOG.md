@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.17.1
+
+fix: the local builds of build.mjs are for the architecture of the host alone, also with a Docker engine of another one.
+
+- `build.mjs dist` writes the archives of `linux`, `darwin` and `windows` for the architecture of
+  the host alone, instead of for both `amd64` and `arm64`.
+- `build.mjs dist --dpkg`, `deb` and `docker` without a platform give the container engine the
+  platform `linux/<arch>` of the host, so a `docker` context on a host of another architecture no
+  longer builds a package or an image of that one.
+
 ## 1.17.0
 
 feat: simple-ca-wif sets up Google workload identity federation from the CA host, with the pool, the provider, the token type, and the token, access and federation.json of a machine.

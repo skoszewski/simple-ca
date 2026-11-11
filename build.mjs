@@ -25,24 +25,26 @@
 // --self-contained; its version is dev, or the InformationalVersion environment variable.
 //
 // The docker action builds the image of the Dockerfile with docker buildx, for the platform named
-// or the host's, as simple-ca:<version>, the version of the newest CHANGELOG.md entry, and
-// simple-ca:latest, below the registry --registry names, else SIMPLE_CA_REGISTRY when it is set,
-// and pushes it with --push.
+// or linux on the architecture of the host, whatever that of the Docker engine, as
+// simple-ca:<version>, the version of the newest CHANGELOG.md entry, and simple-ca:latest, below
+// the registry --registry names, else SIMPLE_CA_REGISTRY when it is set, and pushes it with
+// --push.
 //
-// The deb action builds the Debian package of debian-package/ with docker buildx, for the platform
-// of the Docker host, compiling the programs in the image of debian-package/Dockerfile, and writes
-// simple-ca_<version>_<arch>.deb to dist/. Its version is X.Y.Z-1 for the newest CHANGELOG.md
-// entry X.Y.Z, or X.Y.Z-N for an entry X.Y.Z-N, with the programs of vX.Y.Z, and X.Y.Z~rc-N
-// while vX.Y.Z is not tagged; debian-package/debian/changelog is written from the entry. It downloads the browser files of serve-markdown's page first when assets/markdown
-// holds another version, and fails when that fails.
+// The deb action builds the Debian package of debian-package/ with docker buildx, for the
+// architecture of the host, whatever that of the Docker engine, compiling the programs in the
+// image of debian-package/Dockerfile, and writes simple-ca_<version>_<arch>.deb to dist/. Its
+// version is X.Y.Z-1 for the newest CHANGELOG.md entry X.Y.Z, or X.Y.Z-N for an entry X.Y.Z-N,
+// with the programs of vX.Y.Z, and X.Y.Z~rc-N while vX.Y.Z is not tagged;
+// debian-package/debian/changelog is written from the entry. It downloads the browser files of
+// serve-markdown's page first when assets/markdown holds another version, and fails when that
+// fails.
 //
 // The dist action makes the files of an internal release in dist/: the archives the GitHub
 // workflow builds, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz, .zip for windows, of linux, darwin and
-// windows for amd64 and arm64, with the programs versioned vX.Y.Z of the newest CHANGELOG.md
-// entry. It refuses uncommitted changes and an entry that no commit has the summary line of, so
-// release.mjs --no-tag releases the entry first. A platform whose simple-ca-trust the host cannot
-// build is skipped: darwin needs macOS with swift, windows dotnet. With --dpkg it also builds the
-// Debian package X.Y.Z-1 for the platform of the container engine, with the container CLI on
+// windows for the architecture of the host, with the programs versioned vX.Y.Z of the newest
+// CHANGELOG.md entry. It refuses uncommitted changes and an entry that no commit has the summary
+// line of. A platform whose simple-ca-trust the host cannot build is skipped: darwin needs macOS with swift, windows dotnet. With --dpkg it also
+// builds the Debian package X.Y.Z-1 for the architecture of the host, with the container CLI on
 // macOS when it is installed, else with docker buildx.
 //
 // The assets action downloads the browser files of serve-markdown's page, for the version of
@@ -174,6 +176,7 @@ const goBuild = (output, pkg) => {
 };
 
 const host = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform] ?? process.platform;
+const hostArch = { x64: "amd64", arm64: "arm64" }[process.arch] ?? process.arch;
 
 // Reports whether command runs with args, which tells whether a tool is installed.
 const works = (command, args) => spawnSync(command, args, { cwd: root, stdio: "ignore" }).status === 0;
@@ -248,7 +251,8 @@ function buildTrust(goos, goarch, out, version = "") {
  * Builds the Debian package of the newest CHANGELOG.md entry to dist/ with the container engine
  * engine, docker or container, after writing debian-package/debian/changelog from the entry. The
  * version is X.Y.Z-N, with the programs of vX.Y.Z, and X.Y.Z~rc-N with those of vX.Y.Z-rc while
- * vX.Y.Z is not tagged, unless internal, the package of an internal release.
+ * vX.Y.Z is not tagged, unless internal, the package of an internal release. It is built for the
+ * architecture of the host, whatever that of the engine.
  */
 function buildDeb(engine, internal = false) {
   if (!changelogVersion) {
@@ -269,7 +273,8 @@ function buildDeb(engine, internal = false) {
   writeFileSync(join(root, "debian-package", "debian", "changelog"),
     `simple-ca (${debVersion}) unstable; urgency=medium\n\n  ${summary}\n\n${items.join("\n")}\n\n` +
     ` -- Slawomir Koszewski <slawek@koszewscy.waw.pl>  ${date}\n`);
-  const args = ["-f", "debian-package/Dockerfile", "--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`];
+  const args = ["-f", "debian-package/Dockerfile", "--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`,
+    "--platform", `linux/${hostArch}`];
   if (engine === "container") {
     run("container", ["build", ...args, "--output", "type=local,dest=dist", "."]);
   } else {
@@ -364,7 +369,7 @@ switch (action) {
     }
     const image = registry === null ? "simple-ca" : `${registry.replace(/\/+$/, "")}/simple-ca`;
     run("docker", ["buildx", "build", ...(push ? ["--push"] : []), "--build-arg", `VERSION=v${version}`,
-      ...(platform === "" ? [] : ["--platform", platform]),
+      "--platform", platform === "" ? `linux/${hostArch}` : platform,
       "-t", `${image}:${version}`, "-t", `${image}:latest`, "."]);
     break;
   }
@@ -393,7 +398,8 @@ switch (action) {
     mkdirSync(distDir, { recursive: true });
     const programs = [["simple-ca", "."], ["request-cert", "./cmd/request-cert"], ["token-setup", "./cmd/token-setup"],
       ["request-token", "./cmd/request-token"], ["simple-ca-wif", "./cmd/simple-ca-wif"]];
-    for (const [goos, goarch] of ["linux", "darwin", "windows"].flatMap((goos) => [[goos, "amd64"], [goos, "arm64"]])) {
+    const goarch = hostArch;
+    for (const goos of ["linux", "darwin", "windows"]) {
       if ((goos === "darwin" && (host !== "darwin" || !works("swift", ["--version"]))) ||
         (goos === "windows" && !works("dotnet", ["--version"]))) {
         console.error(`note: ${goos}/${goarch} skipped; simple-ca-trust for ${goos} needs ` +

@@ -47,7 +47,7 @@ var sessionRoot, sessionCA string
 // stdin holds.
 var commandInput io.Reader = os.Stdin
 
-// errReported reports a failure whose message was already written, so main only sets the status.
+// errReported reports a failure whose message was already written.
 var errReported = errors.New("reported")
 
 // historyLimit is the number of lines the history file keeps.
