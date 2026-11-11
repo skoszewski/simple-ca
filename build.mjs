@@ -1,58 +1,10 @@
 #!/usr/bin/env node
 
-// Builds, tests and checks simple-ca.
+// Builds, tests, checks and packages simple-ca; docs/development.md describes the actions.
 // Usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
 //        ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]
 //        ./build.mjs deb
 //        ./build.mjs dist [--dpkg]
-//
-// The executables are written to bin/, and the intermediate files to .build/, both of which clean
-// removes. The build action writes simple-ca,
-// request-cert, the Go client of the signing API in cmd/request-cert, token-setup, which exchanges
-// a setup code, in cmd/token-setup, request-token, the client of /api/federation-token and of the
-// clouds, in cmd/request-token, simple-ca-wif of cmd/simple-ca-wif, simple-ca-lite, the
-// certificate commands of simple-ca, in cmd/simple-ca-lite, and on Linux simple-ca-trust of
-// cmd/simple-ca-trust. The platform defaults to the host's. Naming one builds for it instead,
-// writing simple-ca-<goos>-<goarch>, request-cert-<goos>-<goarch>, token-setup-<goos>-<goarch>,
-// request-token-<goos>-<goarch>, simple-ca-wif-<goos>-<goarch> and simple-ca-lite-<goos>-<goarch>,
-// and for linux simple-ca-trust-linux-<goarch>. While the newest CHANGELOG.md entry is not tagged,
-// the Go programs report its release candidate, vX.Y.Z-rc, as their version. Releases are made by
-// release.mjs.
-//
-// The trust action writes simple-ca-trust for the host, or simple-ca-trust-<goos>-<goarch> for
-// the platform named: cmd/simple-ca-trust with go for linux and trust/windows with dotnet for
-// windows, on any host; trust/macos with swift for darwin, on macOS only, and skipped elsewhere.
-// For windows it writes the project file trust/windows/simple-ca-trust.csproj, for a single
-// simple-ca-trust.exe running on the installed .NET runtime, or carrying the runtime with
-// --self-contained; its version is dev, or the InformationalVersion environment variable.
-//
-// The docker action builds the image of the Dockerfile with docker buildx, for the platform named
-// or linux on the architecture of the host, whatever that of the Docker engine, as
-// simple-ca:<version>, the version of the newest CHANGELOG.md entry, and simple-ca:latest, below
-// the registry --registry names, else SIMPLE_CA_REGISTRY when it is set, and pushes it with
-// --push.
-//
-// The deb action builds the Debian packages of debian-package/ and debian-package-lite/ with
-// docker buildx, for the architecture of the host, whatever that of the Docker engine, compiling
-// the programs in the image of each directory's Dockerfile, and writes
-// simple-ca_<version>_<arch>.deb and simple-ca-lite_<version>_<arch>.deb to dist/. Their version
-// is X.Y.Z-1 for the newest CHANGELOG.md entry X.Y.Z, or X.Y.Z-N for an entry X.Y.Z-N, with the
-// programs of vX.Y.Z, and X.Y.Z~rc-N while vX.Y.Z is not tagged; the debian/changelog of each
-// directory is written from the entry. It downloads the browser files of serve-markdown's page
-// first when assets/markdown holds another version, and fails when that fails.
-//
-// The dist action makes the files of an internal release in dist/: the archives the GitHub
-// workflow builds for the platform of the host, simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz and
-// simple-ca-lite-X.Y.Z-<goos>-<goarch>.tar.gz, .zip on Windows, with the programs versioned vX.Y.Z
-// of the newest CHANGELOG.md entry. It refuses uncommitted changes, an entry that no commit has the
-// summary line of, and a host without the toolchain of its simple-ca-trust, swift on macOS and
-// dotnet on Windows. With --dpkg it also builds both Debian packages X.Y.Z-1 for the architecture
-// of the host, with the container CLI on macOS when it is installed, else with docker buildx.
-//
-// The assets action downloads the browser files of serve-markdown's page, for the version of
-// serve-markdown in go.mod, from its GitHub release into assets/markdown, which serve embeds
-// for its /help/ and /docs/ pages. build, test and check download them first when assets/markdown holds
-// another version, and go on without them, warning, when the download fails.
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -87,7 +39,6 @@ for (let i = 2; i < process.argv.length; i++) {
   }
 }
 const [action = "build", platform = ""] = positional;
-// The registry of the docker action is SIMPLE_CA_REGISTRY without --registry.
 if (registry === null && action === "docker" && process.env.SIMPLE_CA_REGISTRY) {
   registry = process.env.SIMPLE_CA_REGISTRY;
 }
@@ -97,10 +48,7 @@ const checksumFile = join(root, "assets", "markdown.sha256");
 const requiredTag = readFileSync(join(root, "go.mod"), "utf8")
   .match(/^\s*github\.com\/skoszewski\/serve-markdown\/v3 (v\S+)/m)?.[1] ?? "";
 
-/**
- * Runs a command in the repository, or in the directory cwd, and returns what it wrote to stdout;
- * the command's failure ends the build with its exit status.
- */
+/** Runs a command and returns its stdout; a failure ends the build with its exit status. */
 function run(command, args, { env = process.env, capture = false, cwd = root } = {}) {
   const result = spawnSync(command, args, {
     cwd,
@@ -118,11 +66,7 @@ function run(command, args, { env = process.env, capture = false, cwd = root } =
   return result.stdout ?? "";
 }
 
-/**
- * Downloads the serve-markdown-assets archive of the serve-markdown version go.mod requires,
- * checks it against the SHA-256 assets/markdown.sha256 has for that version, and unpacks it into
- * assets/markdown, replacing what it held but .gitkeep; throws when that fails.
- */
+/** Downloads, checks and unpacks the serve-markdown assets of go.mod into assets/markdown. */
 async function fetchMarkdownAssets() {
   if (requiredTag === "") {
     throw new Error("go.mod requires no github.com/skoszewski/serve-markdown/v3");
@@ -160,21 +104,18 @@ async function fetchMarkdownAssets() {
 
 const env = { ...process.env, CGO_ENABLED: "0" };
 
-// The version of the newest CHANGELOG.md entry, "## x.y.z", the one a release takes, or "" without
-// one.
+// The version of the newest CHANGELOG.md entry.
 const changelogVersion = readFileSync(join(root, "CHANGELOG.md"), "utf8").match(/^## (\S+)/m)?.[1] ?? "";
 
-// The Go programs of an entry not tagged yet are built as its release candidate, vX.Y.Z-rc; those
-// of a tagged entry, and without git, keep the version Go derives from the module.
+// The release candidate version of an untagged entry.
 const tagged = spawnSync("git", ["tag", "--list", `v${changelogVersion}`], { cwd: root, encoding: "utf8" });
 const candidate = changelogVersion !== "" && tagged.status === 0 && tagged.stdout.trim() === "" ?
   `v${changelogVersion}-rc` : "";
 const binDir = join(root, "bin");
 
-// The intermediate files of a build are in .build/, which clean removes.
 const buildDir = join(root, ".build");
 
-// scratchDir returns the directory name in .build/, made anew and empty.
+/** Returns an empty directory name in .build/. */
 function scratchDir(name) {
   const dir = join(buildDir, name);
   rmSync(dir, { recursive: true, force: true });
@@ -191,15 +132,10 @@ const goBuild = (output, pkg) => {
 const host = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform] ?? process.platform;
 const hostArch = { x64: "amd64", arm64: "arm64" }[process.arch] ?? process.arch;
 
-// Reports whether command runs with args, which tells whether a tool is installed.
+// Reports whether a command runs.
 const works = (command, args) => spawnSync(command, args, { cwd: root, stdio: "ignore" }).status === 0;
 
-/**
- * Builds simple-ca-trust for goos/goarch to the file out and reports whether it did: the Go
- * program for linux, the Swift one for darwin on macOS alone, the .NET one for windows. With a
- * version, the program reports it and the Go build is -trimpath; without one, the Go program
- * reports the release candidate, and the others dev or InformationalVersion.
- */
+/** Builds simple-ca-trust for goos/goarch to out, and reports whether it could. */
 function buildTrust(goos, goarch, out, version = "") {
   mkdirSync(dirname(out), { recursive: true });
   if (goos === "linux") {
@@ -211,7 +147,7 @@ function buildTrust(goos, goarch, out, version = "") {
   if (goos === "darwin" && host === "darwin") {
     const macos = join(root, "trust", "macos");
     const arch = ["--arch", { amd64: "x86_64", arm64: "arm64" }[goarch] ?? goarch];
-    // A version is built into Version.swift, which is given back its content afterwards.
+    // Version.swift holds the version during the build.
     const swiftVersion = join(macos, "Sources", "simple-ca-trust", "Version.swift");
     const original = readFileSync(swiftVersion, "utf8");
     if (version) {
@@ -229,8 +165,6 @@ function buildTrust(goos, goarch, out, version = "") {
     return true;
   }
   if (goos === "windows") {
-    // The project file is written for each build, self-contained or running on the installed
-    // .NET runtime.
     const project = join(root, "trust", "windows", "simple-ca-trust.csproj");
     writeFileSync(project, `<Project Sdk="Microsoft.NET.Sdk">
 
@@ -250,7 +184,6 @@ function buildTrust(goos, goarch, out, version = "") {
 
 </Project>
 `);
-    // dotnet publishes to .build/, of which only simple-ca-trust.exe is kept.
     const publish = scratchDir(`trust-windows-${goarch}`);
     try {
       run("dotnet", ["publish", project, "-c", "Release",
@@ -265,24 +198,18 @@ function buildTrust(goos, goarch, out, version = "") {
   return false;
 }
 
-/**
- * Builds the Debian package of the directory dir, the source package source, for the newest
- * CHANGELOG.md entry to dist/ with the container engine engine, docker or container, after writing
- * dir/debian/changelog from the entry. The version is X.Y.Z-N, with the programs of vX.Y.Z, and
- * X.Y.Z~rc-N with those of vX.Y.Z-rc while vX.Y.Z is not tagged, unless internal, the package of an
- * internal release. It is built for the architecture of the host, whatever that of the engine.
- */
+/** Builds the Debian package of dir, the source package source, to dist/ with engine. */
 function buildDeb(engine, dir, source, internal = false) {
   if (!changelogVersion) {
     console.error("CHANGELOG.md has no \"## x.y.z\" entry");
     process.exit(1);
   }
-  // debian/changelog holds the newest CHANGELOG.md entry: its summary line, then its items.
+  // debian/changelog from the newest CHANGELOG.md entry.
   const lines = readFileSync(join(root, "CHANGELOG.md"), "utf8").split(/^## /m)[1].split("\n").slice(1);
   const summary = lines.find((line) => line.trim() !== "");
   const items = lines.filter((line) => /^(- |  \S)/.test(line))
     .map((line) => line.startsWith("- ") ? `  * ${line.slice(2)}` : `    ${line.trim()}`);
-  // An entry x.y.z-N is the code of vx.y.z, packaged again as the Debian revision N.
+  // An entry x.y.z-N is the Debian revision N of vx.y.z.
   const [, upstream, revision = "1"] = changelogVersion.match(/^(.*?)(?:-([0-9]+))?$/);
   const upstreamTag = spawnSync("git", ["tag", "--list", `v${upstream}`], { cwd: root, encoding: "utf8" });
   const prerelease = !internal && upstreamTag.status === 0 && upstreamTag.stdout.trim() === "";
@@ -291,14 +218,14 @@ function buildDeb(engine, dir, source, internal = false) {
   writeFileSync(join(root, dir, "debian", "changelog"),
     `${source} (${debVersion}) unstable; urgency=medium\n\n  ${summary}\n\n${items.join("\n")}\n\n` +
     ` -- Slawomir Koszewski <slawek@koszewscy.waw.pl>  ${date}\n`);
-  const args = ["--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`, "--platform", `linux/${hostArch}`];
+  const args = ["--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`];
   if (engine !== "container") {
     run("docker", ["buildx", "build", "-f", `${dir}/Dockerfile`, ...args,
       "--output", `type=local,dest=${join(root, "dist")}`, "."]);
     return;
   }
-  // The container CLI fails to send a context filtered by the re-includes of an ignore file
-  // ("changes out of order"); it gets a context of the files Dockerfile.dockerignore re-includes.
+  // The container CLI fails on an ignore file with re-includes ("changes out of order"); it gets
+  // a staged context of the files Dockerfile.dockerignore re-includes.
   const scratch = scratchDir(`deb-${source}`);
   const context = join(scratch, "context");
   try {
@@ -314,8 +241,7 @@ function buildDeb(engine, dir, source, internal = false) {
       }
     }
     cpSync(join(root, dir, "Dockerfile"), join(context, dir, "Dockerfile"));
-    // The container CLI writes a local output below dest, in out.tar/<os>_<arch>/; the packages
-    // are moved from there to dist/.
+    // The container CLI writes a local output to out.tar/<os>_<arch>/ below dest.
     const out = join(scratch, "out");
     run("container", ["build", "-f", join(context, dir, "Dockerfile"), ...args,
       "--output", `type=local,dest=${out}`, context]);
@@ -329,7 +255,7 @@ function buildDeb(engine, dir, source, internal = false) {
   }
 }
 
-// The directories of the Debian packages and their source package names.
+// The Debian package directories and source package names.
 const debPackages = [["debian-package", "simple-ca"], ["debian-package-lite", "simple-ca-lite"]];
 
 if (!["build", "trust", "test", "check", "clean", "assets", "docker", "deb", "dist"].includes(action) ||
@@ -340,8 +266,7 @@ if (!["build", "trust", "test", "check", "clean", "assets", "docker", "deb", "di
   process.exit(2);
 }
 
-// The executables are named after their program, with -<goos>-<goarch> for a platform named, and
-// the suffix Go gives executables of the target, .exe on Windows.
+// The suffix of the executables: -<goos>-<goarch> for a platform named, and .exe on Windows.
 let nameSuffix = "";
 if (action === "build" && platform === "") {
   nameSuffix = run("go", ["env", "GOEXE"], { env, capture: true }).trim();
@@ -358,8 +283,7 @@ if (platform !== "") {
   nameSuffix = `-${goos}-${goarch}${goos === "windows" ? ".exe" : ""}`;
 }
 
-// The page's browser files are fetched again once go.mod requires another serve-markdown; the
-// package is not built without them.
+// The serve-markdown assets are fetched when go.mod requires another version.
 if (["build", "test", "check", "deb", "dist"].includes(action)) {
   let held = "";
   try {
@@ -399,8 +323,6 @@ switch (action) {
     }
     break;
   case "trust": {
-    // The target is the platform named, else the host; the Swift version is built only on macOS,
-    // the Go and .NET versions on any host.
     const goos = env.GOOS ?? host;
     const goarch = env.GOARCH ?? { x64: "amd64", arm64: "arm64" }[process.arch] ?? process.arch;
     const name = platform === "" ? "simple-ca-trust" : `simple-ca-trust-${goos}-${goarch}`;
@@ -411,8 +333,6 @@ switch (action) {
     break;
   }
   case "docker": {
-    // The image is tagged with the version of the newest CHANGELOG.md entry, the one a release
-    // takes, and as latest, below the registry when one is named.
     const version = changelogVersion;
     if (!version) {
       console.error("CHANGELOG.md has no \"## x.y.z\" entry");
@@ -420,7 +340,7 @@ switch (action) {
     }
     const image = registry === null ? "simple-ca" : `${registry.replace(/\/+$/, "")}/simple-ca`;
     run("docker", ["buildx", "build", ...(push ? ["--push"] : []), "--build-arg", `VERSION=v${version}`,
-      "--platform", platform === "" ? `linux/${hostArch}` : platform,
+      ...(platform === "" ? [] : ["--platform", platform]),
       "-t", `${image}:${version}`, "-t", `${image}:latest`, "."]);
     break;
   }
@@ -434,8 +354,7 @@ switch (action) {
       console.error("CHANGELOG.md has no \"## x.y.z\" entry");
       process.exit(1);
     }
-    // The entry is released once a commit has its summary line, the line between blank lines
-    // right after its heading, and the files are those of that commit or a later one.
+    // The newest entry must be committed, with a clean tree.
     const entry = readFileSync(join(root, "CHANGELOG.md"), "utf8").split(/^## /m)[1].split("\n");
     const summary = entry[1]?.trim() === "" && entry[3]?.trim() === "" ? entry[2]?.trim() : "";
     if (run("git", ["status", "--porcelain"], { capture: true }).trim() !== "") {
@@ -451,8 +370,6 @@ switch (action) {
     mkdirSync(distDir, { recursive: true });
     const programs = [["simple-ca", "."], ["request-cert", "./cmd/request-cert"], ["token-setup", "./cmd/token-setup"],
       ["request-token", "./cmd/request-token"], ["simple-ca-wif", "./cmd/simple-ca-wif"]];
-    // The archive is that of the host's platform, whose simple-ca-trust needs swift on macOS and
-    // dotnet on Windows.
     const [goos, goarch] = [host, hostArch];
     if (!["linux", "darwin", "windows"].includes(goos) || !["amd64", "arm64"].includes(goarch)) {
       console.error(`dist: the release workflow builds no archive for ${goos}/${goarch}`);
@@ -463,7 +380,6 @@ switch (action) {
       console.error(`dist: simple-ca-trust for ${goos} needs ${toolchain}`);
       process.exit(1);
     }
-    // The programs of each archive are packed from .build/pack-<archive>, removed afterwards.
     const exe = goos === "windows" ? ".exe" : "";
     const archives = [["simple-ca", programs], ["simple-ca-lite", [["simple-ca-lite", "./cmd/simple-ca-lite"]]]];
     for (const [archiveName, packPrograms] of archives) {
@@ -473,7 +389,6 @@ switch (action) {
           run("go", ["build", "-trimpath", "-ldflags", `-X main.buildVersion=${version}`, "-o",
             join(pack, `${name}${exe}`), pkg], { env: { ...env, GOOS: goos, GOARCH: goarch } });
         }
-        // simple-ca-trust is in the simple-ca archive alone.
         if (archiveName === "simple-ca") {
           buildTrust(goos, goarch, join(pack, `simple-ca-trust${exe}`), version);
         }
@@ -481,7 +396,6 @@ switch (action) {
           `${archiveName}-${changelogVersion}-${goos}-${goarch}${goos === "windows" ? ".zip" : ".tar.gz"}`);
         rmSync(archive, { force: true });
         const files = readdirSync(pack);
-        // A windows archive is a zip, made by the tar of Windows.
         if (goos === "windows") {
           run("tar", ["-a", "-cf", archive, ...files], { cwd: pack });
         } else {

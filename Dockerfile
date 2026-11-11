@@ -7,7 +7,10 @@
 # identity federation for the CA, are installed beside it. The temporary files of the build are in
 # a tmpfs on /tmp.
 
-FROM golang:1.27 AS build
+# The build stage runs on the platform of the engine and cross-compiles for the target platform.
+FROM --platform=$BUILDPLATFORM golang:1.27 AS build
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -28,6 +31,7 @@ RUN tag="$(go list -m -f '{{.Version}}' github.com/skoszewski/serve-markdown/v3)
     && curl -fsSL "https://github.com/skoszewski/serve-markdown/releases/download/$tag/serve-markdown-assets-${tag#v}.tar.gz" \
     | tar -xz -C assets/markdown
 ARG VERSION=""
+ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 RUN --mount=type=tmpfs,target=/tmp \
     CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${VERSION}" -o /out/simple-ca . \
     && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${VERSION}" -o /out/request-cert ./cmd/request-cert \

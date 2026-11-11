@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.18.1
+
+fix: the Docker builds of build.mjs are for the architecture of the Docker engine, and the image builds for another platform without emulation.
+
+- `build.mjs deb`, `dist --dpkg` and `docker` without a platform build for the platform of the
+  Docker engine, which may be a remote host of the docker context, instead of the architecture
+  of the machine they are run on, which failed with "exec format error" on an engine of another
+  architecture.
+- The build stage of the `Dockerfile` runs on the platform of the engine and cross-compiles the
+  programs, so `build.mjs docker` with a platform of another architecture needs no emulation.
+
 ## 1.18.0
 
 feat: simple-ca-lite runs the certificate commands of simple-ca alone, with its own archive and Debian package, and the shared code is split into a Go package per domain.

@@ -28,13 +28,13 @@ archives are packed from, to `.build/`; `.gitignore` leaves both out.
 ./build.mjs docker [--registry REGISTRY] [--push] [<goos>/<goarch>]
                                # build simple-ca:<version> and simple-ca:latest; --push pushes them;
                                # the registry defaults to SIMPLE_CA_REGISTRY
-./build.mjs deb                # build the Debian packages for the architecture of the host
+./build.mjs deb                # build the Debian packages for the architecture of the Docker engine
 ./build.mjs dist [--dpkg]      # write the archives of an internal release for the host to
                                # dist/, and with --dpkg the Debian packages
 ```
 
-`./build.mjs deb` builds two packages with `docker buildx`, for the architecture of the host,
-also when the Docker engine runs on another one:
+`./build.mjs deb` builds two packages with `docker buildx`, for the architecture of the Docker
+engine, which may be a remote host of the docker context:
 
 - `simple-ca`, of `debian-package/`: the image of `debian-package/Dockerfile` compiles
   `simple-ca`, `request-cert`, `token-setup`, `request-token`, `simple-ca-wif` and
@@ -109,9 +109,8 @@ the release workflow builds the other platforms. It refuses uncommitted changes,
 commit has the summary line of, and a host without the toolchain of its `simple-ca-trust`: Swift
 on macOS and the .NET SDK on Windows. The programs of each archive are packed from
 `.build/pack-<archive>/`, removed afterwards. With `--dpkg`, it also builds both Debian packages
-`X.Y.Z-1` as `./build.mjs deb` does, for the architecture of the host, also when the container
-engine runs on another one: with Apple's `container` CLI on macOS when it is installed, and with
-`docker buildx` otherwise.
+`X.Y.Z-1` as `./build.mjs deb` does, for the architecture of the container engine: with Apple's
+`container` CLI on macOS when it is installed, and with `docker buildx` otherwise.
 
 The release workflow checks the formatting and runs `go vet`, but does not run the tests; they
 are run with `./build.mjs test` or `./build.mjs check`. It refuses a tag that is not on `main` or
