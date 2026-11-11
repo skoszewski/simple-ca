@@ -53,10 +53,11 @@ const (
 )
 
 // webuiScripts are the scripts of the pages, served at their paths: theme.js, which every page
-// loads in its head; picker.js, oidc.js and webui.js, which both pages load, then tokens.js or
-// certs.js; the signing form of serve loads picker.js, oidc.js and sign.js, its setup code page
-// picker.js, oidc.js and setup.js, its OIDC callback page oidc.js, its index page picker.js,
-// index.js and copy.js, and its downloads and apt pages copy.js.
+// loads in its head; picker.js, oidc.js, login.js and webui.js, which the token, certificate and
+// audit pages load, then tokens.js, certs.js or audit.js; the signing form of serve loads
+// picker.js, oidc.js and sign.js, its setup code page picker.js, oidc.js and setup.js, its OIDC
+// callback page oidc.js, its index page picker.js, with webui oidc.js and login.js, index.js and
+// copy.js, and its downloads and apt pages copy.js.
 //
 //go:embed assets/webui/*.js
 var webuiScripts embed.FS
@@ -228,7 +229,8 @@ func (s *webuiServer) authenticate(w http.ResponseWriter, r *http.Request) bool 
 }
 
 // identify keeps the name, the CA and the scopes of the token given, a token of the root CA or of
-// one of its issuing CAs with the scope, used from client, a client it allows.
+// one of its issuing CAs with the scope, any scope for an empty one, used from client, a client it
+// allows.
 func (s *webuiServer) identify(given, scope string, client netip.Addr) error {
 	for _, id := range simpleca.CAIDs(s.rootDir) {
 		dir := filepath.Join(s.rootDir, id)
@@ -248,7 +250,7 @@ func (s *webuiServer) identify(given, scope string, client netip.Addr) error {
 		switch {
 		case err != nil:
 			return err
-		case !tok.HasScope(scope):
+		case scope != "" && !tok.HasScope(scope):
 			return apiErr(http.StatusForbidden, "the token does not have the scope %s", scope)
 		case !tok.ClientAllowed(client):
 			return apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
@@ -281,6 +283,45 @@ func (s *webuiServer) mux() *http.ServeMux {
 	})
 	mux.HandleFunc("/api/", s.api)
 	return mux
+}
+
+// pageLink is a link of the index page: its label and its address.
+type pageLink struct {
+	Label string `json:"label"`
+	Href  string `json:"href"`
+}
+
+// apiLinks answers GET /api/links with the links of the index page: those of the public pages to a
+// request without a bearer token, and with a valid token of the root CA or an issuing CA, used from
+// a client it allows, also those of the pages of webui, with the name and the CA of the token. A
+// token refused is answered as the pages answer it.
+func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool) {
+	links := []pageLink{{"Set up a token", "/token-setup"}, {"Describe a token", "/token-describe"}}
+	if downloadsDir != "" {
+		links = append(links, pageLink{"Downloads", downloadsPath})
+	}
+	if packagesDir != "" {
+		links = append(links, pageLink{"Apt", aptPath})
+	}
+	answer := struct {
+		User   string     `json:"user,omitempty"`
+		UserCA string     `json:"user_ca,omitempty"`
+		Links  []pageLink `json:"links"`
+	}{}
+	given, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if strings.TrimSpace(given) != "" {
+		s := &webuiServer{rootDir: rootDir}
+		if !s.authenticate(w, r) {
+			return
+		}
+		answer.User, answer.UserCA = s.user, s.userCA
+		if webui {
+			links = append(links, pageLink{"Tokens", tokensPath}, pageLink{"Certificates", certsPath},
+				pageLink{"Audit log", auditPagePath})
+		}
+	}
+	answer.Links = links
+	webuiReply(w, http.StatusOK, answer)
 }
 
 // webuiReply writes v as the JSON answer of the API with status.

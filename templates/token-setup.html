@@ -29,7 +29,7 @@
           </dl>
           {{- end}}
           <div class="flex flex-wrap items-center justify-end gap-2">
-            <button type="button" data-cancel class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Close</button>
+            <button type="button" data-cancel data-escape class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Close</button>
             <button id="copy" type="button" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Copy</button>
           </div>
         </div>
@@ -44,12 +44,10 @@
               placeholder="XXXX-XXXX-XXXX-XXXX" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-sm">
           </div>
           <p id="oidc-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink"></p>
-          <div class="flex flex-wrap items-center justify-end gap-2">
-            <div class="flex flex-wrap gap-2">
-              <button type="button" data-cancel class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Cancel</button>
-              <button id="oidc-sign-in" type="button" class="hidden rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle"></button>
-              <button type="submit" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Get the token</button>
-            </div>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button type="submit" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Get the token</button>
+            <button id="oidc-sign-in" type="button" class="hidden rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle"></button>
+            <button type="button" data-cancel data-escape class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Cancel</button>
           </div>
         </form>
         {{- end}}

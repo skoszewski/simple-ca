@@ -1,7 +1,7 @@
 {{/* The parts the token, certificate and audit pages share: the top of the page, titled with its
      name, with the links to the index page and to the other pages, but not to itself, and the CA
-     chooser, and the dialogs asking for the token or a setup code, showing a token or a code once,
-     showing the signed-in token, and asking for a confirmation. */}}
+     chooser, and the dialogs: those of login-dialogs, the one showing the signed-in token, and the
+     one asking for a confirmation. */}}
 
 {{define "webui-top" -}}
         <div class="flex items-start justify-between gap-4 rounded-t-2xl bg-head px-6 py-4 text-head-ink">
@@ -36,20 +36,20 @@
         <p id="error" class="mx-6 mt-5 hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink"></p>
 {{- end}}
 
-{{define "webui-dialogs" -}}
-    <dialog id="login" class="m-auto w-full max-w-md rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+{{/* The dialog asking for the token or a setup code, with the OIDC sign-in, and the dialog showing
+     a token or a code once; the pages and the index page share them, with login.js. */}}
+{{define "login-dialogs" -}}
+    <dialog id="login" class="m-auto w-full max-w-xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form id="login-form" class="space-y-4 px-6 py-5">
         <p id="login-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink"></p>
         <label class="block space-y-1 text-sm">
           <span class="block font-medium">Token or setup code</span>
           <input id="login-token" type="password" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono">
         </label>
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <a class="text-sm text-link hover:underline" href="/">All CAs</a>
-          <div class="flex flex-wrap gap-2">
-            <button id="login-oidc" type="button" class="hidden rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle"></button>
-            <button type="submit" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Open</button>
-          </div>
+        <div class="flex justify-end gap-2 whitespace-nowrap">
+          <button type="submit" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Login with token</button>
+          <button id="login-oidc" type="button" class="hidden rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle"></button>
+          <button id="login-cancel" type="button" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Cancel</button>
         </div>
       </form>
     </dialog>
@@ -65,6 +65,10 @@
         </div>
       </form>
     </dialog>
+{{- end}}
+
+{{define "webui-dialogs" -}}
+    {{template "login-dialogs"}}
 
     <dialog id="user-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form method="dialog" class="space-y-4 px-6 py-5">

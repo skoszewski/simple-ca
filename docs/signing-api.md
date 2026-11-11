@@ -191,19 +191,22 @@ once the process is gone.
 ## Token page
 
 With `--webui`, `serve` serves a web page at `/tokens/` for managing the tokens of the root CA
-and all its issuing CAs; the index page links to it.
+and all its issuing CAs; the index page links to it once a valid token is signed in.
 
 The page asks for a token with the scope `tokens`, or a
 [setup code](#one-time-setup-codes) of one, and keeps the token for the browser tab. A setup
 code is exchanged for its token, which the page shows once and signs in with once that dialog is
 closed; a token without the scope of the page is shown once too, and the page then asks for
-another. With the [OIDC sign-in](oidc.md), the dialog also has a "Sign in with LABEL" button,
-and the token of the sign-in signs in when it has the scope of the page. A token without the
+another. Its buttons are "Login with token", "Sign in with LABEL" with the
+[OIDC sign-in](oidc.md), whose token signs in when it has the scope of the page, and Cancel,
+which returns to the index page. A token without the
 scope of the page, or not allowed from the client, stays kept for the other pages of the tab, and
 another token given replaces it; an invalid token is forgotten. The page shows who is signed
 in, with a Sign out button; the name opens a dialog of the attributes of the token, as
-`token describe` prints them. The index page shows the name too, with Sign out, when the token
-kept has the scope of one of the pages. A root CA token sees every CA; an issuing CA token sees only its
+`token describe` prints them. The index page shows the name too, with Sign out, for a valid
+token, and otherwise a Login button opening the same dialog; it links to the token, certificate
+and audit pages only for a valid token, as `/api/links` answers (see [serve](serve.md)). A root
+CA token sees every CA; an issuing CA token sees only its
 own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
 root CA. On it you can:
 
@@ -336,7 +339,7 @@ for the code and shows the token once, with a Copy button and its attributes, as
 `token describe` prints them, or the error. With the [OIDC sign-in](oidc.md), it also has a
 "Sign in with LABEL" button, and shows the token of the sign-in once in the same way. Cancel, and
 Close once the token is shown, return to the page of `serve` it was opened from, or to the index
-page, as on the [signing form](#signing-form).
+page, as on the [signing form](#signing-form); so does Escape.
 
 ## Describe a token
 
@@ -344,8 +347,8 @@ The page `/token-describe`, "Describe a token" beside "Set up a token", shows th
 token pasted into it, as `token describe --ca-dir` prints them with the CA that signed it: it
 checks the token against the root CA and each issuing CA of the server, and names its CA. A token
 renewed, revoked or removed is shown as refused. A value that is no token of a CA of the server is
-refused, and counted as a refused token is. Cancel returns to the page of `serve` it was opened
-from, or to the index page.
+refused, and counted as a refused token is. Cancel, or Escape, returns to the page of `serve` it
+was opened from, or to the index page.
 
 ## Requests and responses
 

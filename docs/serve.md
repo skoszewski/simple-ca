@@ -16,13 +16,28 @@ it also shows the guides of `simple-ca`, the files of `docs/`, at `/docs/`.
 
 With `--webui`, it also serves the [token page](signing-api.md#token-page) at `/tokens/`, the
 [certificate page](usage.md#certificate-page) at `/certificates/` and the
-[audit page](audit.md#the-audit-page) at `/audit/`, linked from the index page. They ask for a
-token with the scope `tokens`, `certs` or `audit`, or for the [OIDC sign-in](oidc.md) when
-`simple-ca.json` sets it up. Over plain HTTP, the tokens cross the network in clear, which
-`serve` mentions at start for an address other than a loopback one; `--tls-cert` and
-`--tls-key` serve the pages over HTTPS where that matters. The names `help`, `docs`, `tokens`,
-`certificates`, `audit`, `downloads` and `apt` cannot be issuing CA names, because the pages use
-those paths.
+[audit page](audit.md#the-audit-page) at `/audit/`. They ask for a token with the scope `tokens`,
+`certs` or `audit`, or for the [OIDC sign-in](oidc.md) when `simple-ca.json` sets it up. Over
+plain HTTP, the tokens cross the network in clear, which `serve` mentions at start for an address
+other than a loopback one; `--tls-cert` and `--tls-key` serve the pages over HTTPS where that
+matters. The names `help`, `docs`, `tokens`, `certificates`, `audit`, `downloads` and `apt` cannot
+be issuing CA names, because the pages use those paths.
+
+The index page draws the links of its header from `/api/links`. A request without a token gets
+those of the public pages: "Set up a token", "Describe a token", and "Downloads" and "Apt" when
+they are served. A request with a valid token of the root CA or an issuing CA as its bearer
+token, used from a client the token allows, also gets "Tokens", "Certificates" and "Audit log"
+with `--webui`, and the name of the token. A refused token is answered as the pages answer it,
+and counts as a [refused credential](signing-api.md#refused-credentials). With `--webui`, the
+index page has a Login button where it shows who is signed in. It opens the login dialog of the
+pages:
+
+- **Login with token:** takes a token, or a setup code, which is exchanged and its token shown
+  once.
+- **Sign in with LABEL:** the OIDC sign-in, when it is set up.
+- **Cancel:** closes the dialog.
+
+The token is kept for the browser tab, which the pages share, and Sign out forgets it.
 
 With `--downloads DIR`, it lists the files of `DIR` for the clients at `/downloads/`, see
 [Downloads](#downloads), and with `--packages DIR` it serves the apt repository in `DIR` at
@@ -83,6 +98,7 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/NAME/sign` | the signing form of the issuing CA `NAME` | `text/html` |
 | `/token-setup` | the exchange of a [setup code](signing-api.md#setup-code-exchange) for its token | `text/html` |
 | `/api/token-setup` | the exchange of a setup code, `POST` | `application/json` |
+| `/api/links` | the links of the index page: the public pages, and with a valid bearer token also the pages of `--webui`, with the name of the token | `application/json` |
 | `/token-describe` | the attributes of a token pasted into it, see [Describe a token](signing-api.md#describe-a-token) | `text/html` |
 | `/api/federation-token` | a JWT of the token type of a token of the root CA with the scope `federate`, `POST`, see [Federation tokens](signing-api.md#federation-tokens) | `application/json` |
 | `/NAME/api/federation-token` | the same for a token of the issuing CA `NAME` | `application/json` |

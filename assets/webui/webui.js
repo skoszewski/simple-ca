@@ -1,8 +1,7 @@
-// The parts the token, certificate and audit pages share, after picker.js. The page draws one CA from
-// the API, sending the token, which the tab keeps, as its bearer token; the CA on the page is in
-// the address as ?ca=. The script of the page, loaded after this one, defines showCA, which draws
-// the CA.
-const tokenName = "simple-ca-webui-token";
+// The parts the token, certificate and audit pages share, after picker.js, oidc.js and login.js. The
+// page draws one CA from the API, sending the token, which the tab keeps, as its bearer token; the
+// CA on the page is in the address as ?ca=. The script of the page, loaded after this one, defines
+// showCA, which draws the CA.
 const params = new URLSearchParams(location.search);
 const base = location.pathname.replace(/\/$/, "");
 const pageScope = base.endsWith("/certificates") ? "certs" : base.endsWith("/audit") ? "audit" : "tokens";
@@ -40,38 +39,18 @@ async function api(method, path, body) {
   return answer;
 }
 
-// askToken shows the dialog asking for the token, with the error given.
-function askToken(failure) {
-  $("login-error").textContent = failure;
-  $("login-error").classList.toggle("hidden", !failure);
-  if (!$("login").open) {
-    $("login").showModal();
-  }
-}
+// The page needs a token: the dialog does not close with Escape, and Cancel leaves for the index
+// page.
 $("login").addEventListener("cancel", (event) => event.preventDefault());
-// A token is kept and signs in; a setup code, a value without the dots of a JWT, is exchanged for
-// its token first, which is shown once and signs in once its dialog is closed. A token without
-// the scope of the page is shown once too and kept for the other pages, and the page asks for
-// another token after that.
-$("login-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const value = $("login-token").value.trim();
-  $("login-token").value = "";
-  if (value.includes(".")) {
-    sessionStorage.setItem(tokenName, value);
-    $("login").close();
+cancelLogin = () => location.assign("/");
+// A token signs in. The token of a setup code is shown once and signs in once its dialog is
+// closed; a token without the scope of the page is shown once too and kept for the other pages,
+// and the page asks for another token after that.
+signedIn = (setup) => {
+  if (!setup) {
     load();
     return;
   }
-  const response = await fetch("/api/token-setup", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code: value }) });
-  const setup = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    askToken(setup.error || response.statusText);
-    return;
-  }
-  $("login").close();
-  sessionStorage.setItem(tokenName, setup.token);
   if (!setup.scopes.some((scope) => scope === pageScope || scope === "*")) {
     showOnce(`Your token ${setup.name} is shown this once; copy it now. It does not open this page, as it has `
       + `the scopes ${setup.scopes.join(", ")}, not ${pageScope}. The setup code it was made from no longer works.`,
@@ -80,25 +59,8 @@ $("login-form").addEventListener("submit", async (event) => {
   }
   showOnce(`Your token ${setup.name} is shown this once; copy it now to sign in again later. `
     + "The setup code it was made from no longer works.", setup.token, load);
-});
+};
 
-// showOnce shows a token or a setup code once, with text, in its dialog; it leaves the page when
-// the dialog closes, which then calls closed, when given.
-function showOnce(text, value, closed) {
-  $("shown-text").textContent = text;
-  $("shown-value").value = value;
-  if (closed) {
-    $("shown").addEventListener("close", closed, { once: true });
-  }
-  $("shown").showModal();
-}
-$("shown").addEventListener("close", () => {
-  $("shown-value").value = "";
-  $("shown-text").textContent = "";
-  $("shown-download").classList.add("hidden");
-  $("shown-download").onclick = null;
-});
-copying($("shown-copy"), $("shown-value"));
 // The name of the signed-in token opens the dialog of its attributes.
 $("user").addEventListener("click", () => $("user-dialog").showModal());
 $("sign-out").addEventListener("click", () => {
@@ -314,8 +276,6 @@ function searchable({ items, text, row, headings, filters, noun, label = (h) => 
       element("thead", { className: "text-muted" }, head), body)),
     count);
 }
-
-oidcButton($("login-oidc"), null, askToken);
 
 // start loads the page once the script of the page has defined showCA, signing in with the token
 // of an OIDC sign-in.

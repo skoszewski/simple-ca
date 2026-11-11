@@ -160,6 +160,17 @@ function readable(name) {
   for (const cancel of document.querySelectorAll("[data-cancel]")) {
     cancel.addEventListener("click", () => location.assign(sessionStorage.getItem(fromKey) || "/"));
   }
+  // Escape presses the shown one marked data-escape, unless a dialog or a chooser is open.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || document.querySelector("dialog[open], details[data-picker][open]")) {
+      return;
+    }
+    const cancel = [...document.querySelectorAll("[data-cancel][data-escape]")].find((b) => b.offsetParent !== null);
+    if (cancel) {
+      event.preventDefault();
+      cancel.click();
+    }
+  });
 }
 
 // A popup placed by the page's position is hidden once the page scrolls.

@@ -330,15 +330,12 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			cas = append(cas, ca)
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		toks, certs := "", ""
-		if webui {
-			toks, certs = tokensPath, certsPath
-		}
 		if err := pageTemplates.ExecuteTemplate(w, "index.html", struct {
-			Title, Script, Tokens, Certs string
-			Theme                        template.CSS
-			CAs                          []indexCA
-		}{title, tailwindPath, toks, certs, pageTheme(rootDir), cas}); err != nil {
+			Title, Script string
+			WebUI         bool
+			Theme         template.CSS
+			CAs           []indexCA
+		}{title, tailwindPath, webui, pageTheme(rootDir), cas}); err != nil {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		}
 	})
@@ -470,6 +467,11 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	})
 	mux.HandleFunc("POST /token-setup", func(w http.ResponseWriter, r *http.Request) {
 		tokenSetupPage(w, r, rootDir)
+	})
+
+	// The links of the index page, by the token of the request.
+	mux.HandleFunc("GET /api/links", func(w http.ResponseWriter, r *http.Request) {
+		apiLinks(w, r, rootDir, webui)
 	})
 
 	// The OpenID Connect discovery document and the keys of the tokens of the root CA, and of each

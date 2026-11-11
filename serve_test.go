@@ -309,23 +309,35 @@ func TestHelpPage(t *testing.T) {
 		}
 	}
 
-	// The token and certificate pages are served, and linked from the index page, with webui alone.
+	// The token and certificate pages are served with webui alone. The index page links to no page
+	// itself: its links come from /api/links, and its login dialog is there with webui alone.
 	for _, path := range []string{tokensPath, certsPath} {
 		if status, _ := get(without, path); status != http.StatusNotFound {
 			t.Errorf("%s without webui: status %d, want 404", path, status)
 		}
-		if _, body := get(without, "/"); strings.Contains(body, `href="`+path+`"`) {
-			t.Errorf("the index page links to %s without webui", path)
-		}
+	}
+	if _, body := get(without, "/"); !strings.Contains(body, `<div id="links"`) || strings.Contains(body, `id="login"`) ||
+		strings.Contains(body, "login.js") {
+		t.Error("the index page without webui: want the links box and no login dialog")
 	}
 	withWebUI := httptest.NewServer(newServeMux(caDir, false, true))
 	defer withWebUI.Close()
 	for _, path := range []string{tokensPath, certsPath} {
-		if status, body := get(withWebUI, path); status != http.StatusOK || !strings.Contains(body, `href="/">All CAs</a>`) {
-			t.Errorf("%s with webui: status %d, want the page linking to the index page", path, status)
+		if status, body := get(withWebUI, path); status != http.StatusOK || !strings.Contains(body, `href="/">All CAs</a>`) ||
+			!strings.Contains(body, `id="login-cancel"`) || !strings.Contains(body, "/assets/webui/login.js") {
+			t.Errorf("%s with webui: status %d, want the page linking to the index page, with the login dialog", path, status)
 		}
-		if _, body := get(withWebUI, "/"); !strings.Contains(body, `href="`+path+`"`) {
-			t.Errorf("the index page does not link to %s with webui", path)
+	}
+	_, body := get(withWebUI, "/")
+	for _, path := range []string{tokensPath, certsPath, auditPagePath} {
+		if strings.Contains(body, `href="`+path+`"`) {
+			t.Errorf("the index page links to %s in its HTML", path)
+		}
+	}
+	for _, want := range []string{`<dialog id="login"`, `id="login-open"`, `>Login with token</button>`, `id="login-cancel"`,
+		"/assets/webui/oidc.js", "/assets/webui/login.js"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the index page with webui has no %s", want)
 		}
 	}
 

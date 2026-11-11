@@ -14,26 +14,15 @@
           <div>
             <h1 class="text-xl font-semibold">{{.Title}}</h1>
             <p class="mt-1 text-sm text-head-muted">CA certificates and certificate revocation lists, served by simple-ca</p>
-            <div class="mt-2 flex flex-wrap gap-4">
-              <a class="text-sm text-head-link hover:underline" href="/token-setup">Set up a token</a>
-              <a class="text-sm text-head-link hover:underline" href="/token-describe">Describe a token</a>
-              {{- with downloadsLink}}
-              <a class="text-sm text-head-link hover:underline" href="{{.}}">Downloads</a>
-              {{- end}}
-              {{- with aptLink}}
-              <a class="text-sm text-head-link hover:underline" href="{{.}}">Apt</a>
-              {{- end}}
-              {{- if .Tokens}}
-              <a class="text-sm text-head-link hover:underline" href="{{.Tokens}}">Tokens</a>
-              <a class="text-sm text-head-link hover:underline" href="{{.Certs}}">Certificates</a>
-              <a class="text-sm text-head-link hover:underline" href="/audit/">Audit log</a>
-              {{- end}}
-            </div>
+            <div id="links" class="mt-2 flex flex-wrap gap-4"></div>
           </div>
-          {{- if .Tokens}}
-          <div id="user-row" class="hidden items-center gap-3 text-sm">
-            <span id="user" class="text-head-muted"></span>
-            <button id="sign-out" type="button" class="rounded-lg border border-head-muted px-2.5 py-1 text-xs font-medium">Sign out</button>
+          {{- if .WebUI}}
+          <div class="flex items-center gap-3 text-sm">
+            <button id="login-open" type="button" class="hidden rounded-lg border border-head-muted px-2.5 py-1 text-xs font-medium">Login</button>
+            <div id="user-row" class="hidden items-center gap-3">
+              <span id="user" class="text-head-muted"></span>
+              <button id="sign-out" type="button" class="rounded-lg border border-head-muted px-2.5 py-1 text-xs font-medium">Sign out</button>
+            </div>
           </div>
           {{- end}}
         </div>
@@ -139,7 +128,15 @@
     </dialog>
     {{- end}}
 
+    {{- if .WebUI}}
+    {{template "login-dialogs"}}
+    {{- end}}
+
     <script src="/assets/webui/picker.js"></script>
+    {{- if .WebUI}}
+    <script src="/assets/webui/oidc.js"></script>
+    <script src="/assets/webui/login.js"></script>
+    {{- end}}
     <script src="/assets/webui/index.js"></script>
     <script src="/assets/webui/copy.js"></script>
   </body>

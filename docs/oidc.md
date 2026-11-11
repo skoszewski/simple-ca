@@ -12,6 +12,8 @@ The sign-in is offered as a "Sign in with LABEL" button on:
 - the token page `/tokens/`, the certificate page `/certificates/` and the audit page `/audit/`,
   in the dialog asking for the token; the token of the sign-in signs in, when it has the scope of
   the page;
+- the index page `/`, with `--webui`, in the same dialog, opened by its Login button; the token of
+  the sign-in signs in, and the index page links to the pages;
 - the signing forms `/sign` and `/NAME/sign`, where the token of the sign-in fills the token
   field, and the request and the type are kept while the browser is at the provider;
 - `/token-setup`, which shows the token once, with a Copy button, for scripts and the signing

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.19.7
+
+fix: the index page links to the webui pages only for a signed-in token.
+
+- `GET /api/links` gives the links of the index page: those of the public pages without a token,
+  and with a valid bearer token also "Tokens", "Certificates" and "Audit log", with the name of
+  the token; a refused token counts as a refused credential.
+- The index page draws its links from `/api/links`, and with `--webui` has a Login button that
+  opens the login dialog of the pages, where it showed only who was signed in.
+- The login dialog has the buttons "Login with token", "Sign in with LABEL" and Cancel, at the
+  far right; Cancel closes it on the index page and returns to the index page from the others.
+- On `/token-setup`, the buttons are "Get the token", "Sign in with LABEL" and Cancel, at the far
+  right, as in the login dialog.
+- The login dialog is wider and keeps its buttons in one row.
+- Escape cancels `/token-setup` and `/token-describe`, as their Cancel or Close button does,
+  unless a dialog or a chooser is open.
+
 ## 1.19.6
 
 fix: serve takes the scheme from X-Forwarded-Proto of a trusted proxy.
