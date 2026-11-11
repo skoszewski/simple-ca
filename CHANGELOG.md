@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.19.3
+
+fix: the Docker guide runs the image under its registry name.
+
+- The examples of the Docker guide that build and run `simple-ca` and `simple-ca-full` run the
+  image by the name `build.mjs` gives it, below `SIMPLE_CA_REGISTRY` when it is set.
+
 ## 1.19.2
 
 fix: the simple-ca-full guide shows a signing key with a passphrase.

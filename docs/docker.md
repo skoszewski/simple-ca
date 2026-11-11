@@ -39,14 +39,19 @@ The build stage of each platform runs on the platform of the builder and cross-c
 multi-platform image of `docker` needs a buildx builder that supports multi-platform builds.
 
 ```sh
+IMAGE=${SIMPLE_CA_REGISTRY:+$SIMPLE_CA_REGISTRY/}simple-ca
+
 ./build.mjs docker
 docker volume create simple-ca
-docker run --rm -v simple-ca:/data simple-ca ca create \
+docker run --rm -v simple-ca:/data "$IMAGE" ca create \
   --ca-url http://pki.example.com:8080 "My Root CA"
-docker run --rm -v simple-ca:/data simple-ca ca create --issuing-ca servers "My Servers CA"
-docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data simple-ca
+docker run --rm -v simple-ca:/data "$IMAGE" ca create --issuing-ca servers "My Servers CA"
+docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data "$IMAGE"
 docker exec simple-ca simple-ca cert list --ca-dir /data/servers
 ```
+
+`IMAGE` is the name of the image `./build.mjs docker` builds, below `SIMPLE_CA_REGISTRY` when it
+is set; the later examples call it `simple-ca`.
 
 A new named volume is writable by the user 1000. A host directory mounted at `/data` must be
 writable by uid 1000, as a directory of the first user of an Ubuntu host is, or the container is
@@ -136,12 +141,17 @@ Then both images are built, and `simple-ca-full` is run. As with `simple-ca`, `s
 in `/data`, so the CA is created first:
 
 ```sh
+IMAGE=${SIMPLE_CA_REGISTRY:+$SIMPLE_CA_REGISTRY/}simple-ca-full
+
 ./build.mjs docker --full
 docker volume create simple-ca
-docker run --rm -v simple-ca:/data simple-ca-full ca create \
+docker run --rm -v simple-ca:/data "$IMAGE" ca create \
   --ca-url http://pki.example.com:8080 "My Root CA"
-docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data simple-ca-full
+docker run -d --name simple-ca -p 8080:8080 -v simple-ca:/data "$IMAGE"
 ```
+
+`IMAGE` is the name `build.mjs` gives the image, below `SIMPLE_CA_REGISTRY` when it is set; with
+`--registry REGISTRY`, it is `REGISTRY/simple-ca-full`.
 
 `./build.mjs dist` writes the archives of the host only; archives of other platforms, such as
 those of a release, are put into the directory given to `--full`. The `FROM` of `Dockerfile.full`
