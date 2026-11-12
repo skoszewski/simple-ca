@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.1
+
+fix: remove the CLAUDE.md content.
+
 ## 1.20.0
 
 feat: a session of simple-ca takes options as NAME=VALUE, works in the directory of the CA of its context, and takes no --ca-dir.
