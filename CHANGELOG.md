@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.20.4
+
+fix: simple-ca-wif google setup replaces the issuer of simple-ca.json with --issuer, and updates an existing provider.
+
+- `simple-ca-wif google setup --issuer` replaces a different `federation.issuer` of
+  `simple-ca.json` instead of refusing it, and prints `issuer ...: updated`.
+- `simple-ca-wif google setup` updates the issuer, the keys and the attribute mapping of an
+  existing provider that differ from those of the CA and `--attribute-mapping`, in one update,
+  instead of refusing a provider with another issuer.
+
 ## 1.20.3
 
 fix: simple-ca-wif reads the Application Default Credentials of gcloud from CLOUDSDK_CONFIG when it is set.

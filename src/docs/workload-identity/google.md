@@ -68,16 +68,17 @@ simple-ca-wif google setup --ca-dir "$CA_DIR" --project "$PROJECT_ID" --pool "$P
   --issuer "$ISSUER"
 ```
 
-- `--issuer` is `federation.issuer` of the root CA. It is needed when `simple-ca.json` has none.
+- `--issuer` is `federation.issuer` of the root CA, and replaces the one `simple-ca.json` has.
+  Without it, the issuer is `federation.issuer` of `simple-ca.json`, else its
+  `ca_publish_base_url`; the command fails without both.
 - `--provider` names the provider, by default `simple-ca`.
 - `--type` names the token type, by default `gcp-wif`. Its other settings are kept.
-- `--attribute-mapping` is the mapping of a new provider, by default
+- `--attribute-mapping` is the mapping of the provider, by default
   `google.subject=assertion.sub`.
 
-Each step prints one line: created, updated or unchanged. The command leaves alone what exists,
-so it can be run again. It refuses an `--issuer` other than the one `simple-ca.json` has, a
-provider with another issuer, and a pool or a provider that is deleted; undelete it first. A
-provider whose keys differ from those of the CA gets the current keys.
+Each step prints one line: created, updated or unchanged, so the command can be run again. A
+provider whose issuer, keys or attribute mapping differ from those of the CA and the command gets
+them. The command refuses a pool or a provider that is deleted; undelete it first.
 
 ### The token and the access of a machine
 

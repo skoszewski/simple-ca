@@ -148,11 +148,22 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(http.StatusOK, map[string]any{"name": name + "/operations/op1", "done": false})
 	case r.Method == http.MethodPatch:
 		res, ok := g.resources[path]
-		if !ok || r.URL.Query().Get("updateMask") != "oidc.jwksJson" {
+		if !ok || r.URL.Query().Get("updateMask") == "" {
 			failure(http.StatusBadRequest, "INVALID_ARGUMENT", "bad patch")
 			return
 		}
-		res["oidc"].(map[string]any)["jwksJson"] = body["oidc"].(map[string]any)["jwksJson"]
+		for field := range strings.SplitSeq(r.URL.Query().Get("updateMask"), ",") {
+			switch field {
+			case "oidc.issuerUri", "oidc.jwksJson":
+				key := strings.TrimPrefix(field, "oidc.")
+				res["oidc"].(map[string]any)[key] = body["oidc"].(map[string]any)[key]
+			case "attributeMapping":
+				res["attributeMapping"] = body["attributeMapping"]
+			default:
+				failure(http.StatusBadRequest, "INVALID_ARGUMENT", "bad field "+field)
+				return
+			}
+		}
 		reply(http.StatusOK, map[string]any{"name": strings.TrimPrefix(path, "/iam/v1/") + "/operations/op2", "done": true})
 	default:
 		failure(http.StatusMethodNotAllowed, "UNIMPLEMENTED", r.Method)
@@ -349,20 +360,85 @@ func TestSetupPatchesKeys(t *testing.T) {
 	}
 }
 
+func TestSetupUpdatesProvider(t *testing.T) {
+	_, caDir := newTestCA(t)
+	g := newFakeGoogle(t)
+	args := []string{"--ca-dir", caDir, "--project", "lab-project", "--pool", "lab-pool", "--issuer", "https://pki.example.com"}
+	if err := runGoogleSetup(args); err != nil {
+		t.Fatal(err)
+	}
+	prov := g.resources[testProvider]
+	issuer := prov["oidc"].(map[string]any)["issuerUri"]
+	prov["oidc"].(map[string]any)["issuerUri"] = "https://else.example.com"
+	prov["attributeMapping"] = map[string]any{"google.subject": "assertion.email"}
+	g.out.Reset()
+	n := len(g.requests)
+	if err := runGoogleSetup(args); err != nil {
+		t.Fatal(err)
+	}
+	if c := g.changes(n); !slices.Equal(c, []string{"PATCH " + testProvider}) {
+		t.Errorf("changes %v", c)
+	}
+	wantLines(t, g.out.String(), "provider projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca: updated")
+	if got := prov["oidc"].(map[string]any)["issuerUri"]; got != issuer {
+		t.Errorf("issuerUri %v, want %v", got, issuer)
+	}
+	if m := prov["attributeMapping"].(map[string]any); len(m) != 1 || m["google.subject"] != "assertion.sub" {
+		t.Errorf("attributeMapping %v", m)
+	}
+}
+
+func TestSetupReplacesIssuer(t *testing.T) {
+	root, caDir := newTestCA(t)
+	g := newFakeGoogle(t)
+	args := []string{"--ca-dir", caDir, "--project", "lab-project", "--pool", "lab-pool"}
+	if err := runGoogleSetup(append(args, "--issuer", "https://other.example.com")); err != nil {
+		t.Fatal(err)
+	}
+	g.out.Reset()
+	if err := runGoogleSetup(append(args, "--issuer", "https://pki.example.com")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := simpleca.LoadConfig(root)
+	if cfg.Federation.Issuer != "https://pki.example.com" {
+		t.Errorf("federation.issuer %q", cfg.Federation.Issuer)
+	}
+	wantLines(t, g.out.String(),
+		"provider projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca: updated",
+		"issuer https://pki.example.com/gcp-wif in "+filepath.Join(root, simpleca.ConfigFile)+": updated")
+	if got := g.resources[testProvider]["oidc"].(map[string]any)["issuerUri"]; got != "https://pki.example.com/gcp-wif" {
+		t.Errorf("issuerUri %v", got)
+	}
+}
+
+func TestSetupPublishURLIssuer(t *testing.T) {
+	root, caDir := newTestCA(t)
+	g := newFakeGoogle(t)
+	cfg, _ := simpleca.LoadConfig(root)
+	cfg.CAPublishBaseURL = "https://pki.example.com"
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := runGoogleSetup([]string{"--ca-dir", caDir, "--project", "lab-project", "--pool", "lab-pool"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.resources[testProvider]["oidc"].(map[string]any)["issuerUri"]; got != "https://pki.example.com/gcp-wif" {
+		t.Errorf("issuerUri %v", got)
+	}
+	cfg, _ = simpleca.LoadConfig(root)
+	if cfg.Federation.Issuer != "" {
+		t.Errorf("federation.issuer %q", cfg.Federation.Issuer)
+	}
+}
+
 func TestSetupRefusals(t *testing.T) {
 	tests := []struct {
-		name, issuer, configIssuer, want string
-		seed                             map[string]map[string]any
-		googleCalls                      bool
+		name, issuer, want string
+		seed               map[string]map[string]any
+		googleCalls        bool
 	}{
-		{name: "other issuer", issuer: "https://pki.example.com", configIssuer: "https://other.example.com",
-			want: "is not federation.issuer"},
 		{name: "http issuer", issuer: "http://pki.example.com", want: "https://"},
 		{name: "no issuer", want: "has no issuer"},
-		{name: "provider of another issuer", issuer: "https://pki.example.com", want: "has the issuer https://else.example.com",
-			googleCalls: true, seed: map[string]map[string]any{
-				testPool:     {"state": "ACTIVE"},
-				testProvider: {"state": "ACTIVE", "oidc": map[string]any{"issuerUri": "https://else.example.com"}}}},
 		{name: "deleted pool", issuer: "https://pki.example.com", want: "undelete it first", googleCalls: true,
 			seed: map[string]map[string]any{testPool: {"state": "DELETED"}}},
 		{name: "deleted provider", issuer: "https://pki.example.com", want: "undelete it first", googleCalls: true,
@@ -372,13 +448,6 @@ func TestSetupRefusals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			root, caDir := newTestCA(t)
 			g := newFakeGoogle(t)
-			if tt.configIssuer != "" {
-				cfg, _ := simpleca.LoadConfig(root)
-				cfg.Federation.Issuer = tt.configIssuer
-				if err := cfg.Save(); err != nil {
-					t.Fatal(err)
-				}
-			}
 			for k, v := range tt.seed {
 				g.resources[k] = v
 			}

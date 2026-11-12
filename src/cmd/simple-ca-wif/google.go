@@ -30,6 +30,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -244,22 +245,24 @@ func grant(resource, getURL string, getBody any, setURL string, grants [][2]stri
 }
 
 // runGoogleSetup creates the workload identity pool and the OIDC provider of the CA, with its
-// keys, and the token type of the provider in simple-ca.json, leaving alone what exists.
+// keys, and the token type of the provider in simple-ca.json; an existing provider gets the
+// issuer, the keys and the attribute mapping that differ.
 func runGoogleSetup(args []string) error {
 	fs := newFlagSet("google setup", "",
 		"Creates the workload identity pool and the OIDC provider of the CA in --ca-dir in the Google Cloud\n"+
-			"project, and adds the token type of the provider to simple-ca.json. The account of the Google\n"+
-			"credentials needs roles/iam.workloadIdentityPoolAdmin.")
+			"project, or updates the issuer, the keys and the attribute mapping of the provider, and adds the\n"+
+			"token type of the provider to simple-ca.json. The account of the Google credentials needs\n"+
+			"roles/iam.workloadIdentityPoolAdmin.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA (default: SIMPLE_CA_DIR, else the working directory)")
 	accessFlag := fs.String("access-token", "", "Google access `token` (default: GOOGLE_OAUTH_ACCESS_TOKEN, else Application\n"+
 		"Default Credentials)")
 	project := fs.String("project", "", "`ID` of the Google Cloud project")
 	pool := fs.String("pool", "", "`ID` of the workload identity pool")
 	provider := fs.String("provider", "simple-ca", "`ID` of the workload identity pool provider")
-	issuer := fs.String("issuer", "", "`URL` of federation.issuer of simple-ca.json, set when it is not; the issuer of\n"+
+	issuer := fs.String("issuer", "", "`URL` of federation.issuer of simple-ca.json, set or replaced; the issuer of\n"+
 		"an issuing CA is followed by /NAME of the CA")
 	typeName := fs.String("type", "gcp-wif", "`name` of the token type in federation.types of simple-ca.json")
-	mapping := fs.String("attribute-mapping", "google.subject=assertion.sub", "attribute mapping of a new provider:\n"+
+	mapping := fs.String("attribute-mapping", "google.subject=assertion.sub", "attribute mapping of the provider:\n"+
 		"comma-separated `pairs` attribute=expression")
 	fs.Parse(args)
 	switch {
@@ -293,19 +296,19 @@ func runGoogleSetup(args []string) error {
 		return err
 	}
 	setIssuer := strings.TrimSuffix(*issuer, "/")
+	issuerStatus := "unchanged"
 	switch {
-	case setIssuer == "":
-	case cfg.Federation.Issuer == "":
-		cfg.Federation.Issuer = setIssuer
-	case strings.TrimSuffix(cfg.Federation.Issuer, "/") != setIssuer:
-		return fmt.Errorf("--issuer %s is not federation.issuer %s of %s", *issuer, cfg.Federation.Issuer, cfg.Path)
-	default:
+	case setIssuer == "" || strings.TrimSuffix(cfg.Federation.Issuer, "/") == setIssuer:
 		setIssuer = ""
+	case cfg.Federation.Issuer == "":
+		cfg.Federation.Issuer, issuerStatus = setIssuer, "created"
+	default:
+		cfg.Federation.Issuer, issuerStatus = setIssuer, "updated"
 	}
 	iss := tokens.Issuer(cfg, caID)
 	switch {
 	case iss == "":
-		return fmt.Errorf("the CA has no issuer: give --issuer, or set federation.issuer of %s", cfg.Path)
+		return fmt.Errorf("the CA has no issuer: give --issuer, or set federation.issuer or ca_publish_base_url of %s", cfg.Path)
 	case !strings.HasPrefix(iss, "https://"):
 		return fmt.Errorf("the issuer %s of the CA does not start with https://, which Google requires", iss)
 	}
@@ -369,8 +372,9 @@ func runGoogleSetup(args []string) error {
 
 	// The provider.
 	var prov struct {
-		State string `json:"state"`
-		OIDC  *struct {
+		State            string            `json:"state"`
+		AttributeMapping map[string]string `json:"attributeMapping"`
+		OIDC             *struct {
 			IssuerURI string `json:"issuerUri"`
 			JWKSJSON  string `json:"jwksJson"`
 		} `json:"oidc"`
@@ -387,21 +391,30 @@ func runGoogleSetup(args []string) error {
 		}
 		status = "created"
 	} else if err == nil {
-		var have, want any
 		switch {
 		case prov.State == "DELETED":
 			return fmt.Errorf("the provider %s is deleted: undelete it first", providerName)
 		case prov.OIDC == nil:
 			return fmt.Errorf("the provider %s is not an OIDC provider", providerName)
-		case prov.OIDC.IssuerURI != iss:
-			return fmt.Errorf("the provider %s has the issuer %s, not %s of the CA", providerName, prov.OIDC.IssuerURI, iss)
 		}
-		// The keys are compared as JSON, whatever their layout.
+		// The fields that differ from the CA are updated; the keys are compared as JSON, whatever their layout.
+		var mask []string
+		if prov.OIDC.IssuerURI != iss {
+			mask = append(mask, "oidc.issuerUri")
+		}
+		var have, want any
 		json.Unmarshal([]byte(prov.OIDC.JWKSJSON), &have)
 		json.Unmarshal(jwks, &want)
 		if !reflect.DeepEqual(have, want) {
+			mask = append(mask, "oidc.jwksJson")
+		}
+		if !maps.Equal(prov.AttributeMapping, attributes) {
+			mask = append(mask, "attributeMapping")
+		}
+		if len(mask) > 0 {
 			var op operation
-			err = googleCall(http.MethodPatch, iamURL+providerName+"?updateMask=oidc.jwksJson", map[string]any{"oidc": oidc}, &op)
+			err = googleCall(http.MethodPatch, iamURL+providerName+"?updateMask="+strings.Join(mask, ","),
+				map[string]any{"attributeMapping": attributes, "oidc": oidc}, &op)
 			if err == nil {
 				err = op.wait()
 			}
@@ -420,10 +433,6 @@ func runGoogleSetup(args []string) error {
 		typeStatus = "created"
 	case old.Base != def.Base || old.Audience != def.Audience:
 		typeStatus = "updated"
-	}
-	issuerStatus := "unchanged"
-	if setIssuer != "" {
-		issuerStatus = "created"
 	}
 	if setIssuer != "" || typeStatus != "unchanged" {
 		if err := cfg.Save(); err != nil {
