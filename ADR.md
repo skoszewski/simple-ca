@@ -438,5 +438,4 @@ The images and the Debian packages build from `src/`, which holds the Go module 
 embeds, the systemd units and the Debian package sources, and nothing else, so no ignore file
 picks their files: Apple's `container` CLI fails on an ignore file that re-includes files, and
 both engines build from the same directory. A module in a subdirectory has the path
-`github.com/skoszewski/simple-ca/src`, and Go finds its versions by the tags `src/vX.Y.Z`, which
-`release.mjs` makes beside `vX.Y.Z`.
+`github.com/skoszewski/simple-ca/src`.

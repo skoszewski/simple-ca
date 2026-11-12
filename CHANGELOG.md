@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.19.10
+
+fix: release.mjs --push makes and pushes the tag vX.Y.Z alone.
+
+- `./release.mjs --push` no longer makes the tag `src/vX.Y.Z` or pushes it beside `vX.Y.Z`.
+
 ## 1.19.9
 
 fix: build.mjs is split into the modules of lib/.

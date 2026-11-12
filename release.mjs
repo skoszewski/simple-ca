@@ -137,8 +137,5 @@ if (!localTags.has(tag)) {
     rmSync(notesDir, { recursive: true, force: true });
   }
 }
-// The Go module of src/ is versioned by the tag src/vX.Y.Z of the same commit.
-const moduleTag = `src/${tag}`;
-if (!localTags.has(moduleTag)) run('git', 'tag', moduleTag, `${tag}^{commit}`);
 run('git', 'fetch', '.', 'dev:main');
-for (const remote of pending) run('git', 'push', '--atomic', remote, 'dev', 'main', tag, moduleTag);
+for (const remote of pending) run('git', 'push', '--atomic', remote, 'dev', 'main', tag);

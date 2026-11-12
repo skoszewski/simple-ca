@@ -6,8 +6,7 @@ title: Development
 
 The Go module, `github.com/skoszewski/simple-ca/src`, is `src/`, with everything the programs
 embed, the systemd units and the Debian package sources; it is the build context of the images
-and the Debian packages, which need no ignore file, and its releases are tagged `src/vX.Y.Z`
-beside `vX.Y.Z`.
+and the Debian packages, which need no ignore file.
 
 `./build.mjs` needs Node.js and Go; the tests need `openssl` on the `PATH`. It parses the command
 line and runs the action, a module of `lib/`. It writes the executables to `bin/`, and the
@@ -391,11 +390,10 @@ machine; each next one needs a new entry, with a new version.
    released yet;
 2. makes the annotated tag `vx.y.z` on `dev`, unless an earlier `--push` made it; its message,
    which the workflows publish as the release notes, is the entry followed by the entries released
-   since the last tagged one, each under its own heading, and the tag `src/vx.y.z` of the Go
-   module on the same commit;
+   since the last tagged one, each under its own heading;
 3. fast-forwards `main` to `dev`;
-4. pushes `dev`, `main` and both tags in one atomic push to each remote that does not have the
-   tag yet; the tag `vx.y.z` builds and publishes the release there, with the workflow of
+4. pushes `dev`, `main` and the tag in one atomic push to each remote that does not have the
+   tag yet; the tag builds and publishes the release there, with the workflow of
    `.github/workflows/` on GitHub and that of `.gitea/workflows/` on Gitea.
 
 `./release.mjs --no-tag` makes an internal release: it commits the entry as `./release.mjs`
