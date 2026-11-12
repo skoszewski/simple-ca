@@ -1,22 +1,22 @@
 menu:
   - Simple CA: README.md
   - Documentation:
-      - Usage: docs/usage.md
-      - Directory layout: docs/directory-layout.md
-      - Configuration: docs/configuration.md
-      - serve: docs/serve.md
-      - ACME: docs/acme.md
-      - Signing API: docs/signing-api.md
-      - OIDC sign-in: docs/oidc.md
+      - Usage: src/docs/usage.md
+      - Directory layout: src/docs/directory-layout.md
+      - Configuration: src/docs/configuration.md
+      - serve: src/docs/serve.md
+      - ACME: src/docs/acme.md
+      - Signing API: src/docs/signing-api.md
+      - OIDC sign-in: src/docs/oidc.md
       - Workload identity federation:
-          - Overview: docs/workload-identity.md
-          - Google Cloud: docs/workload-identity/google.md
-          - Microsoft Entra ID: docs/workload-identity/entra.md
-      - Audit log: docs/audit.md
-      - Signing API clients: docs/examples.md
-      - systemd: docs/systemd.md
-      - Docker: docs/docker.md
-      - Simple CA Lite: docs/simple-ca-lite.md
-      - Simple CA Mini: docs/simple-ca-mini.md
-      - Development: docs/development.md
+          - Overview: src/docs/workload-identity.md
+          - Google Cloud: src/docs/workload-identity/google.md
+          - Microsoft Entra ID: src/docs/workload-identity/entra.md
+      - Audit log: src/docs/audit.md
+      - Signing API clients: src/docs/examples.md
+      - systemd: src/docs/systemd.md
+      - Docker: src/docs/docker.md
+      - Simple CA Lite: src/docs/simple-ca-lite.md
+      - Simple CA Mini: src/docs/simple-ca-mini.md
+      - Development: src/docs/development.md
   - Changelog: CHANGELOG.md

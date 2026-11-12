@@ -1,12 +1,6 @@
 #!/usr/bin/env node
 
-// Builds, tests, checks and packages simple-ca; docs/development.md describes the actions.
-// Usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
-//        ./build.mjs docker|container [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]
-//        ./build.mjs deb
-//        ./build.mjs dist [--all] [--dpkg]
-//        ./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]
-//        ./build.mjs sums DIR [GLOB]
+// Builds, tests, checks and packages simple-ca.
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -14,12 +8,13 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync,
 import { basename, dirname, join, matchesGlob, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const usage = "usage: ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]\n" +
-  "       ./build.mjs docker|container [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]\n" +
-  "       ./build.mjs deb\n" +
-  "       ./build.mjs dist [--all] [--dpkg]\n" +
-  "       ./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]\n" +
-  "       ./build.mjs sums DIR [GLOB]";
+const usage = `usage: ./build.mjs setup
+       ./build.mjs [build|trust|test|check|clean|assets] [--self-contained] [<goos>/<goarch>]
+       ./build.mjs docker|container [--registry REGISTRY] [--push] [--full [DL [APT]]] [<os>/<arch>[,...]]
+       ./build.mjs deb
+       ./build.mjs dist [--all] [--dpkg]
+       ./build.mjs apt --key FILE [--passphrase-file FILE] [SOURCE [DEST]]
+       ./build.mjs sums DIR [GLOB]`;
 const root = dirname(fileURLToPath(import.meta.url));
 let selfContained = false;
 let push = false;
@@ -68,14 +63,16 @@ const imageBuild = action === "docker" || action === "container";
 if (registry === null && imageBuild && process.env.SIMPLE_CA_REGISTRY) {
   registry = process.env.SIMPLE_CA_REGISTRY;
 }
-const markdownAssets = join(root, "assets", "markdown");
+// The Go module, the build context of the images and Debian packages.
+const src = join(root, "src");
+const markdownAssets = join(src, "assets", "markdown");
 const versionFile = join(markdownAssets, ".version");
-const checksumFile = join(root, "assets", "markdown.sha256");
-const requiredTag = readFileSync(join(root, "go.mod"), "utf8")
+const checksumFile = join(src, "assets", "markdown.sha256");
+const requiredTag = readFileSync(join(src, "go.mod"), "utf8")
   .match(/^\s*github\.com\/skoszewski\/serve-markdown\/v3 (v\S+)/m)?.[1] ?? "";
 
-/** Runs a command and returns its stdout; a failure ends the build with its exit status. */
-function run(command, args, { env = process.env, capture = false, cwd = root } = {}) {
+/** Runs a command, in src/ by default, and returns its stdout; a failure ends the build. */
+function run(command, args, { env = process.env, capture = false, cwd = src } = {}) {
   const result = spawnSync(command, args, {
     cwd,
     env,
@@ -244,26 +241,6 @@ function buildTrust(goos, goarch, out, version = "") {
 }
 
 /**
- * Copies the files the ignore file re-includes, and the Dockerfile, to the directory context.
- * The container CLI fails on an ignore file with re-includes ("changes out of order"), so it
- * builds from this context.
- */
-function stageContext(ignoreFile, dockerfile, context) {
-  const ignore = readFileSync(join(root, ignoreFile), "utf8");
-  for (const pattern of ignore.split("\n").filter((line) => line.startsWith("!")).map((line) => line.slice(1).trim())) {
-    const parent = dirname(pattern);
-    const base = basename(pattern);
-    const match = new RegExp(`^${base.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}$`);
-    const names = !base.includes("*") ? [base] : existsSync(join(root, parent)) ?
-      readdirSync(join(root, parent)).filter((name) => match.test(name)) : [];
-    for (const name of names.filter((name) => existsSync(join(root, parent, name)))) {
-      cpSync(join(root, parent, name), join(context, parent, name), { recursive: true });
-    }
-  }
-  cpSync(join(root, dockerfile), join(context, dockerfile));
-}
-
-/**
  * Builds the Debian package of dir, the source package source, to dist/ with engine: for the
  * architecture of the engine with docker, and for amd64 and arm64 with the container CLI.
  */
@@ -283,37 +260,37 @@ function buildDeb(engine, dir, source, internal = false) {
   const prerelease = !internal && upstreamTag.status === 0 && upstreamTag.stdout.trim() === "";
   const debVersion = prerelease ? `${upstream}~rc-${revision}` : `${upstream}-${revision}`;
   const date = new Date().toUTCString().replace(/GMT$/, "+0000");
-  writeFileSync(join(root, dir, "debian", "changelog"),
+  writeFileSync(join(src, dir, "debian", "changelog"),
     `${source} (${debVersion}) unstable; urgency=medium\n\n  ${summary}\n\n${items.join("\n")}\n\n` +
     ` -- Slawomir Koszewski <slawek@koszewscy.waw.pl>  ${date}\n`);
-  const args = ["--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`];
-  if (engine !== "container") {
-    run("docker", ["buildx", "build", "-f", `${dir}/Dockerfile`, ...args,
-      "--output", `type=local,dest=${join(root, "dist")}`, "."]);
-    return;
-  }
-  const scratch = scratchDir(`deb-${source}`);
-  const context = join(scratch, "context");
+  const out = scratchDir(`deb-${source}`);
   try {
-    stageContext(join(dir, "Dockerfile.dockerignore"), join(dir, "Dockerfile"), context);
-    // The container CLI builds both architectures and writes them to out.tar/<os>_<arch>/ below dest.
-    const out = join(scratch, "out");
-    run("container", ["build", "-f", join(context, dir, "Dockerfile"), ...args,
-      "--platform", "linux/amd64", "--platform", "linux/arm64", "--output", `type=local,dest=${out}`, context]);
+    const args = ["-f", join(src, dir, "Dockerfile"), "--build-arg", `VERSION=v${upstream}${prerelease ? "-rc" : ""}`,
+      "--output", `type=local,dest=${out}`, src];
+    if (engine === "container") {
+      // The container CLI writes each architecture to out.tar/<os>_<arch>/ below dest.
+      run("container", ["build", "--platform", "linux/amd64", "--platform", "linux/arm64", ...args]);
+    } else {
+      run("docker", ["buildx", "build", ...args]);
+    }
     mkdirSync(join(root, "dist"), { recursive: true });
     for (const file of readdirSync(out, { recursive: true }).filter((file) => file.endsWith(".deb"))) {
       copyFileSync(join(out, file), join(root, "dist", basename(file)));
       console.log(`dist/${basename(file)}`);
     }
   } finally {
-    rmSync(scratch, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
   }
 }
 
-// The Debian package directories and source package names.
+// The Debian package directories of src/ and source package names.
 const debPackages = [["debian-package", "simple-ca"], ["debian-package-lite", "simple-ca-lite"]];
 
-if (!["build", "trust", "test", "check", "clean", "assets", "docker", "container", "deb", "dist", "apt", "sums"].includes(action) ||
+// The Linux toolset image of setup, built from its directory.
+const builderImage = "simple-ca-builder";
+
+if (!["build", "trust", "test", "check", "clean", "assets", "docker", "container", "deb", "dist", "apt", "sums",
+  "setup"].includes(action) ||
   (action === "sums" && (platform === "" || positional.length > 3)) ||
   (action === "apt" && positional.length > 3) ||
   ((keyFile !== null) !== (action === "apt")) || keyFile === "" ||
@@ -322,7 +299,7 @@ if (!["build", "trust", "test", "check", "clean", "assets", "docker", "container
   (selfContained && action !== "trust") || (push && !imageBuild) || (dpkg && action !== "dist") ||
   (allPlatforms && action !== "dist") ||
   (registry !== null && (!imageBuild || registry === "")) ||
-  (["deb", "dist"].includes(action) && platform !== "")) {
+  (["deb", "dist", "setup"].includes(action) && platform !== "")) {
   console.error(usage);
   process.exit(2);
 }
@@ -445,17 +422,7 @@ switch (action) {
     };
 
     const tags = tagsOf("simple-ca");
-    if (action === "docker") {
-      buildImage(join(root, "Dockerfile"), ".", tags, [`VERSION=v${version}`]);
-    } else {
-      const context = scratchDir("image");
-      try {
-        stageContext(".dockerignore", "Dockerfile", context);
-        buildImage(join(context, "Dockerfile"), context, tags, [`VERSION=v${version}`]);
-      } finally {
-        rmSync(context, { recursive: true, force: true });
-      }
-    }
+    buildImage(join(src, "Dockerfile"), src, tags, [`VERSION=v${version}`]);
     if (fullDirs === null) {
       break;
     }
@@ -519,9 +486,10 @@ switch (action) {
       ...(dpkg ? ["amd64", "arm64"].flatMap((arch) =>
         [`simple-ca_${changelogVersion}-1_${arch}.deb`, `simple-ca-lite_${changelogVersion}-1_${arch}.deb`]) : []),
     ];
-    const module = readFileSync(join(root, "go.mod"), "utf8").match(/^module (\S+)/m)[1];
+    // The repository of the module src/.
+    const repository = dirname(readFileSync(join(src, "go.mod"), "utf8").match(/^module (\S+)/m)[1]);
     for (const name of downloads) {
-      const url = `https://${module}/releases/download/${version}/${name}`;
+      const url = `https://${repository}/releases/download/${version}/${name}`;
       const response = await fetch(url);
       if (!response.ok) {
         console.error(`dist: ${url}: ${response.status} ${response.statusText}`);
@@ -603,35 +571,39 @@ switch (action) {
       process.exit(1);
     }
     const engine = host === "darwin" && works("container", ["--version"]) ? "container" : "docker";
+    if (!works(engine, ["image", "inspect", builderImage])) {
+      console.error(`apt: ${engine} has no image ${builderImage}; see ./build.mjs setup`);
+      process.exit(1);
+    }
     const scratch = scratchDir("apt");
-    const context = join(scratch, "context");
-    const out = join(scratch, "out");
+    const repo = join(scratch, "repo");
+    const secrets = join(scratch, "secrets");
     try {
       for (const name of debs) {
-        cpSync(join(debDir, name), join(context, "debs", name));
+        cpSync(join(debDir, name), join(repo, name));
       }
-      for (const name of ["Dockerfile", "build-repo.sh"]) {
-        cpSync(join(root, "apt-repo", name), join(context, "apt-repo", name));
+      cpSync(keyFile, join(secrets, "gpg_key"));
+      if (passphraseFile !== null) {
+        cpSync(passphraseFile, join(secrets, "gpg_passphrase"));
       }
-      // Secrets are not part of the cache key, so the repository is always built anew.
-      const args = ["-f", join(context, "apt-repo", "Dockerfile"), "--no-cache",
-        "--secret", `id=gpg_key,src=${keyFile}`,
-        ...(passphraseFile === null ? [] : ["--secret", `id=gpg_passphrase,src=${passphraseFile}`]),
-        "--output", `type=local,dest=${out}`, context];
-      if (engine === "container") {
-        run("container", ["build", ...args]);
-      } else {
-        run("docker", ["buildx", "build", ...args]);
-      }
-      // The container CLI writes a local output to out.tar/<os>_<arch>/ below dest.
-      const release = readdirSync(out, { recursive: true }).find((file) => basename(file) === "Release");
-      const repo = dirname(join(out, release));
+      const user = process.getuid === undefined ? [] : ["--user", `${process.getuid()}:${process.getgid()}`];
+      run(engine, ["run", "--rm", ...user, "--tmpfs", "/tmp", "-w", "/repo",
+        "--mount", `type=bind,source=${repo},target=/repo`,
+        "--mount", `type=bind,source=${secrets},target=/run/secrets,readonly`,
+        builderImage, "sh", "/usr/local/bin/build-repo.sh"]);
       rmSync(aptDir, { recursive: true, force: true });
       cpSync(repo, aptDir, { recursive: true });
       console.log(aptDir);
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
+    break;
+  }
+  case "setup": {
+    const engine = host === "darwin" && works("container", ["--version"]) ? "container" : "docker";
+    const dir = join(root, builderImage);
+    const args = ["-t", builderImage, "-f", join(dir, "Dockerfile"), dir];
+    run(engine, engine === "container" ? ["build", ...args] : ["buildx", "build", "--load", ...args]);
     break;
   }
   case "sums": {

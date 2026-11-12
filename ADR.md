@@ -258,7 +258,7 @@ same form is read everywhere: the options, the pages and the configuration files
 The package is built by `dpkg-buildpackage` in the Go image, which compiles the programs, so the
 host needs Docker and Node.js only, and the package is for the architecture the Docker host runs.
 Its `debian/changelog` is written from the newest `CHANGELOG.md` entry, which stays the one
-history, and its units are those of `systemd/` with `/usr/bin` in place of `/usr/local/bin`, so
+history, and its units are those of `src/systemd/` with `/usr/bin` in place of `/usr/local/bin`, so
 the units are kept in one place. The units are neither enabled nor started on install, since
 they need a CA that `ca create` makes first. Purge removes the user `simple-ca` but leaves
 `/etc/simple-ca`, since it holds the keys of the CA.
@@ -429,5 +429,15 @@ who published it rests on the server the client trusts.
 `serve --packages` serves a prepared directory as it is, so `serve` reads no `.deb` file: their
 control files are compressed with xz or zstd, which the Go standard library cannot read, and apt
 needs a `Release` signed with OpenPGP. `./build.mjs apt` builds and signs the repository in a
-Debian container with `apt-ftparchive` and gpg instead. The repository is flat, one directory
+container of `simple-ca-builder`, the Ubuntu image of the Linux tools of `build.mjs`, with
+`apt-ftparchive` and gpg instead. The repository is flat, one directory
 and one channel, with the sources line `deb URL/apt ./`.
+
+## The Go module is src/, the build context of the images
+
+The images and the Debian packages build from `src/`, which holds the Go module with what it
+embeds, the systemd units and the Debian package sources, and nothing else, so no ignore file
+picks their files: Apple's `container` CLI fails on an ignore file that re-includes files, and
+both engines build from the same directory. A module in a subdirectory has the path
+`github.com/skoszewski/simple-ca/src`, and Go finds its versions by the tags `src/vX.Y.Z`, which
+`release.mjs` makes beside `vX.Y.Z`.

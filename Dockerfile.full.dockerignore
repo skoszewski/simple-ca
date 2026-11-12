@@ -1,4 +1,0 @@
-# The build of Dockerfile.full needs only the staged downloads and apt repository.
-*
-!downloads
-!apt

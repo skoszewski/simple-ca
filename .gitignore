@@ -23,6 +23,7 @@ go.work.sum
 /simple-ca
 /simple-ca-*
 !/simple-ca-mini.py
+!/simple-ca-builder/
 /request-cert
 /request-cert-*
 /token-setup
@@ -47,10 +48,10 @@ DerivedData/
 /apt/
 /tmp/
 /ca/
-/assets/markdown/*
-!/assets/markdown/.gitkeep
-/debian-package/debian/changelog
-/debian-package-lite/debian/changelog
+/src/assets/markdown/*
+!/src/assets/markdown/.gitkeep
+/src/debian-package/debian/changelog
+/src/debian-package-lite/debian/changelog
 
 # env file
 *.env

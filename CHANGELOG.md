@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.19.8
+
+fix: the Go module moves to src/, the build context of the images.
+
+- The Go module is `src/`, `github.com/skoszewski/simple-ca/src`, with what the programs embed,
+  the guides in `src/docs/`, the systemd units and the Debian package sources;
+  `go install github.com/skoszewski/simple-ca/src@latest` installs `simple-ca`, and the commands
+  of `src/cmd/` are installed by their paths below it.
+- The images and the Debian packages build from `src/` with docker and the container CLI alike,
+  without ignore files, and `build.mjs` copies no build context.
+- `./release.mjs --push` also tags and pushes `src/vX.Y.Z`, the version of the Go module.
+- The `simple-ca` package installs `systemd.md` as its documentation, in place of `README.md`.
+- `./build.mjs setup` builds `simple-ca-builder`, the Ubuntu 26.04 image of the Linux
+  tools of `build.mjs`, from `simple-ca-builder/`, which replaces `apt-repo/`.
+- `./build.mjs apt` builds the repository in a container of `simple-ca-builder`, as the user
+  running it, with the key and the passphrase file mounted read-only in `/run/secrets`, and fails
+  while the image is missing.
+- The usage text of `build.mjs` and `release.mjs` is short.
+
 ## 1.19.7
 
 fix: the index page links to the webui pages only for a signed-in token.

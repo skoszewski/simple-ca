@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 
-// Releases the newest CHANGELOG.md entry: commits everything on dev with the entry's summary line,
-// and with --push tags dev vX.Y.Z with the entries since the last tag as the release notes, moves
-// main to it, and pushes dev, main and the tag together to a git remote, or to every remote. A
-// release X.Y.Z-N of the documentation or the packaging alone is pushed without a tag, and an
-// internal release of --no-tag pushes dev alone.
+// Releases the newest CHANGELOG.md entry.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -17,24 +13,8 @@ const CHANGELOG = `${import.meta.dirname}/CHANGELOG.md`;
 const usage = `Usage: release.mjs [-h|--help] [-n|--dry-run] [--no-tag] [--push REMOTE|all]
 
   -n, --dry-run  print the commands instead of running them
-  --no-tag       make an internal release: with --push, push dev alone, without a tag and
-                 without moving main
-  --push REMOTE  also tag the release and push dev, main and the tag to the git remote REMOTE,
-                 or to every remote of git remote with all
-
-Without --push, the changes are committed with the summary line of the newest CHANGELOG.md entry,
-the line between blank lines right after its "## x.y.z" heading; that commit marks the entry as
-released, and the next change needs a new entry. With --push, the newest entry is committed when it
-is not yet, dev is tagged v and the version of the heading, x.y.z or a semver prerelease such as
-x.y.z-rc.1, main is moved to it, and dev, main and the tag are pushed in one atomic push to each
-remote named; the tag builds the release there. A tag made by an earlier --push is pushed to the
-remotes that do not have it yet, so --push gitea can follow --push origin. The tag's message, and
-so the release notes, are the entries since the last tagged one. A version x.y.z-N, N a number, is
-a release of the documentation or the packaging alone: --push moves main to dev and pushes them
-without a tag, so nothing is built, and the entry goes into the notes of the next tagged release.
-With --no-tag, the entry of any version is an internal release: it is committed on dev as without
---push, and --push pushes dev alone, without a tag and without moving main; the entry goes into
-the notes of the next tagged release.`;
+  --no-tag       make an internal release, pushing dev alone
+  --push REMOTE  also tag the release and push it to REMOTE, or to every remote with all`;
 
 let values;
 try {
@@ -157,5 +137,8 @@ if (!localTags.has(tag)) {
     rmSync(notesDir, { recursive: true, force: true });
   }
 }
+// The Go module of src/ is versioned by the tag src/vX.Y.Z of the same commit.
+const moduleTag = `src/${tag}`;
+if (!localTags.has(moduleTag)) run('git', 'tag', moduleTag, `${tag}^{commit}`);
 run('git', 'fetch', '.', 'dev:main');
-for (const remote of pending) run('git', 'push', '--atomic', remote, 'dev', 'main', tag);
+for (const remote of pending) run('git', 'push', '--atomic', remote, 'dev', 'main', tag, moduleTag);

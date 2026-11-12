@@ -1,4 +1,4 @@
-# serve-markdown shows README.md, CHANGELOG.md and docs/ of this repository.
+# serve-markdown shows README.md, CHANGELOG.md and src/docs/ of this repository.
 
 # Scratch files, test CAs and build outputs, which .gitignore leaves out of the repository.
 /tmp/
@@ -7,6 +7,6 @@
 /dist/
 
 # Folders without documents.
-/assets/
+/src/assets/
 /examples/
-/systemd/
+/src/systemd/

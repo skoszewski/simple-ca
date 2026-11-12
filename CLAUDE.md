@@ -24,6 +24,8 @@
 - Go standard library only; `go-pkcs12`, serve-markdown's `render` package, which draws the
   `/help/` page, and `golang.org/x/term`, which reads the passphrase of the private keys without
   echo, are the dependencies, and no other is added.
+- The Go module, `github.com/skoszewski/simple-ca/src`, is `src/`; package paths below are
+  relative to it.
 - The CA core is the public package `pkg/simpleca` with a subpackage per domain, each importing
   only those of the rows before it:
   - base, `pkg/simpleca`: the config, keys, passphrase, helpers, audit log and `LockFile`;
@@ -61,8 +63,8 @@
 
 - `README.md` holds the essentials only: the overview, installation, a quick start with a root CA
   alone, the list of guides, the serve-markdown mention and the licence.
-- The guides are in `docs/`, with lower-case file names; the signing API clients are described in
-  `docs/examples.md`.
+- The guides are in `src/docs/`, with lower-case file names; the signing API clients are
+  described in `src/docs/examples.md`.
 - Documentation describes the current state only.
 - Markdown and comments are wrapped at about 100 columns; files are plain ASCII.
 
