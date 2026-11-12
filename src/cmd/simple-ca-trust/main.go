@@ -70,7 +70,7 @@ var goos = runtime.GOOS
 
 const usage = `Usage:
   simple-ca-trust add [--machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
-  simple-ca-trust remove [--machine] [--ca-dir DIR | --file FILE]
+  simple-ca-trust remove [--machine] [--ca-dir DIR | --file FILE | --fingerprint SHA256]
   simple-ca-trust list [--machine]
   simple-ca-trust --version
 
@@ -80,8 +80,9 @@ directory of the root CA or of one of its issuing CAs, or a directory holding a 
 ca_bundle.pem; it defaults to SIMPLE_CA_DIR, else the working directory. --file names the root
 CA certificate or a CA bundle, PEM or DER, instead. add prints the SHA-256 fingerprint of the root
 CA, and with --fingerprint adds nothing unless the root CA has that fingerprint, as ca show and
-the index page of serve write it. Linux has only the system store, --machine, the default, and
-changing it needs root.
+the index page of serve write it. remove --fingerprint removes the CA with that fingerprint, as
+list writes it, without the CA's files. Linux has only the system store, --machine, the default,
+and changing it needs root.
 `
 
 func run(args []string) error {
@@ -116,15 +117,19 @@ func run(args []string) error {
 	user := flags.Bool("user", false, "the store of the current user, which Linux does not have")
 	caDir := flags.String("ca-dir", "", "directory of the root CA or of one of its issuing CAs")
 	file := flags.String("file", "", "the root CA certificate or a CA bundle, instead of --ca-dir")
-	wanted := flags.String("fingerprint", "", "the SHA-256 fingerprint the root CA added must have")
+	wanted := flags.String("fingerprint", "", "the SHA-256 fingerprint of the root CA added, or of the CA removed")
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return errUsage
 	}
-	if *wanted != "" && command != "add" {
-		fmt.Fprintf(os.Stderr, "simple-ca-trust %s: --fingerprint is an option of add\n\n%s", command, usage)
+	if *wanted != "" && command == "list" {
+		fmt.Fprintf(os.Stderr, "simple-ca-trust list: --fingerprint is an option of add and remove\n\n%s", usage)
+		return errUsage
+	}
+	if *wanted != "" && command == "remove" && (*caDir != "" || *file != "") {
+		fmt.Fprintf(os.Stderr, "simple-ca-trust remove: --fingerprint cannot be given with --ca-dir or --file\n\n%s", usage)
 		return errUsage
 	}
 	if flags.NArg() != 0 {
@@ -158,46 +163,67 @@ func run(args []string) error {
 	if command == "list" {
 		return list(store.dir)
 	}
-	path := *file
-	if path == "" {
-		dir := *caDir
-		if dir == "" {
-			dir = os.Getenv("SIMPLE_CA_DIR")
+	plain := func(s string) string { return strings.ToUpper(strings.NewReplacer(":", "", " ", "").Replace(s)) }
+	// The CAs added or removed: those of the CA's bundle, or with remove --fingerprint the stored CA.
+	var cas []*x509.Certificate
+	if command == "remove" && *wanted != "" {
+		// The file name of a stored CA holds the first 16 hexadecimal digits of its fingerprint.
+		want := plain(*wanted)
+		if _, err := hex.DecodeString(want); err != nil || len(want) != 2*sha256.Size {
+			fmt.Fprintf(os.Stderr, "simple-ca-trust remove: --fingerprint %s is not a SHA-256 fingerprint\n\n%s", *wanted, usage)
+			return errUsage
 		}
-		if dir == "" {
-			dir = "."
+		stored, err := readCerts(filepath.Join(store.dir, "simple-ca-"+strings.ToLower(want[:16])+".crt"))
+		if errors.Is(err, fs.ErrNotExist) || err == nil && plain(fingerprint(stored[0])) != want {
+			return fmt.Errorf("%s holds no CA with the fingerprint %s that simple-ca-trust added", store.dir, *wanted)
 		}
-		dir, err := filepath.Abs(dir)
 		if err != nil {
 			return err
 		}
+		cas = stored[:1]
+	} else {
+		path := *file
+		if path == "" {
+			dir := *caDir
+			if dir == "" {
+				dir = os.Getenv("SIMPLE_CA_DIR")
+			}
+			if dir == "" {
+				dir = "."
+			}
+			dir, err := filepath.Abs(dir)
+			if err != nil {
+				return err
+			}
 
-		// The directory of an issuing CA, whose certificate is not self-signed, is in that of its root CA.
-		if certs, err := readCerts(filepath.Join(dir, "ca_cert.pem")); err == nil && !bytes.Equal(certs[0].RawSubject, certs[0].RawIssuer) {
-			dir = filepath.Dir(dir)
-		} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			// The directory of an issuing CA, whose certificate is not self-signed, is in that of its root CA.
+			if certs, err := readCerts(filepath.Join(dir, "ca_cert.pem")); err == nil && !bytes.Equal(certs[0].RawSubject, certs[0].RawIssuer) {
+				dir = filepath.Dir(dir)
+			} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			path = filepath.Join(dir, "ca_bundle.pem")
+		}
+		root, issuing, err := loadCAs(path)
+		if err != nil {
 			return err
 		}
-		path = filepath.Join(dir, "ca_bundle.pem")
-	}
-	root, issuing, err := loadCAs(path)
-	if err != nil {
-		return err
-	}
-	if command == "add" {
-		fmt.Printf("root CA %s, SHA-256 fingerprint %s\n", root.Subject, fingerprint(root))
-		plain := func(s string) string { return strings.ToUpper(strings.NewReplacer(":", "", " ", "").Replace(s)) }
-		if *wanted != "" && plain(*wanted) != plain(fingerprint(root)) {
-			return fmt.Errorf("the root CA in %s does not have the fingerprint of --fingerprint; nothing was added", path)
+		if command == "add" {
+			fmt.Printf("root CA %s, SHA-256 fingerprint %s\n", root.Subject, fingerprint(root))
+			if *wanted != "" && plain(*wanted) != plain(fingerprint(root)) {
+				return fmt.Errorf("the root CA in %s does not have the fingerprint of --fingerprint; nothing was added", path)
+			}
 		}
+		cas = append([]*x509.Certificate{root}, issuing...)
 	}
 	changed := false
-	for _, cert := range append([]*x509.Certificate{root}, issuing...) {
+	for _, cert := range cas {
 		role := "issuing CA"
-		if cert == root {
+		if bytes.Equal(cert.RawSubject, cert.RawIssuer) {
 			role = "root CA"
 		}
 		path := filepath.Join(store.dir, fileName(cert))
+		var err error
 		if command == "add" {
 			if _, err := os.Stat(path); err == nil {
 				fmt.Printf("%s %s is trusted already\n", role, cert.Subject)

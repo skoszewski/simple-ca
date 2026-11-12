@@ -97,6 +97,15 @@ fingerprint, with `.crt`. Linux has no store of intermediate CAs: the issuing CA
 anchors like the root CA, and stay trusted on their own while they are there. Browsers that keep
 their own NSS databases, such as Firefox, are not changed.
 
+`remove --fingerprint SHA256` removes the one CA with that SHA-256 fingerprint, as `list` writes
+it, with or without its colons, without the CA's files; it cannot be given with `--ca-dir` or
+`--file`:
+
+```sh
+FINGERPRINT=7C:3A:...:9E
+sudo simple-ca-trust remove --fingerprint "$FINGERPRINT"
+```
+
 ## Building
 
 The release archive of each platform, `simple-ca-X.Y.Z-<goos>-<goarch>`, holds the version of that

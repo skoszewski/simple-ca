@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.19.11
+
+fix: simple-ca-trust remove --fingerprint removes a CA without its files on Linux.
+
+- `simple-ca-trust remove --fingerprint SHA256` on Linux removes the CA with that fingerprint, as
+  `list` writes it, from the trust store, when the CA's `ca_bundle.pem` is gone.
+
 ## 1.19.10
 
 fix: release.mjs --push makes and pushes the tag vX.Y.Z alone.
