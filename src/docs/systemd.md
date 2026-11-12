@@ -41,7 +41,7 @@ the port, are changed with `systemctl edit simple-ca.service`.
 ## Debian package
 
 The package that `./build.mjs deb` writes to `dist/`, described in
-[Development](development.md#building), installs as follows; the
+[Development](development.md#debian-packages), installs as follows; the
 [releases](https://github.com/skoszewski/simple-ca/releases) hold it for amd64 and arm64,
 `simple-ca_X.Y.Z-1_<arch>.deb`:
 

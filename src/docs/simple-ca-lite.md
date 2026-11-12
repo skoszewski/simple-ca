@@ -31,8 +31,9 @@ sudo install -m 755 simple-ca-lite /usr/local/bin/simple-ca-lite
 
 They also hold the Debian package `simple-ca-lite` for amd64 and arm64,
 `simple-ca-lite_X.Y.Z-1_<arch>.deb`, which `./build.mjs deb` builds too, as
-[Development](development.md#building) describes. It installs `/usr/bin/simple-ca-lite` and this
-guide, in `/usr/share/doc/simple-ca-lite/`, and has no systemd units and no system user:
+[Development](development.md#debian-packages) describes. It installs `/usr/bin/simple-ca-lite`
+and this guide, in `/usr/share/doc/simple-ca-lite/`, and has no systemd units and no system
+user:
 
 ```sh
 DEB=simple-ca-lite_1.18.0-1_amd64.deb

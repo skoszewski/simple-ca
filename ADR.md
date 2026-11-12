@@ -429,8 +429,7 @@ who published it rests on the server the client trusts.
 `serve --packages` serves a prepared directory as it is, so `serve` reads no `.deb` file: their
 control files are compressed with xz or zstd, which the Go standard library cannot read, and apt
 needs a `Release` signed with OpenPGP. `./build.mjs apt` builds and signs the repository in a
-container of `simple-ca-builder`, the Ubuntu image of the Linux tools of `build.mjs`, with
-`apt-ftparchive` and gpg instead. The repository is flat, one directory
+container of `simple-ca-builder`, an Ubuntu image, with `apt-ftparchive` and gpg instead. The repository is flat, one directory
 and one channel, with the sources line `deb URL/apt ./`.
 
 ## The Go module is src/, the build context of the images

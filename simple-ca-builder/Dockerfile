@@ -1,5 +1,5 @@
-# The image simple-ca-builder of ./build.mjs build-helpers, the Linux toolset of build.mjs; its
-# tools are in /usr/local/bin: build-repo.sh, the signed flat apt repository of ./build.mjs apt.
+# The image simple-ca-builder of ./build.mjs setup; ./build.mjs apt runs
+# /usr/local/bin/build-repo.sh in it, which builds the signed flat apt repository.
 
 FROM ubuntu:26.04
 RUN apt-get update \

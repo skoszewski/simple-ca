@@ -205,7 +205,7 @@ simple-ca serve --ca-dir /etc/simple-ca --downloads "$DOWNLOADS"
 ```
 
 In a checkout of simple-ca, `./build.mjs sums` writes the sum files of a directory, of all its
-files or of those matching a glob, see [Development](development.md#building):
+files or of those matching a glob, see [Development](development.md#sum-files):
 
 ```sh
 DOWNLOADS=/srv/simple-ca/downloads
@@ -229,7 +229,7 @@ sha256sum -c "$NAME.sha256"
 
 `/apt/` serves the files of the `--packages` directory as they are, and a listing of each of its
 subdirectories. `serve` builds no index; `./build.mjs apt` builds a signed flat repository of the
-Debian packages, see [Development](development.md#building), whose files are copied to the
+Debian packages, see [Development](development.md#apt-repository), whose files are copied to the
 directory:
 
 ```sh

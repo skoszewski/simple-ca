@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.19.9
+
+fix: build.mjs is split into the modules of lib/.
+
+- `build.mjs` parses the command line and runs the action from `lib/`: the options and helpers in
+  `context.mjs` and `args.mjs`, the Go builds and tests in `go.mjs`, and `trust.mjs`, `deb.mjs`,
+  `image.mjs`, `dist.mjs`, `builder.mjs` (`setup` and `apt`), `sums.mjs` and `assets.mjs` for
+  the other actions; the commands and their output are as they were.
+- The Development guide has a section for each action of `build.mjs`, and the other guides link
+  to them; its examples of `sums`, `apt`, `docker` and `container` set their values in
+  variables, and a section shows the commands that build the `simple-ca` and `simple-ca-full`
+  images of an internal and of a public release.
+
 ## 1.19.8
 
 fix: the Go module moves to src/, the build context of the images.

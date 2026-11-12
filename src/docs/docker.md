@@ -132,22 +132,21 @@ archive of `X.Y.Z` or the second has no `Release`, `InRelease` or `key.asc`. The
 copied as it is, so it is built for the same version first with `./build.mjs apt`.
 
 The archives of every platform and the Debian packages come first, see
-[Development](development.md#building): built on macOS before the version is tagged, and
+[Development](development.md#internal-releases): built on macOS before the version is tagged, and
 downloaded from its GitHub release after it:
 
 ```sh
 ./build.mjs dist --all --dpkg
 ```
 
-The repository is built in a container of `simple-ca-builder`, the image of the Linux tools of
-`build.mjs`, built once:
+The repository is built in a container of the image `simple-ca-builder`, built once:
 
 ```sh
 ./build.mjs setup
 ```
 
-The repository is signed with the gpg key of [Development](development.md#building). A key
-without a passphrase:
+The repository is signed with the gpg key of
+[Development](development.md#signing-key). A key without a passphrase:
 
 ```sh
 SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
