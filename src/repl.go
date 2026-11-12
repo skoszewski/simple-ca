@@ -365,7 +365,8 @@ func requireHierarchy() error {
 }
 
 func runContextList(args []string) error {
-	fs := cli.NewFlagSet("context list", "", "List the CAs of the hierarchy of the session, the root CA first, the active one\nmarked with *.")
+	fs := cli.NewFlagSet("context list", "",
+		"Lists the CAs of the hierarchy of the session, the root CA first, the active one marked with *.")
 	if _, _, err := cli.ParseArgs(fs, args, 0, 0); err != nil {
 		return err
 	}
@@ -383,8 +384,9 @@ func runContextList(args []string) error {
 }
 
 func runContextUse(args []string) error {
-	fs := cli.NewFlagSet("context use", "[NAME]", "Make the issuing CA NAME of the hierarchy, or the root CA without NAME, the CA the\n"+
-		"commands of the session work on. With --ca-dir, move to the hierarchy of that CA directory.")
+	fs := cli.NewFlagSet("context use", "[NAME]",
+		"Makes the issuing CA NAME, or the root CA without NAME, the CA the commands of the session work\n"+
+			"on; with --ca-dir, in the hierarchy of that CA directory.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA, of another hierarchy")
 	rest, _, err := cli.ParseArgs(fs, args, 0, 1)
 	if err != nil {
@@ -439,8 +441,8 @@ func editContext(edit func(values map[string][]string) error) error {
 }
 
 func runContextSet(args []string) error {
-	fs := cli.NewFlagSet("context set", "NAME VALUE...", "Set the values of the option --NAME in the active context, replacing those it held. A\n"+
-		"command on this CA takes them for the option when it is not given, on the command line too.")
+	fs := cli.NewFlagSet("context set", "NAME VALUE...",
+		"Sets the values of the option --NAME in the active context, replacing those it held.")
 	rest, _, err := cli.ParseArgs(fs, args, 2, -1)
 	if err != nil {
 		return err
@@ -456,8 +458,8 @@ func runContextSet(args []string) error {
 }
 
 func runContextAdd(args []string) error {
-	fs := cli.NewFlagSet("context add", "NAME VALUE...", "Add values to the option --NAME in the active context, for an option given several\n"+
-		"times, such as --scope or --domain.")
+	fs := cli.NewFlagSet("context add", "NAME VALUE...",
+		"Adds values to the option --NAME in the active context, for an option given several times.")
 	rest, _, err := cli.ParseArgs(fs, args, 2, -1)
 	if err != nil {
 		return err
@@ -473,8 +475,8 @@ func runContextAdd(args []string) error {
 }
 
 func runContextDelete(args []string) error {
-	fs := cli.NewFlagSet("context delete", "NAME [VALUE...]", "Delete the values given from the option --NAME in the active context, or the option\n"+
-		"with all its values without them.")
+	fs := cli.NewFlagSet("context delete", "NAME [VALUE...]",
+		"Deletes the values given from the option --NAME in the active context, or the option without them.")
 	rest, _, err := cli.ParseArgs(fs, args, 1, -1)
 	if err != nil {
 		return err
@@ -505,7 +507,7 @@ func runContextDelete(args []string) error {
 }
 
 func runContextShow(args []string) error {
-	fs := cli.NewFlagSet("context show", "", "Show the option values of the active context, as the options the commands take.")
+	fs := cli.NewFlagSet("context show", "", "Shows the option values of the active context, as the options the commands take.")
 	if _, _, err := cli.ParseArgs(fs, args, 0, 0); err != nil {
 		return err
 	}

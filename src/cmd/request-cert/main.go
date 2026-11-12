@@ -54,17 +54,15 @@ var errUsage = errors.New("usage")
 
 func run() error {
 	flag.Usage = func() {
-		fmt.Fprint(flag.CommandLine.Output(), "Usage:\n"+
-			"  SIMPLE_CA_TOKEN=TOKEN request-cert [options] CA_URL CN [DNS_NAME ...]\n"+
-			"  request-cert --token-file FILE [options] CA_URL CN [DNS_NAME ...]\n"+
-			"  request-cert --setup-code CODE [--token-file NEW_FILE] [options] CA_URL CN [DNS_NAME ...]\n\n"+
-			"Requests a server certificate for CN and the DNS names from the signing API of the CA\n"+
-			"of simple-ca serve at CA_URL: https://pki.example.com for the root CA, or\n"+
-			"https://pki.example.com/servers for the issuing CA servers.\n\n"+
-			"With --setup-code, it exchanges the one-time setup code for the token at\n"+
-			"/api/token-setup of the server of CA_URL first, and writes the token to --token-file,\n"+
-			"a file that does not exist yet, when it is given.\n\n"+
-			"Options:\n")
+		fmt.Fprint(flag.CommandLine.Output(), `Usage: SIMPLE_CA_TOKEN=TOKEN request-cert [options] CA_URL CN [DNS_NAME ...]
+       request-cert --token-file FILE [options] CA_URL CN [DNS_NAME ...]
+       request-cert --setup-code CODE [--token-file NEW_FILE] [options] CA_URL CN [DNS_NAME ...]
+
+Requests a certificate for CN and the DNS names from the signing API of simple-ca serve at CA_URL,
+with the token, or with the token the one-time setup code is exchanged for.
+
+Options:
+`)
 		flag.PrintDefaults()
 	}
 	tokenFile := flag.String("token-file", os.Getenv("SIMPLE_CA_TOKEN_FILE"),

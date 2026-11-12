@@ -41,16 +41,10 @@ import (
 
 // runServe runs serve until it fails or is interrupted.
 func runServe(args []string) error {
-	fs := cli.NewFlagSet("serve", "", "Serve the certificates and CRLs of the root CA of the CA in --ca-dir, and of its\n"+
-		"issuing CAs, over HTTP.\n\n"+
-		"With --webui, it also serves the token page at /tokens/, the certificate page at\n"+
-		"/certificates/ and the audit page at /audit/. Sign in with a token that has the scope\n"+
-		"tokens, certs or audit; a root CA token opens every CA, an issuing CA token only its own CA.\n\n"+
-		"With --downloads, it lists the files of the directory whose NAME.sha256 holds their SHA-256\n"+
-		"at /downloads/, and with --packages it serves the apt repository of the directory at /apt/.\n\n"+
-		"It logs in records of key=value pairs, as its audit records, to the systemd journal when\n"+
-		"it runs under systemd, else to the standard error; the audit records also go to the\n"+
-		"audit log. --request-log adds a record of each request.")
+	fs := cli.NewFlagSet("serve", "",
+		"Serves the certificates and CRLs of the root CA of the CA in --ca-dir and of its issuing CAs\n"+
+			"over HTTP, with the signing API, ACME and, with --webui, the web pages. Encrypted CA keys need\n"+
+			"their passphrase.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	address := fs.String("address", "127.0.0.1", "`address` of the interface to listen on; 0.0.0.0 for all interfaces")
 	port := fs.Int("port", 8080, "TCP `port` to listen on")

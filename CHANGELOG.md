@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.19.12
+
+gap: simple-ca-trust remove --fingerprint works on Windows and macOS too, and the usage of each command is its synopsis, a short description with its requirements, and its options.
+
+- `simple-ca-trust remove --fingerprint SHA256` on Windows and macOS removes the CA it added with
+  that fingerprint, as `list` writes it, from the stores or the keychain, and the trust of a root
+  CA, without the CA's files, as on Linux.
+- The usage of `simple-ca`, `simple-ca-lite`, `request-cert`, `token-setup`, `request-token`,
+  `simple-ca-wif` and `simple-ca-trust` and of each of their commands is the synopsis, a
+  description of one or two sentences, and the options. The description names what a command
+  needs: the passphrase of an encrypted CA key, root, Administrator or the user's password for
+  the trust stores, the IAM roles of the Google credentials, and
+  `GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1` for an executable source. The details are in
+  the guides.
+- The guides state what only the usage texts said: the CA of `simple-ca-wif`, the checks and
+  files of `google machine`, the leaf certificate of `cert pfx`, the order of `context list` and
+  the values `context set` replaces, and the fingerprint of the index page for `--fingerprint`.
+
 ## 1.19.11
 
 fix: simple-ca-trust remove --fingerprint removes a CA without its files on Linux.

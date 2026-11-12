@@ -143,12 +143,8 @@ func PrintUsage(w io.Writer, commands []Command, g *Command) {
 		fmt.Fprintf(w, "  %-8s %s\n", c.Name, c.Summary)
 	}
 	if g == nil {
-		fmt.Fprintf(w, "\nOptions:\n  -h, --help   print this help\n  --version    print the version\n\n"+
-			"Run \"%[1]s GROUP -h\" for the commands of a group, and \"%[1]s GROUP COMMAND -h\"\n"+
-			"for the options of a command.\n", Program)
-		return
+		fmt.Fprint(w, "\nOptions:\n  -h, --help   print this help\n  --version    print the version\n")
 	}
-	fmt.Fprintf(w, "\nRun \"%s %s COMMAND -h\" for the options of a command.\n", Program, g.Name)
 }
 
 // ResolveCADir returns the --ca-dir value, else the CA directory of SessionCADir, else

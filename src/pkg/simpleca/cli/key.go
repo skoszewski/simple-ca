@@ -46,15 +46,14 @@ func runKeyDecrypt(args []string) error {
 // *_key.pem files of the CA in --ca-dir, or of the root CA and all its issuing CAs with --all, as
 // encrypted or unencrypted PKCS#8, skipping those already in that form.
 func convertKeys(args []string, encrypt bool) error {
-	verb, what := "decrypt", "Decrypt the private keys of the CA in --ca-dir, ca_key.pem and the *_key.pem files, with the\n"+
-		"passphrase of the private keys, and write them as unencrypted PKCS#8."
+	verb, what := "decrypt", "Decrypts the private keys of the CA in --ca-dir, ca_key.pem and the *_key.pem files, as\n"+
+		"unencrypted PKCS#8."
 	if encrypt {
-		verb, what = "encrypt", "Encrypt the private keys of the CA in --ca-dir, ca_key.pem and the *_key.pem files, with the\n"+
-			"passphrase of the private keys, as encrypted PKCS#8; keys already encrypted are skipped."
+		verb, what = "encrypt", "Encrypts the private keys of the CA in --ca-dir, ca_key.pem and the *_key.pem files, as\n"+
+			"encrypted PKCS#8."
 	}
-	fs := NewFlagSet("key "+verb, "", what+"\n\n"+
-		"The passphrase is $SIMPLE_CA_KEY_PASSWORD, else the file named by\n"+
-		"$SIMPLE_CA_KEY_PASSWORD_FILE, else, on a terminal, typed at the prompt.")
+	fs := NewFlagSet("key "+verb, "", what+" The passphrase is SIMPLE_CA_KEY_PASSWORD, else the file of\n"+
+		"SIMPLE_CA_KEY_PASSWORD_FILE, else typed at the prompt of a terminal.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	all := fs.Bool("all", false, verb+" the keys of the root CA of --ca-dir and of all its issuing CAs")
 	if _, _, err := ParseArgs(fs, args, 0, 0); err != nil {

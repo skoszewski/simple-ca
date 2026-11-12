@@ -64,21 +64,17 @@ var clouds = []struct {
 
 // usage prints the usage of simple-ca-wif.
 func usage(w io.Writer) {
-	fmt.Fprint(w, "Usage:\n"+
-		"  simple-ca-wif google setup [options]\n"+
-		"  simple-ca-wif google machine [options] NAME\n"+
-		"  simple-ca-wif --version\n\n"+
-		"Commands:\n")
+	fmt.Fprint(w, `Usage: simple-ca-wif google setup [options]
+       simple-ca-wif google machine [options] NAME
+       simple-ca-wif --version
+
+Commands:
+`)
 	for _, c := range clouds {
 		for _, cmd := range c.commands {
 			fmt.Fprintf(w, "  %-16s %s\n", c.name+" "+cmd.name, cmd.summary)
 		}
 	}
-	fmt.Fprint(w, "\nGoogle Cloud is called with the access token of --access-token or\n"+
-		"GOOGLE_OAUTH_ACCESS_TOKEN, else of Application Default Credentials: the file of\n"+
-		"GOOGLE_APPLICATION_CREDENTIALS, else the one gcloud auth application-default login writes.\n"+
-		"The CA is that of --ca-dir, else of SIMPLE_CA_DIR, else of the working directory.\n"+
-		"simple-ca-wif CLOUD COMMAND -h lists the options of a command.\n")
 }
 
 func run() error {
@@ -121,12 +117,12 @@ func run() error {
 	return errUsage
 }
 
-// newFlagSet returns the flag set of the command name, whose usage names its arguments and
-// describes it.
+// newFlagSet returns the flag set of the command name, whose usage names its arguments and its
+// description.
 func newFlagSet(name, arguments, description string) *flag.FlagSet {
 	fs := flag.NewFlagSet("simple-ca-wif "+name, flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage:\n  simple-ca-wif %s [options]%s\n\n%s\n\nOptions:\n", name, arguments, description)
+		fmt.Fprintf(fs.Output(), "Usage: simple-ca-wif %s [options]%s\n\n%s\n\nOptions:\n", name, arguments, description)
 		fs.PrintDefaults()
 	}
 	return fs

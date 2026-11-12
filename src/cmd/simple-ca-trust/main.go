@@ -68,21 +68,23 @@ var layouts = []layout{
 // goos is the operating system simple-ca-trust runs on.
 var goos = runtime.GOOS
 
-const usage = `Usage:
-  simple-ca-trust add [--machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
-  simple-ca-trust remove [--machine] [--ca-dir DIR | --file FILE | --fingerprint SHA256]
-  simple-ca-trust list [--machine]
-  simple-ca-trust --version
+const usage = `Usage: simple-ca-trust add [--machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
+       simple-ca-trust remove [--machine] [--ca-dir DIR | --file FILE | --fingerprint SHA256]
+       simple-ca-trust list [--machine]
+       simple-ca-trust --version
 
-Adds the root CA and the issuing CAs of the CA in --ca-dir, read from ca_bundle.pem of its root
-CA, to the system trust store of Linux, removes them, or lists the CAs it added. --ca-dir is the
-directory of the root CA or of one of its issuing CAs, or a directory holding a copy of
-ca_bundle.pem; it defaults to SIMPLE_CA_DIR, else the working directory. --file names the root
-CA certificate or a CA bundle, PEM or DER, instead. add prints the SHA-256 fingerprint of the root
-CA, and with --fingerprint adds nothing unless the root CA has that fingerprint, as ca show and
-the index page of serve write it. remove --fingerprint removes the CA with that fingerprint, as
-list writes it, without the CA's files. Linux has only the system store, --machine, the default,
-and changing it needs root.
+Commands:
+  add     adds the root CA and the issuing CAs of the CA to the system trust store
+  remove  removes them, or with --fingerprint the CA it added with that fingerprint
+  list    lists the CAs it added
+
+add and remove change the system trust store and need root; run them with sudo.
+
+Options:
+  --machine             the system trust store, the default; needs root
+  --ca-dir DIR          the root or an issuing CA directory (default: SIMPLE_CA_DIR, else .)
+  --file FILE           the root CA certificate or a CA bundle, PEM or DER
+  --fingerprint SHA256  add: the fingerprint the root CA must have; remove: the CA to remove
 `
 
 func run(args []string) error {

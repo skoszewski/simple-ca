@@ -39,13 +39,13 @@ import (
 // subcommand, those of every subcommand under "".
 var HiddenFlags = map[string][]string{"": {"ca-publish-base-url"}}
 
-// NewFlagSet returns the flag set of the subcommand name, whose usage names its arguments and
-// summary, and its options without its HiddenFlags.
-func NewFlagSet(name, arguments, summary string) *flag.FlagSet {
+// NewFlagSet returns the flag set of the subcommand name, whose usage names its arguments, its
+// description and its options without its HiddenFlags.
+func NewFlagSet(name, arguments, description string) *flag.FlagSet {
 	fs := flag.NewFlagSet(Program+" "+name, flag.ContinueOnError)
 	fs.Usage = func() {
 		line := strings.TrimSpace(Program + " " + name + " [options] " + arguments)
-		fmt.Fprintf(fs.Output(), "Usage: %s\n\n%s\n\nOptions:\n", line, summary)
+		fmt.Fprintf(fs.Output(), "Usage: %s\n\n%s\n\nOptions:\n", line, description)
 		shown := flag.NewFlagSet(fs.Name(), flag.ContinueOnError)
 		shown.SetOutput(fs.Output())
 		fs.VisitAll(func(f *flag.Flag) {

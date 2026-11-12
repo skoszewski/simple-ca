@@ -43,22 +43,25 @@ struct CA {
 }
 
 let usageText = """
-    Usage:
-      simple-ca-trust add [--user | --machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
-      simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE]
-      simple-ca-trust list [--user | --machine]
-      simple-ca-trust --version
+    Usage: simple-ca-trust add [--user | --machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
+           simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE | --fingerprint SHA256]
+           simple-ca-trust list [--user | --machine]
+           simple-ca-trust --version
 
-    Adds the root CA and the issuing CAs of the CA in --ca-dir, read from ca_bundle.pem of its
-    root CA, to a keychain and trusts the root CA, removes them, or lists the CAs it added.
-    --ca-dir is the directory of the root CA or of one of its issuing CAs, or a directory holding
-    a copy of ca_bundle.pem; it defaults to SIMPLE_CA_DIR, else the working directory. --file
-    names the root CA certificate or a CA bundle, PEM or DER, instead. add prints the SHA-256
-    fingerprint of the root CA, and with --fingerprint adds nothing unless the root CA has that
-    fingerprint, as ca show and the index page of serve write it. --user,
-    the default, is the login keychain and the user's trust settings, and asks for the user's
-    password; --machine is the System keychain and the trust settings of all users, and needs
-    root.
+    Commands:
+      add     adds the root CA and the issuing CAs of the CA to a keychain, and trusts the root CA
+      remove  removes them and the trust, or with --fingerprint the CA it added with that fingerprint
+      list    lists the CAs it added
+
+    Trusting a root CA with --user asks for the user's password in a dialog, in a session logged in
+    at the login window, not over SSH; --machine needs root, run it with sudo.
+
+    Options:
+      --user                the login keychain and the user's trust settings, the default
+      --machine             the System keychain and the trust settings of all users; needs root
+      --ca-dir DIR          the root or an issuing CA directory (default: SIMPLE_CA_DIR, else .)
+      --file FILE           the root CA certificate or a CA bundle, PEM or DER
+      --fingerprint SHA256  add: the fingerprint the root CA must have; remove: the CA to remove
 
     """
 
@@ -269,8 +272,15 @@ func run(_ arguments: [String]) throws {
     if !caDir.isEmpty && !file.isEmpty {
         throw Failure(message: "simple-ca-trust \(command): --ca-dir and --file cannot be given together", usage: true)
     }
-    if !wanted.isEmpty && command != "add" {
-        throw Failure(message: "simple-ca-trust \(command): --fingerprint is an option of add", usage: true)
+    if !wanted.isEmpty && command == "list" {
+        throw Failure(message: "simple-ca-trust list: --fingerprint is an option of add and remove", usage: true)
+    }
+    if !wanted.isEmpty && command == "remove" && (!caDir.isEmpty || !file.isEmpty) {
+        throw Failure(message: "simple-ca-trust remove: --fingerprint cannot be given with --ca-dir or --file", usage: true)
+    }
+    let plain = { (value: String) in value.replacingOccurrences(of: ":", with: "").replacingOccurrences(of: " ", with: "").uppercased() }
+    if !wanted.isEmpty && command == "remove" && (plain(wanted).count != 64 || !plain(wanted).allSatisfy(\.isHexDigit)) {
+        throw Failure(message: "simple-ca-trust remove: --fingerprint \(wanted) is not a SHA-256 fingerprint", usage: true)
     }
     let domain: SecTrustSettingsDomain = machine ? .admin : .user
     let store = try keychain(machine: machine)
@@ -298,26 +308,37 @@ func run(_ arguments: [String]) throws {
         return
     }
 
-    if file.isEmpty {
-        if caDir.isEmpty {
-            caDir = ProcessInfo.processInfo.environment["SIMPLE_CA_DIR"] ?? ""
+    // The CAs added or removed: those of the CA's bundle, or with remove --fingerprint the stored CA.
+    let cas: [CA]
+    if command == "remove" && !wanted.isEmpty {
+        cas = try added(to: store).filter { plain(fingerprint($0)) == plain(wanted) }.map {
+            CA(certificate: $0, subject: SecCertificateCopySubjectSummary($0) as String? ?? "?", fingerprint: fingerprint($0),
+               root: isSelfSigned($0))
         }
-        var dir = URL(fileURLWithPath: caDir.isEmpty ? FileManager.default.currentDirectoryPath : caDir).standardizedFileURL
+        if cas.isEmpty {
+            throw Failure(message: "the keychain holds no CA with the fingerprint \(wanted) that simple-ca-trust added")
+        }
+    } else {
+        if file.isEmpty {
+            if caDir.isEmpty {
+                caDir = ProcessInfo.processInfo.environment["SIMPLE_CA_DIR"] ?? ""
+            }
+            var dir = URL(fileURLWithPath: caDir.isEmpty ? FileManager.default.currentDirectoryPath : caDir).standardizedFileURL
 
-        // The directory of an issuing CA, whose certificate is not self-signed, is in that of its root CA.
-        if let certificate = try certificates(atPath: dir.appendingPathComponent("ca_cert.pem").path)?.first,
-            !isSelfSigned(certificate)
-        {
-            dir = dir.deletingLastPathComponent()
+            // The directory of an issuing CA, whose certificate is not self-signed, is in that of its root CA.
+            if let certificate = try certificates(atPath: dir.appendingPathComponent("ca_cert.pem").path)?.first,
+                !isSelfSigned(certificate)
+            {
+                dir = dir.deletingLastPathComponent()
+            }
+            file = dir.appendingPathComponent("ca_bundle.pem").path
         }
-        file = dir.appendingPathComponent("ca_bundle.pem").path
-    }
-    let cas = try loadCAs(file)
-    if command == "add", let root = cas.first(where: { $0.root }) {
-        print("root CA \(root.subject), SHA-256 fingerprint \(root.fingerprint)")
-        let plain = { (value: String) in value.replacingOccurrences(of: ":", with: "").replacingOccurrences(of: " ", with: "").uppercased() }
-        if !wanted.isEmpty && plain(wanted) != plain(root.fingerprint) {
-            throw Failure(message: "the root CA in \(file) does not have the fingerprint of --fingerprint; nothing was added")
+        cas = try loadCAs(file)
+        if command == "add", let root = cas.first(where: { $0.root }) {
+            print("root CA \(root.subject), SHA-256 fingerprint \(root.fingerprint)")
+            if !wanted.isEmpty && plain(wanted) != plain(root.fingerprint) {
+                throw Failure(message: "the root CA in \(file) does not have the fingerprint of --fingerprint; nothing was added")
+            }
         }
     }
     if machine && getuid() != 0 {

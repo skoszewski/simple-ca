@@ -32,22 +32,25 @@ using System.Text;
 [assembly: SupportedOSPlatform("windows")]
 
 const string Usage = """
-    Usage:
-      simple-ca-trust add [--user | --machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
-      simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE]
-      simple-ca-trust list [--user | --machine]
-      simple-ca-trust --version
+    Usage: simple-ca-trust add [--user | --machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
+           simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE | --fingerprint SHA256]
+           simple-ca-trust list [--user | --machine]
+           simple-ca-trust --version
 
-    Adds the root CA of the CA in --ca-dir, read from ca_bundle.pem of its root CA, to the
-    Trusted Root Certification Authorities store and its issuing CAs to the Intermediate
-    Certification Authorities store, removes them, or lists the CAs it added. --ca-dir is the
-    directory of the root CA or of one of its issuing CAs, or a directory holding a copy of
-    ca_bundle.pem; it defaults to SIMPLE_CA_DIR, else the working directory. --file names the
-    root CA certificate or a CA bundle, PEM or DER, instead. add prints the SHA-256 fingerprint
-    of the root CA, and with --fingerprint adds nothing unless the root CA has that fingerprint,
-    as ca show and the index page of serve write it. --user, the default,
-    is the stores of the current user; --machine is the stores of the computer, and needs an
-    elevated prompt.
+    Commands:
+      add     adds the root CA to Trusted Root Certification Authorities and the issuing CAs to
+              Intermediate Certification Authorities
+      remove  removes them, or with --fingerprint the CA it added with that fingerprint
+      list    lists the CAs it added
+
+    --machine needs an elevated prompt; run it as Administrator.
+
+    Options:
+      --user                the stores of the current user, the default
+      --machine             the stores of the computer; needs an elevated prompt
+      --ca-dir DIR          the root or an issuing CA directory (default: SIMPLE_CA_DIR, else .)
+      --file FILE           the root CA certificate or a CA bundle, PEM or DER
+      --fingerprint SHA256  add: the fingerprint the root CA must have; remove: the CA to remove
 
     """;
 const string LabelPrefix = "simple-ca: ";
@@ -153,16 +156,26 @@ static int Run(string[] arguments)
     {
         throw new Failure($"simple-ca-trust {command}: --ca-dir and --file cannot be given together", usage: true);
     }
-    if (wanted != "" && command != "add")
+    if (wanted != "" && command == "list")
     {
-        throw new Failure($"simple-ca-trust {command}: --fingerprint is an option of add", usage: true);
+        throw new Failure("simple-ca-trust list: --fingerprint is an option of add and remove", usage: true);
+    }
+    if (wanted != "" && command == "remove" && (caDir != "" || file != ""))
+    {
+        throw new Failure("simple-ca-trust remove: --fingerprint cannot be given with --ca-dir or --file", usage: true);
+    }
+    static string Plain(string value) => value.Replace(":", "").Replace(" ", "").ToUpperInvariant();
+    if (wanted != "" && command == "remove" && (Plain(wanted).Length != 64 || !Plain(wanted).All(char.IsAsciiHexDigit)))
+    {
+        throw new Failure($"simple-ca-trust remove: --fingerprint {wanted} is not a SHA-256 fingerprint", usage: true);
     }
     var location = machine ? StoreLocation.LocalMachine : StoreLocation.CurrentUser;
+    var stores = new[] { (StoreName.Root, "root CA"), (StoreName.CertificateAuthority, "issuing CA") };
 
     if (command == "list")
     {
         var rows = new List<string[]> { new[] { "ROLE", "SUBJECT", "EXPIRES", "SHA-256" } };
-        foreach (var (name, role) in new[] { (StoreName.Root, "root CA"), (StoreName.CertificateAuthority, "issuing CA") })
+        foreach (var (name, role) in stores)
         {
             using var store = new X509Store(name, location, OpenFlags.ReadOnly);
             foreach (var certificate in store.Certificates.Where(c => c.FriendlyName.StartsWith(LabelPrefix, StringComparison.Ordinal)))
@@ -179,42 +192,62 @@ static int Run(string[] arguments)
         return 0;
     }
 
-    if (file == "")
+    // The CAs added or removed, with their stores: those of the CA's bundle, or with remove
+    // --fingerprint the stored CA.
+    var cas = new List<(X509Certificate2 Certificate, StoreName Name, string Role)>();
+    if (command == "remove" && wanted != "")
     {
-        if (caDir == "")
+        foreach (var (name, role) in stores)
         {
-            caDir = Environment.GetEnvironmentVariable("SIMPLE_CA_DIR") ?? "";
+            using var store = new X509Store(name, location, OpenFlags.ReadOnly);
+            cas.AddRange(store.Certificates
+                .Where(c => c.FriendlyName.StartsWith(LabelPrefix, StringComparison.Ordinal) && Plain(Fingerprint(c)) == Plain(wanted))
+                .Select(c => (c, name, role)));
         }
-        var dir = Path.GetFullPath(caDir == "" ? Directory.GetCurrentDirectory() : caDir);
-
-        // The directory of an issuing CA, whose certificate is not self-signed, is in that of its root CA.
-        var caCert = Path.Combine(dir, "ca_cert.pem");
-        if (File.Exists(caCert))
+        if (cas.Count == 0)
         {
-            var certificate = ReadCertificates(caCert)[0];
-            if (!certificate.SubjectName.RawData.AsSpan().SequenceEqual(certificate.IssuerName.RawData))
+            throw new Failure($"the stores hold no CA with the fingerprint {wanted} that simple-ca-trust added");
+        }
+    }
+    else
+    {
+        if (file == "")
+        {
+            if (caDir == "")
             {
-                dir = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(dir)) ?? dir;
+                caDir = Environment.GetEnvironmentVariable("SIMPLE_CA_DIR") ?? "";
+            }
+            var dir = Path.GetFullPath(caDir == "" ? Directory.GetCurrentDirectory() : caDir);
+
+            // The directory of an issuing CA, whose certificate is not self-signed, is in that of its root CA.
+            var caCert = Path.Combine(dir, "ca_cert.pem");
+            if (File.Exists(caCert))
+            {
+                var certificate = ReadCertificates(caCert)[0];
+                if (!certificate.SubjectName.RawData.AsSpan().SequenceEqual(certificate.IssuerName.RawData))
+                {
+                    dir = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(dir)) ?? dir;
+                }
+            }
+            file = Path.Combine(dir, "ca_bundle.pem");
+        }
+        var (root, issuing) = LoadCAs(file);
+        if (command == "add")
+        {
+            Console.WriteLine($"root CA {root.Subject}, SHA-256 fingerprint {Fingerprint(root)}");
+            if (wanted != "" && Plain(wanted) != Plain(Fingerprint(root)))
+            {
+                throw new Failure($"the root CA in {file} does not have the fingerprint of --fingerprint; nothing was added");
             }
         }
-        file = Path.Combine(dir, "ca_bundle.pem");
-    }
-    var (root, issuing) = LoadCAs(file);
-    if (command == "add")
-    {
-        Console.WriteLine($"root CA {root.Subject}, SHA-256 fingerprint {Fingerprint(root)}");
-        static string Plain(string value) => value.Replace(":", "").Replace(" ", "").ToUpperInvariant();
-        if (wanted != "" && Plain(wanted) != Plain(Fingerprint(root)))
-        {
-            throw new Failure($"the root CA in {file} does not have the fingerprint of --fingerprint; nothing was added");
-        }
+        cas.Add((root, StoreName.Root, "root CA"));
+        cas.AddRange(issuing.Select(c => (c, StoreName.CertificateAuthority, "issuing CA")));
     }
     if (machine && !Environment.IsPrivilegedProcess)
     {
         throw new Failure("changing the certificate stores of the computer needs an elevated prompt; run it as Administrator");
     }
-    foreach (var (certificate, name, role) in issuing.Select(c => (c, StoreName.CertificateAuthority, "issuing CA"))
-        .Prepend((root, StoreName.Root, "root CA")))
+    foreach (var (certificate, name, role) in cas)
     {
         using var store = new X509Store(name, location, OpenFlags.ReadWrite);
         var present = store.Certificates.Find(X509FindType.FindByThumbprint, certificate.Thumbprint, false);

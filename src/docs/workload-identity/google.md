@@ -26,7 +26,8 @@ Its key may be `rsa`, the default, or `ec` (`--key-type ec`): Google accepts RS2
 
 `simple-ca-wif`, on the CA host, does steps 1 to 5 with two commands, through the Google REST
 APIs. `google setup` does steps 1 to 3, and `google machine` steps 4 and 5 for one machine. The
-machine then goes on with step 6. The steps below do the same by hand.
+machine then goes on with step 6. The steps below do the same by hand. The CA is that of
+`--ca-dir`, else of `SIMPLE_CA_DIR`, else of the working directory.
 
 ### Credentials
 
@@ -123,8 +124,10 @@ default the issuer of the CA:
 Without `--service-account`, the file has no `service_account`. Before it changes anything, the
 command refuses an existing `federation.json`, an existing `build-01.token`, a token `build-01` the
 CA already has, and an `--output-dir` it cannot write to. Without the token
-type in `simple-ca.json`, it asks to run `google setup` first. It makes the changes in Google
-before the token and `federation.json`, so after a failed step it is run again as it was.
+type in `simple-ca.json`, or without the audience of a provider in it, it asks to run
+`google setup` first. It makes `build-01.token` and `federation.json` as new empty files first,
+and removes them when a later step fails. Each step prints one line. It makes the changes in
+Google before the token and `federation.json`, so after a failed step it is run again as it was.
 
 Hand `build-01.token`, or the setup code, and `federation.json` to the machine, which goes on
 with step 6.

@@ -37,8 +37,8 @@ import (
 // runAuditList runs audit list.
 func runAuditList(args []string) error {
 	fs := cli.NewFlagSet("audit list", "",
-		"Print the records of the audit log of the root CA of the CA in --ca-dir, in the order they\n"+
-			"were written, those of the filters given alone.")
+		"Prints the records of the audit log of the root CA of the CA in --ca-dir, in the order they\n"+
+			"were written, or those of the filters given alone.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	event := fs.String("event", "", "`event`, such as cert.issue, or the start of events, such as token.")
 	ca := fs.String("ca", "", "issuing CA `name`; empty for the root CA")

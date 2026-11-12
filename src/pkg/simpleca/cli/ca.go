@@ -33,7 +33,9 @@ import (
 
 // runCACreate runs ca create.
 func runCACreate(args []string) error {
-	fs := NewFlagSet("ca create", "CA_NAME", "Create a root or issuing CA.")
+	fs := NewFlagSet("ca create", "CA_NAME",
+		"Creates the root CA CA_NAME in --ca-dir, or with --issuing-ca an issuing CA in its subdirectory,\n"+
+			"signed by the root CA. An encrypted root CA key needs its passphrase.")
 	days := fs.Int("days", 3650, "validity period in `days`; an issuing CA is valid as long as its root CA by default")
 	issuingCA := fs.String("issuing-ca", "", "create an issuing CA with this directory `name`")
 	baseURL := fs.String("ca-url", "", "base `URL` for AIA and CRL distribution point extensions")
@@ -85,7 +87,7 @@ func runCACreate(args []string) error {
 
 // runCAShow runs ca show.
 func runCAShow(args []string) error {
-	fs := NewFlagSet("ca show", "", "Show the CA in --ca-dir, its certificate counts and its CRL.")
+	fs := NewFlagSet("ca show", "", "Shows the CA in --ca-dir, its certificate counts and its CRL.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	if _, _, err := ParseArgs(fs, args, 0, 0); err != nil {
 		return err

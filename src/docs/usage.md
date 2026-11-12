@@ -232,10 +232,10 @@ simple-ca cert sign --ca-dir /tmp/ca/servers --type user --cert-dir . --force al
 
 ## cert pfx
 
-Creates `{name}.pfx` next to `CERT_PATH` from the certificate, its key and the chain of the CA in
-the CA directory, which signed it: the root CA, and the issuing CA when the CA directory holds
-one. The password defaults to `changeit`. The bundle is encrypted with PBES2 (AES-256-CBC) and
-written with mode 0600; a `.pfx` that exists is an error.
+Creates `{name}.pfx` next to `CERT_PATH`, a leaf certificate, from the certificate, its key and
+the chain of the CA in the CA directory, which signed it: the root CA, and the issuing CA when
+the CA directory holds one. The password defaults to `changeit`. The bundle is encrypted with
+PBES2 (AES-256-CBC) and written with mode 0600; a `.pfx` that exists is an error.
 
 ## cert revoke and crl create
 
@@ -486,11 +486,11 @@ given. They are kept in `simple-ca.json` of the root CA, as described in
 [configuration](configuration.md), and apply on the command line too.
 
 ```text
-context list                       # the CAs of the hierarchy, the active one marked *
+context list                       # the CAs of the hierarchy, root first, the active one marked *
 context use servers                # work on the issuing CA servers
 context use                        # work on the root CA
 context use --ca-dir DIR [NAME]    # work in the hierarchy of another CA directory
-context set valid 45d              # --valid 45d for the commands of this CA
+context set valid 45d              # --valid 45d for this CA, replacing the values held
 context add domain example.org     # one more --domain, for a repeated option
 context delete domain example.org  # one value, or the option without values
 context show                       # the values, as --NAME VALUE

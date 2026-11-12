@@ -15,7 +15,7 @@ platform's own toolset:
 
 ```sh
 simple-ca-trust add    [--user | --machine] [--ca-dir DIR | --file FILE] [--fingerprint SHA256]
-simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE]
+simple-ca-trust remove [--user | --machine] [--ca-dir DIR | --file FILE | --fingerprint SHA256]
 simple-ca-trust list   [--user | --machine]
 simple-ca-trust --version
 ```
@@ -34,8 +34,8 @@ name. It cannot be given with `--ca-dir`.
 On a machine without the CA, use a copy of `ca_bundle.pem` or of the root CA's `ca_cert.pem`,
 which `serve` publishes at `/ca_bundle.pem` and `/ca_cert.pem`. `add` prints the SHA-256
 fingerprint of the root CA it adds; with `--fingerprint`, given the fingerprint
-`simple-ca ca show` prints on the CA's machine, with or without its colons, it adds nothing
-unless the root CA has it:
+`simple-ca ca show` prints on the CA's machine, or the Info dialog of the index page of `serve`
+shows, with or without its colons, it adds nothing unless the root CA has it:
 
 ```sh
 FINGERPRINT=7C:3A:...:9E
@@ -51,10 +51,20 @@ not are refused before anything is changed.
 - `add` adds the root CA as a trusted root and the issuing CAs as intermediate CAs. On Windows
   and Linux, a CA already there is left as it is; on macOS, it is labelled again, and the root CA
   trusted again.
-- `remove` removes the CAs of the bundle, and the trust of its root CA.
+- `remove` removes the CAs of the bundle, and the trust of its root CA. With
+  `--fingerprint SHA256` it removes instead the CA `simple-ca-trust` added with that SHA-256
+  fingerprint, as `list` writes it, with or without its colons, without the CA's files; it
+  cannot be given with `--ca-dir` or `--file`.
 - `list` lists the CAs `simple-ca-trust` added, with their role, subject, expiry and SHA-256
   fingerprint, written as `simple-ca ca show` writes it. On macOS, a root CA without its trust
   settings has the role `root CA, not trusted`.
+
+A CA whose files are gone is removed by its fingerprint from `list`:
+
+```sh
+FINGERPRINT=7C:3A:...:9E
+simple-ca-trust remove --fingerprint "$FINGERPRINT"
+```
 
 `--user`, the default on Windows and macOS, changes the store of the current user; `--machine`
 changes the store of the machine, used by all its users and services, and needs Administrator or
@@ -96,15 +106,6 @@ Each CA is the file `simple-ca-` and the first 16 hexadecimal digits of its SHA-
 fingerprint, with `.crt`. Linux has no store of intermediate CAs: the issuing CAs are trust
 anchors like the root CA, and stay trusted on their own while they are there. Browsers that keep
 their own NSS databases, such as Firefox, are not changed.
-
-`remove --fingerprint SHA256` removes the one CA with that SHA-256 fingerprint, as `list` writes
-it, with or without its colons, without the CA's files; it cannot be given with `--ca-dir` or
-`--file`:
-
-```sh
-FINGERPRINT=7C:3A:...:9E
-sudo simple-ca-trust remove --fingerprint "$FINGERPRINT"
-```
 
 ## Building
 

@@ -95,18 +95,14 @@ var subcommands = []subcommand{
 
 // usage prints the usage of request-token.
 func usage(w io.Writer) {
-	fmt.Fprint(w, "Usage:\n"+
-		"  request-token SUBCOMMAND [options]\n"+
-		"  request-token --version\n\n"+
-		"Subcommands:\n")
+	fmt.Fprint(w, `Usage: request-token SUBCOMMAND [options]
+       request-token --version
+
+Subcommands:
+`)
 	for _, c := range subcommands {
 		fmt.Fprintf(w, "  %-21s %s\n", c.name, c.summary)
 	}
-	fmt.Fprint(w, "\nEach setting is read from the JSON file of --config, else federation.json of the\n"+
-		"working directory, with the keys ca_url, token, token_file, provider, service_account,\n"+
-		"google_scope, tenant_id, client_id and scope; an environment variable replaces it, and an\n"+
-		"option replaces both. The token itself is given by the key token or SIMPLE_CA_TOKEN alone.\n"+
-		"request-token SUBCOMMAND -h lists the options of a subcommand.\n")
 }
 
 func run() error {
@@ -141,11 +137,11 @@ func run() error {
 }
 
 // newFlagSet returns the flag set of the subcommand name, whose usage names its arguments and
-// describes it.
+// its description.
 func newFlagSet(name, arguments, description string) *flag.FlagSet {
 	fs := flag.NewFlagSet("request-token "+name, flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage:\n  request-token %s [options]%s\n\n%s\n\nOptions:\n", name, arguments, description)
+		fmt.Fprintf(fs.Output(), "Usage: request-token %s [options]%s\n\n%s\n\nOptions:\n", name, arguments, description)
 		fs.PrintDefaults()
 	}
 	return fs
@@ -205,8 +201,9 @@ func noArguments(fs *flag.FlagSet) error {
 // runAPI exchanges a one-time setup code for the api token, and prints it or writes it to the
 // token file, a new file.
 func runAPI(args []string) error {
-	fs := newFlagSet("api", " CODE", "Exchanges the one-time setup code for the api token at /api/token-setup of the server\n"+
-		"of the CA, and prints it, or writes it to the token file, a new file of mode 0600.")
+	fs := newFlagSet("api", " CODE",
+		"Exchanges the one-time setup code for the api token at /api/token-setup of the server of the CA,\n"+
+			"and prints it, or writes it to the token file, a new file of mode 0600.")
 	s, _, err := parse(fs, args, "ca-url", "token-file")
 	if err != nil {
 		return err
@@ -274,8 +271,8 @@ func simpleCAJWT(s client.Settings) (string, time.Time, error) {
 // runJWT prints the JWT of the api token, writes it to a file, or prints it as the answer of an
 // executable source of Google's credential file.
 func runJWT(args []string) error {
-	fs := newFlagSet("jwt", "", "Requests a JWT of workload identity federation from simple-ca serve with the api token,\n"+
-		"and prints it.")
+	fs := newFlagSet("jwt", "",
+		"Requests a JWT of workload identity federation from simple-ca serve with the api token, and prints it.")
 	output := fs.String("output", "", "write the JWT to `file`, mode 0600, replacing it, instead of printing it")
 	executable := fs.Bool("google-executable", false, "print the JWT as the answer of an executable source of Google's\n"+
 		"credential file, also on an error")
@@ -328,8 +325,9 @@ func googleFederated(s client.Settings) (string, error) {
 
 // runGoogleWIF prints the federated access token of Google of the JWT.
 func runGoogleWIF(args []string) error {
-	fs := newFlagSet("google-wif", "", "Requests a JWT from simple-ca serve, exchanges it at Google's Security Token Service\n"+
-		"for a federated access token of the workload identity pool provider, and prints it.")
+	fs := newFlagSet("google-wif", "",
+		"Requests a JWT from simple-ca serve, exchanges it at Google's Security Token Service for a\n"+
+			"federated access token of the workload identity pool provider, and prints it.")
 	s, _, err := parse(fs, args, "ca-url", "token-file", "provider")
 	if err != nil {
 		return err
@@ -348,9 +346,9 @@ func runGoogleWIF(args []string) error {
 // runGoogleAccessToken prints the access token of the service account the federated access token
 // of Google impersonates.
 func runGoogleAccessToken(args []string) error {
-	fs := newFlagSet("google-access-token", "", "Requests a JWT from simple-ca serve, exchanges it for a federated access token of\n"+
-		"Google, and that for an access token of the service account, which the principal of the\n"+
-		"JWT impersonates with roles/iam.workloadIdentityUser, and prints it.")
+	fs := newFlagSet("google-access-token", "",
+		"Requests a JWT from simple-ca serve and exchanges it for an access token of the service account,\n"+
+			"and prints it. The principal of the JWT needs roles/iam.workloadIdentityUser on the service account.")
 	s, _, err := parse(fs, args, "ca-url", "token-file", "provider", "service-account", "google-scope")
 	if err != nil {
 		return err
@@ -378,9 +376,9 @@ func runGoogleAccessToken(args []string) error {
 
 // runEntraID prints the Entra ID access token of the JWT.
 func runEntraID(args []string) error {
-	fs := newFlagSet("entra-id", "", "Requests a JWT from simple-ca serve, and gets an access token of the application of\n"+
-		"Microsoft Entra ID by the client credentials flow, with the JWT as the client assertion,\n"+
-		"and prints it.")
+	fs := newFlagSet("entra-id", "",
+		"Requests a JWT from simple-ca serve, gets an access token of the Microsoft Entra ID application\n"+
+			"by the client credentials flow, with the JWT as the client assertion, and prints it.")
 	s, _, err := parse(fs, args, "ca-url", "token-file", "tenant-id", "client-id", "scope")
 	if err != nil {
 		return err
@@ -412,12 +410,9 @@ func runEntraID(args []string) error {
 // runGoogleCredConfig writes the credential file of Google's Application Default Credentials and
 // gcloud auth login --cred-file, whose JWT comes from request-token jwt or from a file.
 func runGoogleCredConfig(args []string) error {
-	fs := newFlagSet("google-cred-config", "", "Writes the credential file of the workload identity pool provider, for\n"+
-		"GOOGLE_APPLICATION_CREDENTIALS and gcloud auth login --cred-file, impersonating the service\n"+
-		"account when one is given. With the source executable, Google runs request-token jwt\n"+
-		"--google-executable with the configuration file for each JWT, and needs\n"+
-		"GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1; with the source file, it reads the JWT of\n"+
-		"--jwt-file, which request-token jwt --output keeps fresh.")
+	fs := newFlagSet("google-cred-config", "",
+		"Writes the credential file of the workload identity pool provider for Application Default\n"+
+			"Credentials and gcloud. Its source executable needs GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1.")
 	source := fs.String("credential-source", "executable", "where the JWT comes from: `executable` or file")
 	jwtFile := fs.String("jwt-file", "", "the `file` of the JWT of the source file")
 	outputFile := fs.String("output-file", "cred.json", "the credential `file` written, a new file of mode 0600")

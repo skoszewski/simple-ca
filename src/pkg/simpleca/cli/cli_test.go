@@ -92,7 +92,7 @@ func TestPrintUsage(t *testing.T) {
 	PrintUsage(&b, CertGroups(), nil)
 	usage := b.String()
 	if !strings.HasPrefix(usage, "Usage: other-ca GROUP COMMAND [options] [ARGS]\n\n") ||
-		!strings.Contains(usage, `Run "other-ca GROUP -h"`) || strings.Contains(usage, "simple-ca") {
+		strings.Contains(usage, "simple-ca") {
 		t.Errorf("usage:\n%s\nwant the name other-ca alone", usage)
 	}
 	var listed []string

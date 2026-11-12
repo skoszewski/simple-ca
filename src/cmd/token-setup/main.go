@@ -44,11 +44,13 @@ var errUsage = errors.New("usage")
 
 func run() error {
 	flag.Usage = func() {
-		fmt.Fprint(flag.CommandLine.Output(), "Usage:\n"+
-			"  token-setup [options] CODE\n\n"+
-			"Exchanges the one-time setup code for its token at /api/token-setup of the server of\n"+
-			"simple-ca serve, and prints the token, or writes it to --token-file.\n\n"+
-			"Options:\n")
+		fmt.Fprint(flag.CommandLine.Output(), `Usage: token-setup [options] CODE
+
+Exchanges the one-time setup code for its token at /api/token-setup of simple-ca serve, and
+prints the token, or writes it to --token-file.
+
+Options:
+`)
 		flag.PrintDefaults()
 	}
 	serverURL := flag.String("url", os.Getenv("SIMPLE_CA_URL"),

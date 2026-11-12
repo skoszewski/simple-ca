@@ -45,25 +45,8 @@ import (
 // runTokenCreate runs token create.
 func runTokenCreate(args []string) error {
 	fs := cli.NewFlagSet("token create", "NAME",
-		"Create the token NAME of the CA in --ca-dir, and print it.\n\n"+
-			"The token is a JWT signed with the CA key and valid for that CA only. Scopes: sign (the\n"+
-			"signing API and the signing form of serve), tokens (the /tokens/ page of serve --webui),\n"+
-			"certs (its /certificates/ page), audit (its /audit/ page), federate (JWTs of a token type\n"+
-			"from /api/federation-token of serve). A root CA token opens the pages for every CA; an\n"+
-			"issuing CA token opens only its own CA.\n\n"+
-			"With the scope sign, the token allows the --type certificate types, the --domain domains\n"+
-			"and their subdomains, and the --ip addresses; at least one --domain, --ip or --localhost\n"+
-			"is required. With --host or --network, the token is accepted only from those clients.\n\n"+
-			"With --otc, it prints a one-time setup code instead, valid for --otc-valid, and makes the\n"+
-			"token when the code is exchanged at /api/token-setup of serve, or used to sign in to its\n"+
-			"pages; the token is valid for --valid from then on.\n\n"+
-			"Options not given default to the tokens section of simple-ca.json, then to the defaults\n"+
-			"below. --host and --network together replace hosts and networks. The defaults of --type,\n"+
-			"--cert-type, --domain, --ip and --localhost apply only with the scope sign.\n\n"+
-			"With the scope federate, the token gets JWTs of the --federate-type token type, such as\n"+
-			"google or azure, for workload identity federation, with the --audience and the --claim\n"+
-			"claims; the request sets nothing else. Without --federate-type, it gets no JWTs, and grants\n"+
-			"the scope federate on the /tokens/ page.")
+		"Creates the token NAME of the CA in --ca-dir and prints it, or with --otc a one-time setup\n"+
+			"code. An encrypted CA key needs its passphrase.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := cli.DurationVar(fs, "valid", time.Hour, "validity `period` of the token: minutes, or a number with h, d, m (30 days) or y\n"+
 		"(365 days), such as 30, 8h, 180d or 1y")
@@ -193,13 +176,8 @@ func claimFlag(claims *map[string]string) func(string) error {
 // runTokenIssue runs token issue.
 func runTokenIssue(args []string) error {
 	fs := cli.NewFlagSet("token issue", "NAME",
-		"Print a JWT of the --token-type token type for NAME, signed with the key of the CA in\n"+
-			"--ca-dir, for a party that verifies it with the keys of token jwks, such as Google or\n"+
-			"Microsoft Entra workload identity federation. The JWT is not stored, and simple-ca does\n"+
-			"not accept it; a token with the scope federate gets such JWTs from serve itself.\n\n"+
-			"NAME fills {name} of the subject template of the type. The JWT has the issuer of\n"+
-			"federation.issuer or ca_publish_base_url of simple-ca.json, the audience of the type or\n"+
-			"--audience, and the claims of the type and --claim.")
+		"Prints a JWT of the --token-type token type for NAME, signed with the key of the CA in\n"+
+			"--ca-dir, for workload identity federation; it is not stored. An encrypted CA key needs its passphrase.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	var fed tokens.TokenFederate
 	fs.StringVar(&fed.Type, "token-type", "", "token `type`: google, azure or a type of federation.types of simple-ca.json")
@@ -288,7 +266,7 @@ func setupFlags(fs *flag.FlagSet) func(given map[string]bool) (time.Duration, []
 
 // runTokenList runs token list.
 func runTokenList(args []string) error {
-	fs := cli.NewFlagSet("token list", "", "List the tokens of the CA in --ca-dir.")
+	fs := cli.NewFlagSet("token list", "", "Lists the tokens of the CA in --ca-dir.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	if _, _, err := cli.ParseArgs(fs, args, 0, 0); err != nil {
 		return err
@@ -299,11 +277,8 @@ func runTokenList(args []string) error {
 // runTokenDescribe runs token describe.
 func runTokenDescribe(args []string) error {
 	fs := cli.NewFlagSet("token describe", "[NAME]",
-		"Print the attributes of the token NAME of the CA in --ca-dir, or of the token in the file of\n"+
-			"--token-file, or on the standard input with --stdin.\n\n"+
-			"A token read from a file or the standard input shows what its JWT holds: its name, its\n"+
-			"scopes and its times. With --ca-dir, its signature is checked against that CA, and what it\n"+
-			"allows and where it is used from are read from the tokens-db.json of the CA.")
+		"Prints the attributes of the token NAME of the CA in --ca-dir, or of the token in the file of\n"+
+			"--token-file, or on the standard input with --stdin.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	tokenFile := fs.String("token-file", "", "`file` holding the token")
 	stdin := fs.Bool("stdin", false, "read the token from the standard input")
@@ -386,8 +361,8 @@ func runTokenDescribe(args []string) error {
 
 // runTokenRevoke runs token revoke.
 func runTokenRevoke(args []string) error {
-	fs := cli.NewFlagSet("token revoke", "NAME", "Revoke the token NAME of the CA in --ca-dir. Its JWT stops working at once;\n"+
-		"the token stays listed, and can be renewed, until token purge removes it.")
+	fs := cli.NewFlagSet("token revoke", "NAME",
+		"Revokes the token NAME of the CA in --ca-dir; its JWT stops working at once.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	rest, _, err := cli.ParseArgs(fs, args, 1, 1)
 	if err != nil {
@@ -405,8 +380,8 @@ func runTokenRevoke(args []string) error {
 // runTokenPurge runs token purge.
 func runTokenPurge(args []string) error {
 	fs := cli.NewFlagSet("token purge", "[NAME]",
-		"Remove the expired and revoked tokens of the CA in --ca-dir, or only the token NAME,\n"+
-			"which must be expired or revoked. Removed tokens cannot be renewed.")
+		"Removes the expired and revoked tokens of the CA in --ca-dir, or only the token NAME, which\n"+
+			"must be expired or revoked; removed tokens cannot be renewed.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	rest, _, err := cli.ParseArgs(fs, args, 0, 1)
 	if err != nil {
@@ -435,10 +410,8 @@ func runTokenPurge(args []string) error {
 // runTokenRenew runs token renew.
 func runTokenRenew(args []string) error {
 	fs := cli.NewFlagSet("token renew", "NAME",
-		"Renew the token NAME of the CA in --ca-dir, expired or not, and print it. It gets a new\n"+
-			"JWT, valid from now, with the same scopes and limits; the old JWT stops working.\n\n"+
-			"With --otc, it prints a one-time setup code instead, as token create does: the old JWT\n"+
-			"stops working at once, and the new one is made when the code is exchanged.")
+		"Renews the token NAME of the CA in --ca-dir with a new JWT and prints it, or with --otc a\n"+
+			"one-time setup code; the old JWT stops working. An encrypted CA key needs its passphrase.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := cli.DurationVar(fs, "valid", 0, "validity `period` of the token, such as 30 (minutes), 8h, 180d, 6m or 1y (default:\n"+
 		"the period it had)")
@@ -467,9 +440,7 @@ func runTokenRenew(args []string) error {
 // runTokenJWKS runs token jwks.
 func runTokenJWKS(args []string) error {
 	fs := cli.NewFlagSet("token jwks", "",
-		"Print the JSON Web Key Set of the CA in --ca-dir, the public key verifying its tokens, as\n"+
-			"gcloud iam workload-identity-pools providers create-oidc --jwk-json-path reads it.\n"+
-			"serve also publishes it at jwks.json of the issuer of the tokens.")
+		"Prints the JSON Web Key Set of the CA in --ca-dir, the public key verifying its tokens.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	if _, _, err := cli.ParseArgs(fs, args, 0, 0); err != nil {
 		return err

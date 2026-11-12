@@ -246,13 +246,10 @@ func grant(resource, getURL string, getBody any, setURL string, grants [][2]stri
 // runGoogleSetup creates the workload identity pool and the OIDC provider of the CA, with its
 // keys, and the token type of the provider in simple-ca.json, leaving alone what exists.
 func runGoogleSetup(args []string) error {
-	fs := newFlagSet("google setup", "", "Creates, in the Google Cloud project, the workload identity pool and its OIDC provider of\n"+
-		"the CA in --ca-dir, with the issuer of the CA and its keys uploaded, and sets the token type\n"+
-		"of the provider in federation.types of simple-ca.json of the root CA: the base google and\n"+
-		"the audience of the provider. It prints a line for each step: created, updated or unchanged.\n\n"+
-		"What exists is left alone, except the keys of an existing provider, which are replaced by\n"+
-		"the current ones when they differ. A pool or a provider that is deleted, a provider of another\n"+
-		"issuer, and an --issuer other than federation.issuer of simple-ca.json are refused.")
+	fs := newFlagSet("google setup", "",
+		"Creates the workload identity pool and the OIDC provider of the CA in --ca-dir in the Google Cloud\n"+
+			"project, and adds the token type of the provider to simple-ca.json. The account of the Google\n"+
+			"credentials needs roles/iam.workloadIdentityPoolAdmin.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA (default: SIMPLE_CA_DIR, else the working directory)")
 	accessFlag := fs.String("access-token", "", "Google access `token` (default: GOOGLE_OAUTH_ACCESS_TOKEN, else Application\n"+
 		"Default Credentials)")
@@ -442,20 +439,11 @@ func runGoogleSetup(args []string) error {
 // subject, or as a service account, then makes its token of the scope federate and writes its
 // federation.json.
 func runGoogleMachine(args []string) error {
-	fs := newFlagSet("google machine", " NAME", "Sets up the machine NAME for the token type of the provider that google setup made, in\n"+
-		"this order, and prints a line for each step:\n\n"+
-		"1. checks the options, makes federation.json and NAME.token in --output-dir as new empty\n"+
-		"   files, removed when a later step fails, and checks that the token type has the audience\n"+
-		"   of a provider and that the CA has no token NAME;\n"+
-		"2. with --service-account, creates the service account when it is missing, lets the principal\n"+
-		"   of the subject of NAME impersonate it with roles/iam.workloadIdentityUser, and grants it\n"+
-		"   each --role on the project; without it, grants each --role to the principal;\n"+
-		"3. makes the token NAME of the scope federate and the token type, and writes it to NAME.token,\n"+
-		"   a new file of mode 0600, or prints its one-time setup code with --otc, valid for\n"+
-		"   --otc-valid and exchanged from the clients of --otc-network;\n"+
-		"4. writes federation.json of request-token, a new file.\n\n"+
-		"Step 2 leaves alone the members a role already has, so after a failed step, such as an IAM\n"+
-		"policy changed meanwhile, the command is run again.")
+	fs := newFlagSet("google machine", " NAME",
+		"Makes the token NAME and federation.json of a machine, and gives it the access of --role, or of\n"+
+			"--service-account. The account of the Google credentials needs roles/iam.serviceAccountAdmin for\n"+
+			"--service-account and roles/resourcemanager.projectIamAdmin for --role; an encrypted CA key needs\n"+
+			"its passphrase.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA (default: SIMPLE_CA_DIR, else the working directory)")
 	accessFlag := fs.String("access-token", "", "Google access `token` (default: GOOGLE_OAUTH_ACCESS_TOKEN, else Application\n"+
 		"Default Credentials)")

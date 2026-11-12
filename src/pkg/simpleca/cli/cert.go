@@ -38,12 +38,8 @@ import (
 // runCertCreate runs cert create.
 func runCertCreate(args []string) error {
 	fs := NewFlagSet("cert create", "CN|EMAIL [EMAIL|CN] [SAN ...]",
-		"Create a certificate signed by the CA in --ca-dir, of the type server, user, none or a\n"+
-			"type of simple-ca.json.\n\n"+
-			"server, none: CN [SAN ...]; the CN is a hostname or FQDN, a SAN a hostname, FQDN, IPv4 or\n"+
-			"IPv6 address, or numeric OID. A none certificate has no key usages of its own.\n"+
-			"user: CN|EMAIL [EMAIL|CN] [SAN ...]; the CN, the emailAddress or both, in either order,\n"+
-			"then email addresses or numeric OIDs, after both the CN and the emailAddress.")
+		"Creates a key and a certificate of the --type type signed by the CA in --ca-dir.\n"+
+			"An encrypted CA key needs its passphrase.")
 	certDir := fs.String("cert-dir", "", "output `directory` (default: the CA directory)")
 	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, root or issuing CA")
 	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.json")
@@ -81,10 +77,8 @@ func runCertCreate(args []string) error {
 // runCertSign runs cert sign.
 func runCertSign(args []string) error {
 	fs := NewFlagSet("cert sign", "CSR_FILE",
-		"Sign the certificate signing request in CSR_FILE, PEM or DER, with the CA in --ca-dir.\n\n"+
-			"Only the subject and the subject alternative names of the request are copied; the type\n"+
-			"sets the key usages and extended key usages. The certificate of NAME.EXT is written as\n"+
-			"NAME_cert.pem. It is shown first and signed after you answer y.")
+		"Signs the certificate signing request in CSR_FILE, PEM or DER, with the CA in --ca-dir; it\n"+
+			"shows the certificate and signs it after you answer y. An encrypted CA key needs its passphrase.")
 	certDir := fs.String("cert-dir", "", "output `directory` (default: the CA directory)")
 	caDir := fs.String("ca-dir", "", "`directory` of the signing CA, root or issuing CA")
 	certType := fs.String("type", "server", "certificate `type`: server, user, none or a type of simple-ca.json")
@@ -115,7 +109,9 @@ func runCertSign(args []string) error {
 
 // runCertPFX runs cert pfx.
 func runCertPFX(args []string) error {
-	fs := NewFlagSet("cert pfx", "CERT_PATH", "Create a PKCS#12 (PFX) bundle for a leaf certificate.")
+	fs := NewFlagSet("cert pfx", "CERT_PATH",
+		"Creates a PKCS#12 (PFX) bundle of the leaf certificate CERT_PATH, its key and the chain of the\n"+
+			"CA in --ca-dir. An encrypted certificate key needs its passphrase.")
 	caDir := fs.String("ca-dir", "", "`directory` of the CA that signed the certificate")
 	password := fs.String("password", "", "PFX `password` (default: changeit)")
 	rest, _, err := ParseArgs(fs, args, 1, 1)
@@ -135,7 +131,7 @@ func runCertPFX(args []string) error {
 
 // runCertRevoke runs cert revoke.
 func runCertRevoke(args []string) error {
-	fs := NewFlagSet("cert revoke", "CERT_PATH", "Revoke a certificate the CA in --ca-dir issued.")
+	fs := NewFlagSet("cert revoke", "CERT_PATH", "Revokes the certificate CERT_PATH the CA in --ca-dir issued.")
 	caDir := fs.String("ca-dir", "", "`directory` of the CA that signed the certificate")
 	reason := fs.String("reason", "", "revocation `reason`: unspecified, keyCompromise, CACompromise, affiliationChanged,\n"+
 		"superseded or cessationOfOperation (default: none)")
@@ -148,7 +144,7 @@ func runCertRevoke(args []string) error {
 
 // runCertList runs cert list.
 func runCertList(args []string) error {
-	fs := NewFlagSet("cert list", "", "List the certificates the CA in --ca-dir issued; without a status option, all of them.")
+	fs := NewFlagSet("cert list", "", "Lists the certificates the CA in --ca-dir issued; without a status option, all of them.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := fs.Bool("valid", false, "list the valid certificates")
 	revoked := fs.Bool("revoked", false, "list the revoked certificates")
@@ -173,7 +169,7 @@ func runCertList(args []string) error {
 
 // runCertShow runs cert show.
 func runCertShow(args []string) error {
-	fs := NewFlagSet("cert show", "CERT_FILE", "Show the certificates in CERT_FILE, PEM or DER.")
+	fs := NewFlagSet("cert show", "CERT_FILE", "Shows the certificates in CERT_FILE, PEM or DER.")
 	rest, _, err := ParseArgs(fs, args, 1, 1)
 	if err != nil {
 		return err
