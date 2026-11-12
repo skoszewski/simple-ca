@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.20.0
+
+feat: a session of simple-ca takes options as NAME=VALUE, works in the directory of the CA of its context, and takes no --ca-dir.
+
+- A line of a session is the group and its command, then options as `NAME=VALUE`, such as
+  `days=30`, without white space around `=`, and the arguments, in any order. `"..."` holds `'`,
+  `'...'` holds `"`, nothing is escaped, and a backslash is literal. `-NAME VALUE` is refused.
+- The working directory of a session is the directory of the CA of the active context, so a
+  relative path, such as the `CERT_PATH` of `cert pfx` and `cert revoke`, is a path in that CA.
+- The commands of a session take no `ca-dir`; `context use DIR` works on the CA in `DIR`, in the
+  hierarchy of its root CA, in place of `context use --ca-dir DIR`.
+- `context set` and `context add` take `NAME=VALUE...`, several options at once, `context delete`
+  takes `NAME...` for options and `NAME=VALUE...` for single values, and `context show` prints
+  `NAME=VALUE`, quoted as a line takes it.
+- `GROUP COMMAND help` prints the usage of a command, and in a session the usage texts show the
+  options as `NAME=VALUE`.
+
 ## 1.19.12
 
 gap: simple-ca-trust remove --fingerprint works on Windows and macOS too, and the usage of each command is its synopsis, a short description with its requirements, and its options.

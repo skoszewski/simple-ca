@@ -30,33 +30,72 @@ func newHierarchy(t *testing.T) string {
 	return caDir
 }
 
-func TestSplitLine(t *testing.T) {
+// startSession makes the commands take the args of a session until the test ends, and restores
+// the working directory then.
+func startSession(t *testing.T) {
+	t.Helper()
+	cli.Session = true
+	t.Cleanup(func() { cli.Session = false })
+	t.Chdir(".")
+}
+
+// runText runs a line of the session.
+func runText(line string) error {
+	args, err := lineArgs(line)
+	if err != nil {
+		return err
+	}
+	return runLine(args)
+}
+
+// sameDir fails the test unless the working directory is dir.
+func sameDir(t *testing.T, dir string) {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, errA := os.Stat(wd)
+	b, errB := os.Stat(dir)
+	if errA != nil || errB != nil || !os.SameFile(a, b) {
+		t.Fatalf("working directory = %s, want %s", wd, dir)
+	}
+}
+
+func TestLineArgs(t *testing.T) {
 	for _, c := range []struct {
 		line string
 		want []string
 	}{
 		{"", nil},
 		{"  ca   show ", []string{"ca", "show"}},
-		{`ca create "My Root CA"`, []string{"ca", "create", "My Root CA"}},
-		{`ca create 'My "Root" CA'`, []string{"ca", "create", `My "Root" CA`}},
-		{`a "b \"c\" \\ d"`, []string{"a", `b "c" \ d`}},
-		{`a My\ CA`, []string{"a", "My CA"}},
-		{`a "" ''`, []string{"a", "", ""}},
-		{`a"b"'c'`, []string{"abc"}},
+		{"simple-ca ca show", []string{"ca", "show"}},
+		{"help", []string{"help"}},
+		{"exit", []string{"exit"}},
+		{"cert", []string{"cert"}},
+		{"cert help", []string{"cert", "help"}},
+		{"cert pfx help", []string{"cert", "pfx", "-h"}},
+		{`ca create "My Root CA"`, []string{"ca", "create", "--", "My Root CA"}},
+		{`cert create web.example.com days=30 san=a san='b c'`,
+			[]string{"cert", "create", "--days=30", "--san=a", "--san=b c", "--", "web.example.com"}},
+		{`context set otc-valid=1h`, []string{"context", "set", "--otc-valid=1h", "--"}},
+		{`context delete domain`, []string{"context", "delete", "--", "domain"}},
 	} {
-		got, err := splitLine(c.line)
+		got, err := lineArgs(c.line)
 		if err != nil || !slices.Equal(got, c.want) {
-			t.Errorf("splitLine(%q) = %q, %v; want %q", c.line, got, err, c.want)
+			t.Errorf("lineArgs(%q) = %q, %v; want %q", c.line, got, err, c.want)
 		}
 	}
-	for _, line := range []string{`a "b`, `a 'b`, `a b\`} {
-		if _, err := splitLine(line); err == nil {
-			t.Errorf("splitLine(%q) gave no error", line)
+	for _, line := range []string{`a "b`, `cert create days = 30`, `cert create --days 30 web`,
+		`cert days=30 create`, `days=30`} {
+		if got, err := lineArgs(line); err == nil {
+			t.Errorf("lineArgs(%q) = %q, want an error", line, got)
 		}
 	}
 }
 
 func TestSessionStart(t *testing.T) {
+	startSession(t)
 	caDir := newHierarchy(t)
 	root, err := filepath.Abs(caDir)
 	if err != nil {
@@ -65,10 +104,12 @@ func TestSessionStart(t *testing.T) {
 	if err := placeCA(caDir); err != nil || sessionRoot != root || sessionCA != "" || prompt() != "simple-ca:root> " {
 		t.Fatalf("root CA: %v, %q %q %q", err, sessionRoot, sessionCA, prompt())
 	}
+	sameDir(t, caDir)
 	if err := placeCA(filepath.Join(caDir, "servers")); err != nil || sessionRoot != root || sessionCA != "servers" ||
 		prompt() != "simple-ca:servers> " {
 		t.Fatalf("issuing CA: %v, %q %q %q", err, sessionRoot, sessionCA, prompt())
 	}
+	sameDir(t, filepath.Join(caDir, "servers"))
 	if got := cli.ResolveCADir(""); got != filepath.Join(root, "servers") {
 		t.Fatalf("resolveCADir of the session = %s", got)
 	}
@@ -90,21 +131,27 @@ func TestSessionStart(t *testing.T) {
 		t.Fatalf("a copied ca_cert.pem: %v, %q", err, prompt())
 	}
 
-	// Outside a CA, the session has no hierarchy until ca create makes the root CA.
+	// Outside a CA, the session has no hierarchy until ca create makes the root CA in the working
+	// directory.
 	empty := t.TempDir()
 	if err := placeCA(empty); err == nil || prompt() != "simple-ca> " {
 		t.Fatalf("outside a CA: %v, %q", err, prompt())
 	}
-	if err := runLine([]string{"ca", "create", "--ca-dir", empty, "Lab Root"}); err != nil {
+	t.Chdir(empty)
+	if err := runText(`ca create ca-dir=x "Lab Root"`); err == nil {
+		t.Fatal("ca create took ca-dir")
+	}
+	if err := runText(`ca create "Lab Root"`); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("SIMPLE_CA_DIR", empty)
-	if err := runLine([]string{"ca", "show"}); err != nil || sessionCA != "" || prompt() != "simple-ca:root> " {
+	if err := runText("ca show"); err != nil || sessionCA != "" || prompt() != "simple-ca:root> " {
 		t.Fatalf("after ca create: %v, %q", err, prompt())
 	}
+	sameDir(t, empty)
 }
 
 func TestRunScript(t *testing.T) {
+	startSession(t)
 	caDir := newHierarchy(t)
 	if err := placeCA(caDir); err != nil {
 		t.Fatal(err)
@@ -119,7 +166,13 @@ func TestRunScript(t *testing.T) {
 		{"simple-ca serve --port 8080\n", errReported},
 		{"exit\nnosuch\n", nil},
 		{"ca create \"unclosed\n", errReported},
-		{"context use servers\ncert create web.example.com\n", nil},
+		{"context use servers\ncert create web.example.com days=30\n", nil},
+		{"cert pfx web_cert.pem password=secret\n", nil},
+		{"cert pfx web_cert.pem nosuch=1\n", cli.ErrUsage},
+		{"cert create other.example.com ca-dir=.\n", errReported},
+		{"cert create other.example.com days = 30\n", errReported},
+		{"cert create other.example.com -days 30\n", errReported},
+		{"cert pfx help\n", nil},
 	} {
 		if err := runScript(strings.NewReader(c.script)); !errors.Is(err, c.want) {
 			t.Errorf("runScript(%q) = %v, want %v", c.script, err, c.want)
@@ -128,42 +181,53 @@ func TestRunScript(t *testing.T) {
 	if !simpleca.FileExists(filepath.Join(caDir, "servers", "web_cert.pem")) {
 		t.Fatal("cert create of the script did not issue from the issuing CA servers")
 	}
+	if !simpleca.FileExists(filepath.Join(caDir, "servers", "web.pfx")) {
+		t.Fatal("cert pfx of a relative CERT_PATH did not find it in the issuing CA servers")
+	}
+	if simpleca.FileExists(filepath.Join(caDir, "servers", "other_cert.pem")) {
+		t.Fatal("a refused cert create issued a certificate")
+	}
 	if err := run([]string{"context", "list"}); !errors.Is(err, cli.ErrUsage) {
 		t.Fatalf("context on the command line = %v, want errUsage", err)
 	}
 }
 
 func TestContextCommands(t *testing.T) {
+	startSession(t)
 	caDir := newHierarchy(t)
 	if err := placeCA(caDir); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		args []string
+		line string
 		ok   bool
 	}{
-		{[]string{"context", "list"}, true},
-		{[]string{"context", "set", "otc-valid", "1h"}, true},
-		{[]string{"context", "set", "ca-dir", "x"}, false},
-		{[]string{"context", "set", "Bad_Name", "x"}, false},
-		{[]string{"context", "use", "nosuch"}, false},
-		{[]string{"context", "use", "servers"}, true},
-		{[]string{"context", "add", "domain", "a.example", "b.example"}, true},
-		{[]string{"context", "add", "domain", "c.example"}, true},
-		{[]string{"context", "delete", "domain", "b.example"}, true},
-		{[]string{"context", "delete", "domain", "nosuch.example"}, false},
-		{[]string{"context", "set", "days", "30"}, true},
-		{[]string{"context", "delete", "days"}, true},
-		{[]string{"context", "delete", "days"}, false},
-		{[]string{"context", "show"}, true},
+		{"context list", true},
+		{"context set otc-valid=1h", true},
+		{"context set ca-dir=x", false},
+		{"context set Bad_Name=x", false},
+		{"context set otc-valid 1h", false},
+		{"context set", false},
+		{"context use nosuch", false},
+		{"context use servers", true},
+		{"context add domain=a.example domain=b.example", true},
+		{"context add domain=c.example", true},
+		{"context delete domain=b.example", true},
+		{"context delete domain=nosuch.example", false},
+		{"context set days=30 san=a san='b c'", true},
+		{"context set san=d", true},
+		{"context delete days san", true},
+		{"context delete days", false},
+		{"context show", true},
 	} {
-		if err := runLine(c.args); (err == nil) != c.ok {
-			t.Fatalf("%q: %v", c.args, err)
+		if err := runText(c.line); (err == nil) != c.ok {
+			t.Fatalf("%q: %v", c.line, err)
 		}
 	}
 	if sessionCA != "servers" {
 		t.Fatalf("an unknown issuing CA changed the context to %q", sessionCA)
 	}
+	sameDir(t, filepath.Join(caDir, "servers"))
 	cfg, err := simpleca.LoadConfig(caDir)
 	if err != nil {
 		t.Fatal(err)
@@ -179,9 +243,21 @@ func TestContextCommands(t *testing.T) {
 		t.Fatalf("simple-ca.json: %v\n%s", err, b)
 	}
 
-	// context use --ca-dir moves to the CA named, here the root CA of the same hierarchy.
-	if err := runLine([]string{"context", "use", "--ca-dir", caDir}); err != nil || sessionCA != "" {
-		t.Fatalf("context use --ca-dir: %v, %q", err, sessionCA)
+	// context use DIR moves to the CA in DIR, here the root CA of the same hierarchy, and context
+	// use without an argument to the root CA.
+	if err := runText("context use " + caDir); err != nil || sessionCA != "" {
+		t.Fatalf("context use DIR: %v, %q", err, sessionCA)
+	}
+	sameDir(t, caDir)
+	if err := runText("context use servers"); err != nil || sessionCA != "servers" {
+		t.Fatalf("context use servers: %v, %q", err, sessionCA)
+	}
+	if err := runText("context use"); err != nil || sessionCA != "" {
+		t.Fatalf("context use: %v, %q", err, sessionCA)
+	}
+	sameDir(t, caDir)
+	if err := runText("context use ca-dir=" + caDir); err == nil {
+		t.Fatal("context use took ca-dir")
 	}
 }
 

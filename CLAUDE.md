@@ -21,9 +21,6 @@
 
 ## Code
 
-- Go standard library only; `go-pkcs12`, serve-markdown's `render` package, which draws the
-  `/help/` page, and `golang.org/x/term`, which reads the passphrase of the private keys without
-  echo, are the dependencies, and no other is added.
 - The Go module, `github.com/skoszewski/simple-ca/src`, is `src/`; package paths below are
   relative to it.
 - The CA core is the public package `pkg/simpleca` with a subpackage per domain, each importing

@@ -130,6 +130,27 @@ default `slog` handler and the trusted proxies, which the next commands would in
 stops at its first failing command, as a later line usually depends on an earlier one, and its
 commands read no stdin, which holds the script.
 
+## The session has a syntax of its own and controls its working directory
+
+The command line keeps the syntax of the `flag` package, which a shell splits. The session knows
+its context and controls it, so it does not copy that syntax:
+
+- **The context replaces `ca-dir`.** No command of a session takes it, and `context use` switches
+  the CA, also to another hierarchy, so a line cannot work on a CA other than the one the prompt
+  names.
+- **The working directory is the active CA's.** A relative path given to a command, such as the
+  certificate of `cert pfx` or `cert revoke`, is then a path in the CA the command works on, as
+  after a `cd` in a shell. The session does not run `serve`, so changing the directory of the
+  process changes it for no other work.
+- **Options are `NAME=VALUE`.** A line is parsed by `pkg/replline`, then given to the commands as
+  `--NAME=VALUE`, `--` and the arguments, which `ParseArgs` reads in a session with `fs.Set`, so
+  the commands keep one flag set for the command line and the session, and an unknown option or a
+  bad value is reported by its name.
+- **White space around `=` is an error,** so an element is a word or an assignment by itself, and
+  a group or command name can never be read as the name of an option.
+- **No escapes.** `"..."` holds `'` and `'...'` holds `"`, and quoted parts join, which is enough
+  for every value; a backslash stays literal, as in the Windows paths a value may hold.
+
 ## The key of a CA is RSA or EC P-256, and its algorithms follow the key
 
 `ca create --key-type` gives a CA an RSA 4096 or an ECDSA P-256 key, chosen for each CA, so an
@@ -376,7 +397,8 @@ need nothing of `main`.
 Package `main` of `simple-ca` keeps what only it runs: the token and audit commands, the REPL,
 `serve`, the signing API and the web UIs. The tests of a package's own functions are in the
 package; those that run commands through the command table are in `cli`, and those of what
-`main` keeps stay in `main`.
+`main` keeps stay in `main`. The parser of the lines of the REPL is `pkg/replline`, which imports
+nothing of the module, so it is tested alone.
 
 The client code that `request-cert`, `token-setup`, `request-token` and `simple-ca-wif` share,
 the requests to `serve` and to the clouds and the keys of `federation.json`, is the package

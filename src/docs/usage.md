@@ -58,8 +58,8 @@ its own. The commands that change a CA write its [audit log](audit.md), which `a
 `simple-ca GROUP COMMAND -h` the options of a command. Options come before the arguments, and take
 one dash or two: `-days 30` and `--days 30` are the same.
 
-The CA directory is `--ca-dir`, else the CA of the active context of a
-[session](#sessions-and-scripts), else `SIMPLE_CA_DIR`, else the working directory. It must exist,
+The CA directory is `--ca-dir`, else `SIMPLE_CA_DIR`, else the working directory; in a
+[session](#sessions-and-scripts), it is the CA of the active context. It must exist,
 and it holds the CA a command works with. A CA whose certificate is self-signed is a root CA;
 any other is an issuing CA, and its root CA is in the directory above it. An option a command is
 not given takes the values its CA's [context](#contexts) holds, if any.
@@ -440,18 +440,31 @@ already is `400 Bad Request`.
 them at a prompt, with line editing, history and Tab completion. Otherwise, it runs the lines of
 its standard input as a script, `simple-ca < commands.txt`.
 
-A line is a command line without `simple-ca`, which may also be left in front. It is split as a
-shell splits it, with `'...'`, `"..."` and `\` escapes, but without variables or wildcards. Blank
-lines and lines starting with `#` are skipped. Every command of the command line is accepted but
-`serve`, which runs on its own, and the session adds the group `context`. `help` lists the
-commands, and `exit` or `quit` ends the session.
+A line is a group and its command, as on the command line, without `simple-ca`, which may also be
+left in front, then the options and the arguments of the command. Every command of the command line
+is accepted but `serve`, which runs on its own, and the session adds the group `context`. `help`
+lists the commands, `GROUP help` the commands of a group, `GROUP COMMAND help` the options of a
+command, and `exit` or `quit` ends the session. Blank lines and lines starting with `#` are
+skipped.
 
 ```text
 simple-ca:root> context use servers
-simple-ca:servers> cert create web.example.com
-simple-ca:servers> cert list
+simple-ca:servers> cert create web.example.com www.example.com days=30
+simple-ca:servers> cert pfx web_cert.pem password=secret
 simple-ca:servers> exit
 ```
+
+### The syntax of a line
+
+- **Options** are `NAME=VALUE`, the name of the option without dashes, with no white space around
+  `=`: `days=30`, not `days = 30`. A repeated option is given once for each value, a boolean one as
+  `NAME=true`. Options and arguments may come in any order; a word starting with `-` is an error.
+- **Words** are separated by white space.
+- **Quotes:** `"..."` holds any character but `"`, so `'` too, and `'...'` any character but `'`,
+  so `"` too: `subject="CN=My Host, O=Example"`, `note='say "hi"'`. An empty value is `""`. Nothing
+  is escaped, so a backslash is a backslash, `out="C:\certs\web.pfx"`, and quoted and unquoted
+  parts next to each other join into one word: `"it's"' "quoted"'` is `it's "quoted"`.
+- **`ca-dir`** is not an option of a session; the [context](#contexts) is the CA of the commands.
 
 ### At the prompt
 
@@ -470,43 +483,49 @@ simple-ca:servers> exit
 ### Contexts
 
 Each CA of the hierarchy, the root CA and its issuing CAs, is a context, and the commands of a
-session work on the CA of the active one, without `--ca-dir`. The prompt names it,
-`simple-ca:root>` or `simple-ca:NAME>`.
+session work on the CA of the active one. The prompt names it, `simple-ca:root>` or
+`simple-ca:NAME>`. The directory of the active CA is the working directory of the session, so a
+relative path given to a command, such as the `CERT_PATH` of `cert pfx`, is a path in that
+directory.
 
 - **Start:** a session started in a root CA directory works on the root CA, and one started in an
   issuing CA directory on that issuing CA; the directory is `SIMPLE_CA_DIR`, else the working
   directory.
 - **Outside a CA:** the session has no hierarchy, with the prompt `simple-ca>`, until `ca create`
-  makes the root CA there. A CA directory holds `ca_cert.pem`, `ca_key.pem` and `index.txt`; a
-  directory with a copy of `ca_cert.pem` alone is not one.
-- **`--ca-dir`** given on a line names another CA for that line alone.
+  makes the root CA in the working directory. A CA directory holds `ca_cert.pem`, `ca_key.pem` and
+  `index.txt`; a directory with a copy of `ca_cert.pem` alone is not one.
+- **Another hierarchy:** `context use DIR` works on the CA in the directory `DIR`, in the hierarchy
+  of its root CA.
 
 A context also holds values of options, which a command on its CA takes for the options it is not
 given. They are kept in `simple-ca.json` of the root CA, as described in
 [configuration](configuration.md), and apply on the command line too.
 
 ```text
-context list                       # the CAs of the hierarchy, root first, the active one marked *
-context use servers                # work on the issuing CA servers
-context use                        # work on the root CA
-context use --ca-dir DIR [NAME]    # work in the hierarchy of another CA directory
-context set valid 45d              # --valid 45d for this CA, replacing the values held
-context add domain example.org     # one more --domain, for a repeated option
-context delete domain example.org  # one value, or the option without values
-context show                       # the values, as --NAME VALUE
+context list                             # the CAs of the hierarchy, root first, the active one marked *
+context use servers                      # work on the issuing CA servers
+context use                              # work on the root CA
+context use DIR                          # work on the CA in DIR, in the hierarchy of its root CA
+context set valid=45d                    # valid=45d for this CA, replacing the values held
+context set domain=a.example domain=b.example  # both values of a repeated option
+context add domain=example.org           # one more value of a repeated option
+context delete domain=example.org        # one value of an option
+context delete domain valid              # the options, with all their values
+context show                             # the values, as NAME=VALUE
 ```
 
-The `context` group is known in a session alone, not on the command line. An option name is the kebab-case name without the dashes, such as `valid` or `otc-valid`. A value
-is checked by the command that takes it, so `context set days abc` fails the next command with
-`--days`. `ca-dir` is not a value: `context use` switches the CA. An option on the line wins over
-the context, and the context over the option's default and its environment variable. A command
-without the option ignores the value.
+The `context` group is known in a session alone, not on the command line. An option name is the
+kebab-case name without the dashes, such as `valid` or `otc-valid`. A value is checked by the
+command that takes it, so `context set days=abc` fails the next command with `days`. `ca-dir` is
+not a value: `context use` switches the CA. An option on the line wins over the context, and the
+context over the option's default and its environment variable. A command without the option
+ignores the value.
 
 ### Scripts
 
 A script runs its lines in order and stops at the first failing one, naming its line, with the
 exit status of that command: 2 for a wrong command line, else 1. Its commands read no standard
-input, which holds the script, so `cert sign` needs `--force`, and the passphrase comes from
+input, which holds the script, so `cert sign` needs `force=true`, and the passphrase comes from
 `SIMPLE_CA_KEY_PASSWORD` or `SIMPLE_CA_KEY_PASSWORD_FILE`.
 
 ```sh
@@ -516,7 +535,7 @@ cd "$CA_DIR"
 simple-ca <<'EOF'
 # Two server certificates of the issuing CA servers.
 context use servers
-context set days 30
+context set days=30
 cert create web.example.com
 cert create mail.example.com
 EOF

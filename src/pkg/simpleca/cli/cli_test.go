@@ -212,4 +212,40 @@ func TestParseArgs(t *testing.T) {
 			t.Errorf("ParseArgs %q: %v, want %v", c.args, err, c.want)
 		}
 	}
+
+	// In a session, the options are --NAME=VALUE before --, the CA is the session's, and ca-dir
+	// is refused.
+	oldSession := SessionCADir
+	t.Cleanup(func() { SessionCADir, Session = oldSession, false })
+	SessionCADir, Session = func() string { return caDir }, true
+	fs, days, name = newSet()
+	args, given, err = ParseArgs(fs, []string{"--days=90", "--", "--days=1"}, 0, 1)
+	if err != nil || *days != 90 || *name != "root" || !slices.Equal(args, []string{"--days=1"}) || !given["days"] {
+		t.Errorf("ParseArgs in a session: %v, days %d, name %q, args %q, given %v", err, *days, *name, args, given)
+	}
+	// A want of nil is an error other than ErrUsage.
+	for _, c := range []struct {
+		args []string
+		want error
+	}{
+		{[]string{"--", "a", "b"}, ErrUsage},
+		{[]string{"--nosuch=1", "--"}, ErrUsage},
+		{[]string{"-h"}, flag.ErrHelp},
+		{[]string{"--ca-dir=" + caDir, "--"}, nil},
+		{[]string{"--days=x", "--"}, nil},
+	} {
+		fs, _, _ := newSet()
+		_, _, err := ParseArgs(fs, c.args, 0, 1)
+		if c.want == nil && (err == nil || errors.Is(err, ErrUsage)) || c.want != nil && !errors.Is(err, c.want) {
+			t.Errorf("ParseArgs in a session %q: %v, want %v", c.args, err, c.want)
+		}
+	}
+	var b bytes.Buffer
+	fs, _, _ = newSet()
+	fs.SetOutput(&b)
+	fs.Usage()
+	if usage := b.String(); !strings.HasPrefix(usage, "Usage: test [NAME=VALUE...] [ARG]\n") ||
+		!strings.Contains(usage, "  days=int\n") || strings.Contains(usage, "ca-dir") {
+		t.Errorf("usage in a session:\n%s", usage)
+	}
 }

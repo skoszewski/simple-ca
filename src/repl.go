@@ -34,7 +34,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
+	"github.com/skoszewski/simple-ca/src/pkg/replline"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cli"
 	"golang.org/x/term"
@@ -63,6 +65,7 @@ var contextGroup = cli.Command{Name: "context", Summary: "Switch the CA of the s
 
 // runREPL runs the commands of a session on a terminal, else the lines of stdin as a script.
 func runREPL() error {
+	cli.Session = true
 	placeCA(cli.ResolveCADir(""))
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		return runInteractive()
@@ -77,7 +80,16 @@ func placeCA(dir string) error {
 	if err != nil {
 		return err
 	}
-	sessionRoot, sessionCA = rootDir, caID
+	return setContext(rootDir, caID)
+}
+
+// setContext makes the CA caID of the hierarchy of the root CA in root, the root CA for "", the
+// active context, and its directory the working directory.
+func setContext(root, caID string) error {
+	if err := os.Chdir(filepath.Join(root, caID)); err != nil {
+		return err
+	}
+	sessionRoot, sessionCA = root, caID
 	return nil
 }
 
@@ -146,7 +158,7 @@ func runInteractive() error {
 		if err != nil {
 			return err
 		}
-		args, err := splitLine(line)
+		args, err := lineArgs(line)
 		if err == nil {
 			if isExit(args) {
 				return nil
@@ -171,7 +183,7 @@ func runScript(r io.Reader) error {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		args, err := splitLine(line)
+		args, err := lineArgs(line)
 		if err == nil {
 			if isExit(args) {
 				return nil
@@ -196,12 +208,9 @@ func isExit(args []string) bool {
 	return len(args) == 1 && (args[0] == "exit" || args[0] == "quit")
 }
 
-// runLine runs one command of the session: the context group, help, or a command of the command
-// line but serve; a leading simple-ca is dropped.
+// runLine runs one command of the session, the args of lineArgs: the context group, help, or a
+// command of the command line but serve.
 func runLine(args []string) error {
-	if len(args) > 0 && args[0] == "simple-ca" {
-		args = args[1:]
-	}
 	if len(args) == 0 {
 		return nil
 	}
@@ -245,59 +254,50 @@ func runGroup(g *cli.Command, args []string) error {
 	return g.Sub[i].Run(args[1:])
 }
 
-// splitLine splits a line into arguments as a shell does, with '...' and "..." quotes and \
-// escapes, and no expansion.
-func splitLine(line string) ([]string, error) {
+// lineArgs returns the args of a line of the session, parsed by replline, a leading simple-ca
+// dropped: the words naming the group and its command, then, when the line has more, -h for the
+// word help alone, else its assignments as --NAME=VALUE, --, and its words.
+func lineArgs(line string) ([]string, error) {
+	elements, err := replline.Parse(line)
+	if err != nil {
+		return nil, err
+	}
+	if len(elements) > 0 && elements[0] == (replline.Element{Value: "simple-ca"}) {
+		elements = elements[1:]
+	}
+	if len(elements) == 0 {
+		return nil, nil
+	}
+	n := 1
+	groups := append(slices.Clone(commands), contextGroup)
+	if i := slices.IndexFunc(groups, func(c cli.Command) bool { return c.Name == elements[0].Value }); i >= 0 &&
+		groups[i].Sub != nil && len(elements) > 1 {
+		n = 2
+	}
 	var args []string
-	var arg strings.Builder
-	inArg, quote := false, rune(0)
-	runes := []rune(line)
-	for i := 0; i < len(runes); i++ {
-		c := runes[i]
+	for _, e := range elements[:n] {
+		if e.Name != "" {
+			return nil, fmt.Errorf("%s=%s comes after the command it is an option of", e.Name, e.Value)
+		}
+		args = append(args, e.Value)
+	}
+	if rest := elements[n:]; len(rest) == 1 && rest[0] == (replline.Element{Value: "help"}) {
+		return append(args, "-h"), nil
+	} else if len(rest) == 0 {
+		return args, nil
+	}
+	var words []string
+	for _, e := range elements[n:] {
 		switch {
-		case quote == '\'':
-			if c == '\'' {
-				quote = 0
-			} else {
-				arg.WriteRune(c)
-			}
-		case quote == '"':
-			switch {
-			case c == '"':
-				quote = 0
-			case c == '\\' && i+1 < len(runes) && (runes[i+1] == '"' || runes[i+1] == '\\'):
-				i++
-				arg.WriteRune(runes[i])
-			default:
-				arg.WriteRune(c)
-			}
-		case c == ' ' || c == '\t':
-			if inArg {
-				args = append(args, arg.String())
-				arg.Reset()
-				inArg = false
-			}
-		case c == '\'' || c == '"':
-			quote, inArg = c, true
-		case c == '\\':
-			if i+1 == len(runes) {
-				return nil, errors.New("the line ends with a backslash")
-			}
-			i++
-			arg.WriteRune(runes[i])
-			inArg = true
+		case e.Name != "":
+			args = append(args, "--"+e.Name+"="+e.Value)
+		case strings.HasPrefix(e.Value, "-"):
+			return nil, fmt.Errorf("'%s': the options of a session are NAME=VALUE, such as days=30", e.Value)
 		default:
-			arg.WriteRune(c)
-			inArg = true
+			words = append(words, e.Value)
 		}
 	}
-	if quote != 0 {
-		return nil, fmt.Errorf("the line has an unclosed %c quote", quote)
-	}
-	if inArg {
-		args = append(args, arg.String())
-	}
-	return args, nil
+	return append(append(args, "--"), words...), nil
 }
 
 // complete completes the word before pos in line: a group or command name, an issuing CA after
@@ -329,7 +329,11 @@ func complete(t *term.Terminal, line string, pos int) (string, int, bool) {
 		sessionRoot != "":
 		if cfg, err := simpleca.LoadConfig(sessionRoot); err == nil {
 			for key := range cfg.ContextValues(sessionCA) {
-				candidates = append(candidates, strings.ReplaceAll(key, "_", "-"))
+				name := strings.ReplaceAll(key, "_", "-")
+				if words[1] != "delete" {
+					name += "="
+				}
+				candidates = append(candidates, name)
 			}
 		}
 	}
@@ -339,7 +343,7 @@ func complete(t *term.Terminal, line string, pos int) (string, int, bool) {
 		return "", 0, false
 	}
 	word := candidates[0]
-	if len(candidates) == 1 {
+	if len(candidates) == 1 && !strings.HasSuffix(word, "=") {
 		word += " "
 	} else {
 		for _, c := range candidates[1:] {
@@ -359,7 +363,7 @@ func complete(t *term.Terminal, line string, pos int) (string, int, bool) {
 // requireHierarchy fails when the session has no CA hierarchy.
 func requireHierarchy() error {
 	if sessionRoot == "" {
-		return errors.New("the session has no CA: run ca create, or context use --ca-dir DIR")
+		return errors.New("the session has no CA: run ca create, or context use DIR")
 	}
 	return nil
 }
@@ -384,29 +388,29 @@ func runContextList(args []string) error {
 }
 
 func runContextUse(args []string) error {
-	fs := cli.NewFlagSet("context use", "[NAME]",
-		"Makes the issuing CA NAME, or the root CA without NAME, the CA the commands of the session work\n"+
-			"on; with --ca-dir, in the hierarchy of that CA directory.")
-	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA, of another hierarchy")
+	fs := cli.NewFlagSet("context use", "[NAME | DIR]",
+		"Makes the issuing CA NAME of the hierarchy, the root CA without an argument, or the CA in the\n"+
+			"directory DIR, with its hierarchy, the CA the commands of the session work on; its directory\n"+
+			"becomes the working directory.")
 	rest, _, err := cli.ParseArgs(fs, args, 0, 1)
 	if err != nil {
 		return err
 	}
-	root, ca := sessionRoot, ""
-	if *caDir != "" {
-		if root, ca, err = findCA(*caDir); err != nil {
+	switch {
+	case len(rest) == 0:
+		if err := requireHierarchy(); err != nil {
 			return err
 		}
-	} else if err := requireHierarchy(); err != nil {
-		return err
+		return setContext(sessionRoot, "")
+	case sessionRoot != "" && rest[0] != "" && simpleca.KebabCaseRE.MatchString(rest[0]) &&
+		isCADir(filepath.Join(sessionRoot, rest[0])):
+		return setContext(sessionRoot, rest[0])
+	case isCADir(rest[0]):
+		return placeCA(rest[0])
+	case sessionRoot != "":
+		return fmt.Errorf("'%s' is neither an issuing CA of %s nor a CA directory", rest[0], sessionRoot)
 	}
-	if len(rest) == 1 {
-		if ca = rest[0]; ca == "" || !simpleca.KebabCaseRE.MatchString(ca) || !isCADir(filepath.Join(root, ca)) {
-			return fmt.Errorf("%s has no issuing CA '%s'", root, rest[0])
-		}
-	}
-	sessionRoot, sessionCA = root, ca
-	return nil
+	return fmt.Errorf("'%s' is not a CA directory", rest[0])
 }
 
 // optionKey returns the key of simple-ca.json of the option name, or why it is refused.
@@ -440,74 +444,117 @@ func editContext(edit func(values map[string][]string) error) error {
 	return cfg.Save()
 }
 
-func runContextSet(args []string) error {
-	fs := cli.NewFlagSet("context set", "NAME VALUE...",
-		"Sets the values of the option --NAME in the active context, replacing those it held.")
-	rest, _, err := cli.ParseArgs(fs, args, 2, -1)
-	if err != nil {
-		return err
+// contextArgs returns the NAME=VALUE pairs and the words of the args lineArgs built for a context
+// command, printing the usage of fs for -h, without any, and for words unless words is true.
+func contextArgs(fs *flag.FlagSet, args []string, words bool) ([][2]string, []string, error) {
+	if slices.Equal(args, []string{"-h"}) {
+		fs.Usage()
+		return nil, nil, flag.ErrHelp
 	}
-	key, err := optionKey(rest[0])
+	end := slices.Index(args, "--")
+	if end < 0 {
+		end = len(args)
+	}
+	var pairs [][2]string
+	for _, arg := range args[:end] {
+		name, value, _ := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+		pairs = append(pairs, [2]string{name, value})
+	}
+	rest := args[min(end+1, len(args)):]
+	switch {
+	case len(pairs)+len(rest) == 0:
+		fmt.Fprintf(fs.Output(), "%s: wrong number of arguments\n", fs.Name())
+	case len(rest) > 0 && !words:
+		fmt.Fprintf(fs.Output(), "%s: '%s' is not NAME=VALUE\n", fs.Name(), rest[0])
+	default:
+		return pairs, rest, nil
+	}
+	fs.Usage()
+	return nil, nil, cli.ErrUsage
+}
+
+func runContextSet(args []string) error {
+	fs := cli.NewFlagSet("context set", "NAME=VALUE...",
+		"Sets the values of the options NAME in the active context, replacing those they held; an option\n"+
+			"named twice gets both values.")
+	pairs, _, err := contextArgs(fs, args, false)
 	if err != nil {
 		return err
 	}
 	return editContext(func(values map[string][]string) error {
-		values[key] = rest[1:]
+		replaced := map[string]bool{}
+		for _, p := range pairs {
+			key, err := optionKey(p[0])
+			if err != nil {
+				return err
+			}
+			if !replaced[key] {
+				values[key], replaced[key] = nil, true
+			}
+			values[key] = append(values[key], p[1])
+		}
 		return nil
 	})
 }
 
 func runContextAdd(args []string) error {
-	fs := cli.NewFlagSet("context add", "NAME VALUE...",
-		"Adds values to the option --NAME in the active context, for an option given several times.")
-	rest, _, err := cli.ParseArgs(fs, args, 2, -1)
-	if err != nil {
-		return err
-	}
-	key, err := optionKey(rest[0])
+	fs := cli.NewFlagSet("context add", "NAME=VALUE...",
+		"Adds values to the options NAME in the active context, for an option given several times.")
+	pairs, _, err := contextArgs(fs, args, false)
 	if err != nil {
 		return err
 	}
 	return editContext(func(values map[string][]string) error {
-		values[key] = append(values[key], rest[1:]...)
+		for _, p := range pairs {
+			key, err := optionKey(p[0])
+			if err != nil {
+				return err
+			}
+			values[key] = append(values[key], p[1])
+		}
 		return nil
 	})
 }
 
 func runContextDelete(args []string) error {
-	fs := cli.NewFlagSet("context delete", "NAME [VALUE...]",
-		"Deletes the values given from the option --NAME in the active context, or the option without them.")
-	rest, _, err := cli.ParseArgs(fs, args, 1, -1)
-	if err != nil {
-		return err
-	}
-	key, err := optionKey(rest[0])
+	fs := cli.NewFlagSet("context delete", "NAME... | NAME=VALUE...",
+		"Deletes the options NAME, or with NAME=VALUE the value VALUE of the option NAME, from the active\n"+
+			"context.")
+	pairs, names, err := contextArgs(fs, args, true)
 	if err != nil {
 		return err
 	}
 	return editContext(func(values map[string][]string) error {
-		held, ok := values[key]
-		if !ok {
-			return fmt.Errorf("the context of %s has no option '%s'", cmp.Or(sessionCA, "root"), rest[0])
-		}
-		for _, v := range rest[1:] {
-			i := slices.Index(held, v)
-			if i < 0 {
-				return fmt.Errorf("the option '%s' of the context of %s has no value '%s'", rest[0], cmp.Or(sessionCA, "root"), v)
+		ca := cmp.Or(sessionCA, "root")
+		for _, name := range names {
+			key, err := optionKey(name)
+			if err != nil {
+				return err
 			}
-			held = slices.Delete(held, i, i+1)
-		}
-		if len(rest) == 1 || len(held) == 0 {
+			if _, ok := values[key]; !ok {
+				return fmt.Errorf("the context of %s has no option '%s'", ca, name)
+			}
 			delete(values, key)
-		} else {
-			values[key] = held
+		}
+		for _, p := range pairs {
+			key, err := optionKey(p[0])
+			if err != nil {
+				return err
+			}
+			i := slices.Index(values[key], p[1])
+			if i < 0 {
+				return fmt.Errorf("the option '%s' of the context of %s has no value '%s'", p[0], ca, p[1])
+			}
+			if values[key] = slices.Delete(values[key], i, i+1); len(values[key]) == 0 {
+				delete(values, key)
+			}
 		}
 		return nil
 	})
 }
 
 func runContextShow(args []string) error {
-	fs := cli.NewFlagSet("context show", "", "Shows the option values of the active context, as the options the commands take.")
+	fs := cli.NewFlagSet("context show", "", "Shows the option values of the active context, as NAME=VALUE.")
 	if _, _, err := cli.ParseArgs(fs, args, 0, 0); err != nil {
 		return err
 	}
@@ -521,7 +568,18 @@ func runContextShow(args []string) error {
 	values := cfg.ContextValues(sessionCA)
 	for _, key := range slices.Sorted(maps.Keys(values)) {
 		for _, v := range values[key] {
-			fmt.Printf("--%s %s\n", strings.ReplaceAll(key, "_", "-"), v)
+			// A value a word does not hold is quoted, with ' when it holds ", joining parts of both
+			// kinds when it holds both quotes.
+			switch {
+			case v != "" && !strings.ContainsAny(v, "\"'=") && !strings.ContainsFunc(v, unicode.IsSpace):
+			case !strings.Contains(v, `"`):
+				v = `"` + v + `"`
+			case !strings.Contains(v, "'"):
+				v = "'" + v + "'"
+			default:
+				v = `"` + strings.ReplaceAll(v, `"`, `"'"'"`) + `"`
+			}
+			fmt.Printf("%s=%s\n", strings.ReplaceAll(key, "_", "-"), v)
 		}
 	}
 	return nil

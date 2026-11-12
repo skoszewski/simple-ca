@@ -43,6 +43,9 @@ var (
 	UsageLines []string
 	// SessionCADir returns the CA directory of a session, empty outside one; nil without sessions.
 	SessionCADir func() string
+	// Session is true in a session, whose commands take the args ParseArgs reads in a session and
+	// print the usage of a session.
+	Session bool
 )
 
 // ErrUsage reports a command line that was rejected after its usage was printed.
@@ -125,24 +128,30 @@ func Run(commands []Command, args []string) error {
 }
 
 // PrintUsage writes the usage of the program, with the groups and the commands of commands, to w,
-// or the usage of the group g when it is not nil.
+// or the usage of the group g when it is not nil; in a session, the usage of a session.
 func PrintUsage(w io.Writer, commands []Command, g *Command) {
-	list, lines, what := commands, []string{Program + " GROUP COMMAND [options] [ARGS]"},
-		"Create and manage a simple Certificate Authority."
-	for _, c := range commands {
-		if c.Run != nil {
-			lines = append(lines, Program+" "+c.Name+" [options]")
-		}
+	prefix, options := Program+" ", "[options]"
+	if Session {
+		prefix, options = "", "[NAME=VALUE...]"
 	}
-	lines = append(lines, UsageLines...)
+	list, lines, what := commands, []string{prefix + "GROUP COMMAND " + options + " [ARGS]"},
+		"Create and manage a simple Certificate Authority."
+	if !Session {
+		for _, c := range commands {
+			if c.Run != nil {
+				lines = append(lines, Program+" "+c.Name+" [options]")
+			}
+		}
+		lines = append(lines, UsageLines...)
+	}
 	if g != nil {
-		list, lines, what = g.Sub, []string{Program + " " + g.Name + " COMMAND [options] [ARGS]"}, g.Summary
+		list, lines, what = g.Sub, []string{prefix + g.Name + " COMMAND " + options + " [ARGS]"}, g.Summary
 	}
 	fmt.Fprintf(w, "Usage: %s\n\n%s\n\nCommands:\n", strings.Join(lines, "\n       "), what)
 	for _, c := range list {
 		fmt.Fprintf(w, "  %-8s %s\n", c.Name, c.Summary)
 	}
-	if g == nil {
+	if g == nil && !Session {
 		fmt.Fprint(w, "\nOptions:\n  -h, --help   print this help\n  --version    print the version\n")
 	}
 }

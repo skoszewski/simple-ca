@@ -40,10 +40,31 @@ import (
 var HiddenFlags = map[string][]string{"": {"ca-publish-base-url"}}
 
 // NewFlagSet returns the flag set of the subcommand name, whose usage names its arguments, its
-// description and its options without its HiddenFlags.
+// description and its options without its HiddenFlags; in a session, as NAME=VALUE, without
+// ca-dir.
 func NewFlagSet(name, arguments, description string) *flag.FlagSet {
 	fs := flag.NewFlagSet(Program+" "+name, flag.ContinueOnError)
 	fs.Usage = func() {
+		if Session {
+			line := strings.TrimSpace(name + " [NAME=VALUE...] " + arguments)
+			fmt.Fprintf(fs.Output(), "Usage: %s\n\n%s\n", line, description)
+			header := "\nOptions:\n"
+			fs.VisitAll(func(f *flag.Flag) {
+				if f.Name == "ca-dir" || slices.Contains(HiddenFlags[""], f.Name) || slices.Contains(HiddenFlags[name], f.Name) {
+					return
+				}
+				value, usage := flag.UnquoteUsage(f)
+				if value == "" {
+					value = "true"
+				}
+				if !slices.Contains([]string{"", "0", "false", "[]", "0s"}, f.DefValue) {
+					usage += fmt.Sprintf(" (default: %s)", f.DefValue)
+				}
+				fmt.Fprintf(fs.Output(), "%s  %s=%s\n    \t%s\n", header, f.Name, value, strings.ReplaceAll(usage, "\n", "\n    \t"))
+				header = ""
+			})
+			return
+		}
 		line := strings.TrimSpace(Program + " " + name + " [options] " + arguments)
 		fmt.Fprintf(fs.Output(), "Usage: %s\n\n%s\n\nOptions:\n", line, description)
 		shown := flag.NewFlagSet(fs.Name(), flag.ContinueOnError)
@@ -60,17 +81,46 @@ func NewFlagSet(name, arguments, description string) *flag.FlagSet {
 }
 
 // ParseArgs parses the options of a subcommand, which come before its arguments, and checks that
-// it was given from minArgs to maxArgs arguments, maxArgs -1 for any number. An option not given
-// takes the values of the context of its CA in simple-ca.json. It returns the arguments and the
-// names of the options given or taken from the context.
+// it was given from minArgs to maxArgs arguments, maxArgs -1 for any number. In a session, args
+// are -h alone, or the options as --NAME=VALUE, then --, then the arguments, and ca-dir is
+// refused. An option not given takes the values of the context of its CA in simple-ca.json. It
+// returns the arguments and the names of the options given or taken from the context.
 func ParseArgs(fs *flag.FlagSet, args []string, minArgs, maxArgs int) ([]string, map[string]bool, error) {
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil, nil, err
+	var rest []string
+	if Session {
+		end := slices.Index(args, "--")
+		if end < 0 {
+			end = len(args)
 		}
-		return nil, nil, ErrUsage
+		for _, arg := range args[:end] {
+			if arg == "-h" {
+				fs.Usage()
+				return nil, nil, flag.ErrHelp
+			}
+			name, value, _ := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+			switch {
+			case name == "ca-dir":
+				return nil, nil, errors.New("the session works on the CA of its context; switch it with context use")
+			case fs.Lookup(name) == nil:
+				fmt.Fprintf(fs.Output(), "%s: unknown option '%s'\n", fs.Name(), name)
+				fs.Usage()
+				return nil, nil, ErrUsage
+			}
+			if err := fs.Set(name, value); err != nil {
+				return nil, nil, fmt.Errorf("option '%s': %w", name, err)
+			}
+		}
+		rest = args[min(end+1, len(args)):]
+	} else {
+		if err := fs.Parse(args); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil, nil, err
+			}
+			return nil, nil, ErrUsage
+		}
+		rest = fs.Args()
 	}
-	if fs.NArg() < minArgs || (maxArgs >= 0 && fs.NArg() > maxArgs) {
+	if len(rest) < minArgs || (maxArgs >= 0 && len(rest) > maxArgs) {
 		fmt.Fprintf(fs.Output(), "%s: wrong number of arguments\n", fs.Name())
 		fs.Usage()
 		return nil, nil, ErrUsage
@@ -80,7 +130,7 @@ func ParseArgs(fs *flag.FlagSet, args []string, minArgs, maxArgs int) ([]string,
 	}
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
-	return fs.Args(), given, nil
+	return rest, given, nil
 }
 
 // applyContext sets each option of fs not given that the context of its CA holds, the CA of its
