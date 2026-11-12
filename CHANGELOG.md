@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.20.3
+
+fix: simple-ca-wif reads the Application Default Credentials of gcloud from CLOUDSDK_CONFIG when it is set.
+
+- Without `GOOGLE_APPLICATION_CREDENTIALS`, `simple-ca-wif google setup` reads the file of
+  `gcloud auth application-default login` from the directory of `CLOUDSDK_CONFIG` when it is set,
+  as gcloud writes it there, instead of `~/.config/gcloud`.
+
 ## 1.20.2
 
 feat: build.mjs install unpacks the newest archives of dist/ over the programs of bin/.

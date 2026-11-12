@@ -36,7 +36,8 @@ machine then goes on with step 6. The steps below do the same by hand. The CA is
 - `--access-token`, or `GOOGLE_OAUTH_ACCESS_TOKEN`;
 - Application Default Credentials: the file named by `GOOGLE_APPLICATION_CREDENTIALS`, of the
   type `authorized_user` or `service_account`, or else the file that
-  `gcloud auth application-default login` writes.
+  `gcloud auth application-default login` writes in the gcloud configuration directory:
+  `CLOUDSDK_CONFIG` when it is set, else `~/.config/gcloud`, or `%APPDATA%\gcloud` on Windows.
 
 The metadata server is not used. The account of the credentials needs these IAM roles in the
 project:

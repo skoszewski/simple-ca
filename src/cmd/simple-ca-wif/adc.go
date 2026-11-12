@@ -56,8 +56,9 @@ const adcFile = "application_default_credentials.json"
 // googleCredentials sets accessToken to given, else to GOOGLE_OAUTH_ACCESS_TOKEN, else to the
 // access token of the scope cloud-platform granted for the Application Default Credentials
 // file: that of GOOGLE_APPLICATION_CREDENTIALS, else that of gcloud auth application-default
-// login. The file of the type authorized_user gets it by its refresh token, and that of the
-// type service_account by a JWT signed with its key; any other type is refused.
+// login in the gcloud configuration directory, CLOUDSDK_CONFIG when it is set. The file of the
+// type authorized_user gets it by its refresh token, and that of the type service_account by a
+// JWT signed with its key; any other type is refused.
 func googleCredentials(given string) error {
 	if accessToken = cmp.Or(given, os.Getenv("GOOGLE_OAUTH_ACCESS_TOKEN")); accessToken != "" {
 		return nil
@@ -65,6 +66,8 @@ func googleCredentials(given string) error {
 	path := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	switch {
 	case path != "":
+	case os.Getenv("CLOUDSDK_CONFIG") != "":
+		path = filepath.Join(os.Getenv("CLOUDSDK_CONFIG"), adcFile)
 	case runtime.GOOS == "windows":
 		path = filepath.Join(os.Getenv("APPDATA"), "gcloud", adcFile)
 	default:

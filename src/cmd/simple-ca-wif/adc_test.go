@@ -82,6 +82,31 @@ func TestADCAuthorizedUser(t *testing.T) {
 	}
 }
 
+func TestADCCloudSDKConfig(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "config-token"})
+	}))
+	defer srv.Close()
+	useADC(t, map[string]any{"type": "authorized_user", "refresh_token": "refresh-1"})
+	b, err := os.ReadFile(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, adcFile), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+	t.Setenv("CLOUDSDK_CONFIG", dir)
+	oauthTokenURL = srv.URL
+	if err := googleCredentials(""); err != nil {
+		t.Fatal(err)
+	}
+	if accessToken != "config-token" {
+		t.Errorf("accessToken %q", accessToken)
+	}
+}
+
 func TestADCServiceAccount(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -152,6 +177,7 @@ func TestCredentialsChoice(t *testing.T) {
 		t.Errorf("no file of GOOGLE_APPLICATION_CREDENTIALS: %v", err)
 	}
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+	t.Setenv("CLOUDSDK_CONFIG", "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("APPDATA", t.TempDir())
 	if err := googleCredentials(""); err == nil || !strings.Contains(err.Error(), "gcloud auth application-default login") {
