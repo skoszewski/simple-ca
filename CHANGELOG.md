@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.20.2
+
+feat: build.mjs install unpacks the newest archives of dist/ over the programs of bin/.
+
+- `./build.mjs install` unpacks the newest `simple-ca` and `simple-ca-lite` archives of `dist/`
+  for the host into `bin/`, overwriting the files there.
+
 ## 1.20.1
 
 fix: remove the CLAUDE.md content.

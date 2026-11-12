@@ -334,6 +334,14 @@ refuses uncommitted changes, an entry that no commit has the summary line of, an
 the toolchain of its own `simple-ca-trust`: Swift on macOS and the .NET SDK on Windows. The
 programs of each archive are packed from `.build/pack-<archive>/`, removed afterwards.
 
+```sh
+./build.mjs install            # unpack the newest archives of dist/ for the host over bin/
+```
+
+`./build.mjs install` unpacks, for the host, the newest `simple-ca-X.Y.Z-<goos>-<goarch>` archive
+and the newest `simple-ca-lite` one of `dist/` into `bin/`, overwriting the files there, and fails
+when `dist/` holds no archive for the host.
+
 `--all` writes the archives of every platform of the workflow, `linux`, `darwin` and `windows`,
 each for `amd64` and `arm64`, and `--dpkg` the Debian packages `X.Y.Z-1`. Where they come from
 depends on the newest entry:

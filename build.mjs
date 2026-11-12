@@ -10,11 +10,12 @@ import { deb } from "./lib/deb.mjs";
 import { dist } from "./lib/dist.mjs";
 import { build, check, clean, test } from "./lib/go.mjs";
 import { image } from "./lib/image.mjs";
+import { install } from "./lib/install.mjs";
 import { sums } from "./lib/sums.mjs";
 import { trust } from "./lib/trust.mjs";
 
 const actions = {
-  assets, build, trust, docker: image, container: image, deb, dist, apt, setup, sums, test, check, clean,
+  assets, build, trust, docker: image, container: image, deb, dist, install, apt, setup, sums, test, check, clean,
 };
 
 parseArguments();
