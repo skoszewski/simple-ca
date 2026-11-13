@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.20.6
+
+fix: ./build.mjs apt takes its key and passphrase files from environment variables.
+
+- `./build.mjs apt` reads the signing key from `SIMPLE_CA_GPG_KEY_FILE` when `--key` is not
+  given, and the passphrase from `SIMPLE_CA_GPG_PASSPHRASE_FILE` when `--passphrase-file` is not
+  given.
+
 ## 1.20.5
 
 fix: every URL is checked, untrusted values are quoted, and SIMPLE_CA_PRIVATE_GROUP_WRITE shares the private files.

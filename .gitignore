@@ -54,9 +54,9 @@ DerivedData/
 /src/debian-package/debian/changelog
 /src/debian-package-lite/debian/changelog
 
-# env file
+# secrets
 *.env
-*.env.sh
+*.secrets.env
 
 # Token files
 *.token

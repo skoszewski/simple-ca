@@ -241,8 +241,10 @@ A container of `simple-ca-builder`, built by [`./build.mjs setup`](#builder-imag
 `simple-ca-builder/build-repo.sh` runs `apt-ftparchive` for `Packages`, `Packages.gz` and
 `Release`, signs `Release` with gpg as `InRelease` and `Release.gpg`, and exports the public key
 as `key.asc`. `./build.mjs apt` fails while the image is missing. `--key` names the armored
-secret key, as `gpg --export-secret-keys --armor` writes it, and `--passphrase-file` a file
-holding its passphrase, when it has one; both are mounted read-only in `/run/secrets` of the
+secret key, as `gpg --export-secret-keys --armor` writes it, `SIMPLE_CA_GPG_KEY_FILE` by
+default, and `--passphrase-file` a file holding its passphrase, when it has one,
+`SIMPLE_CA_GPG_PASSPHRASE_FILE` by default; with neither the option nor the variable for the key,
+`apt` is refused. Both files are mounted read-only in `/run/secrets` of the
 container, as `gpg_key` and `gpg_passphrase`, and are in no layer of the image. The container
 runs with the engine `setup` uses, on a local engine, as the user running it.
 
