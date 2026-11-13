@@ -131,7 +131,8 @@ simple-ca token issue --ca-dir "$CA_DIR" --token-type google --audience "$AUDIEN
 
 The issuer of the JWTs of a CA is `federation.issuer` of `simple-ca.json` of the root CA, or else
 `ca_publish_base_url`, for the root CA, and that URL followed by `/NAME` for the issuing CA
-`NAME`. Without either, no JWT is issued. Each CA has its own key, so a cloud provider is set up
+`NAME`. Both settings are URLs of scheme and host only, `federation.issuer` an `https` one, so
+`/NAME` is the only path of an issuer. Without either, no JWT is issued. Each CA has its own key, so a cloud provider is set up
 for the issuer of one CA.
 
 The issuer is a name the verifier compares with the `iss` claim. A verifier given the keys never

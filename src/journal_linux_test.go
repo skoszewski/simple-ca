@@ -6,7 +6,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"log/slog"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestJournalEntry(t *testing.T) {
@@ -34,4 +40,44 @@ func TestJournalEntry(t *testing.T) {
 	if journalConnected() {
 		t.Error("journalConnected with the device and inode of another stream, want false")
 	}
+	fi, err := os.Stderr.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := fi.Sys().(*syscall.Stat_t)
+	t.Setenv("JOURNAL_STREAM", strconv.FormatUint(uint64(st.Dev), 10)+":"+strconv.FormatUint(uint64(st.Ino), 10))
+	if !journalConnected() {
+		t.Error("journalConnected with the device and inode of stderr, want true")
+	}
+}
+
+func TestSendJournal(t *testing.T) {
+	saved := journalSocket
+	t.Cleanup(func() { journalSocket = saved })
+	journalSocket = filepath.Join(t.TempDir(), "socket")
+	conn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: journalSocket, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	pairs := [][2]string{{"event", "serve.start"}}
+	if err := streamJournal("event=serve.start\n", pairs, slog.LevelWarn); err != nil {
+		t.Fatalf("streamJournal: %v", err)
+	}
+	b := make([]byte, 65536)
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, err := conn.Read(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := journalEntry("event=serve.start\n", pairs, slog.LevelWarn); !bytes.Equal(b[:n], want) {
+		t.Errorf("datagram %q, want %q", b[:n], want)
+	}
+
+	journalSocket = filepath.Join(t.TempDir(), "missing")
+	stderr := srvCaptureStderr(t)
+	if err := streamJournal("a line\n", nil, slog.LevelInfo); err == nil {
+		t.Error("streamJournal without the journal, want its error")
+	}
+	srvWaitFor(t, stderr, "a line\n")
 }

@@ -76,7 +76,8 @@ to the root CA directory:
 }
 ```
 
-The file is made with mode 0600, readable by its owner alone. Each record is appended with one
+The file is made with the private mode of [File modes and a shared CA](usage.md#file-modes-and-a-shared-ca),
+by default 0600, readable by its owner alone. Each record is appended with one
 write, so the commands and `serve` write it together without a lock. The file is opened for each
 record, so `logrotate` can rename it, and the next record starts a new file:
 

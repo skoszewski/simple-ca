@@ -61,7 +61,7 @@ var durationRE = regexp.MustCompile(`^([0-9]+)\s*([ymdh]?)$`)
 func ParseDuration(s string) (time.Duration, error) {
 	m := durationRE.FindStringSubmatch(strings.TrimSpace(s))
 	if m == nil {
-		return 0, fmt.Errorf("'%s' is not a duration such as 30 (minutes), 8h, 180d, 6m or 1y", s)
+		return 0, fmt.Errorf("%q is not a duration such as 30 (minutes), 8h, 180d, 6m or 1y", s)
 	}
 	size := time.Minute
 	for _, u := range durationUnits {
@@ -71,7 +71,7 @@ func ParseDuration(s string) (time.Duration, error) {
 	}
 	n, err := strconv.ParseInt(m[1], 10, 64)
 	if err != nil || n > math.MaxInt64/int64(size) {
-		return 0, fmt.Errorf("'%s' is longer than a duration can be", s)
+		return 0, fmt.Errorf("%q is longer than a duration can be", s)
 	}
 	return time.Duration(n) * size, nil
 }
@@ -137,7 +137,7 @@ func LockFile(file string) (func(), error) {
 	path := file + ".lock"
 	deadline := time.Now().Add(TokensLockWait)
 	for {
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		f, err := CreatePrivateFile(path, os.O_WRONLY|os.O_EXCL)
 		if err == nil {
 			_, err = fmt.Fprintf(f, "%d\n", os.Getpid())
 			if err := cmp.Or(err, f.Close()); err != nil {
@@ -151,7 +151,7 @@ func LockFile(file string) (func(), error) {
 		}
 		if time.Now().After(deadline) {
 			pid, _ := os.ReadFile(path)
-			return nil, fmt.Errorf("%s is locked by process %s; remove %s if that process is gone",
+			return nil, fmt.Errorf("%q is locked by process %q; remove %q if that process is gone",
 				file, strings.TrimSpace(string(pid)), path)
 		}
 		time.Sleep(50 * time.Millisecond)

@@ -60,7 +60,8 @@ too, without a key, which stays with the client, so the
 newest certificate of a name replaces the file of the one before it, which `index.txt` still
 lists, and the name `ca`, whose file is the CA certificate, is refused.
 
-The keys, `ca_key.pem` and `{name}_key.pem`, are PKCS#8 PEM files with mode 0600, encrypted with
+The keys, `ca_key.pem` and `{name}_key.pem`, are PKCS#8 PEM files with the private mode of
+[File modes and a shared CA](usage.md#file-modes-and-a-shared-ca), by default 0600, encrypted with
 the passphrase of the private keys when it is set, as described under
 [Encrypted private keys](usage.md#encrypted-private-keys).
 

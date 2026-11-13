@@ -28,6 +28,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"math/big"
 	"slices"
@@ -138,21 +139,21 @@ func TestConfigTokenTypesRefused(t *testing.T) {
 		{"Bad_Name", `{}`, "not a kebab-case name"},
 		{"api", `{}`, "api names the tokens of simple-ca itself"},
 		{"google", `{"base": "azure"}`, "a built-in type takes no base"},
-		{"x", `{"base": "nosuch"}`, "unknown base 'nosuch': must be one of azure, google"},
-		{"x", `{"subject": "{name}-{user}"}`, "unknown placeholder {user}"},
+		{"x", `{"base": "nosuch"}`, `unknown base "nosuch": must be one of azure, google`},
+		{"x", `{"subject": "{name}-{user}"}`, `unknown placeholder "{user}"`},
 		{"x", `{"max_valid": "0"}`, "max_valid must be at least 1 minute"},
-		{"x", `{"max_valid": "8 hours"}`, "max_valid: '8 hours' is not a duration"},
-		{"google", `{"max_valid": "2d"}`, "max_valid 2d is longer than the 1d its base allows"},
+		{"x", `{"max_valid": "8 hours"}`, `max_valid: "8 hours" is not a duration`},
+		{"google", `{"max_valid": "2d"}`, `max_valid "2d" is longer than the 1d its base allows`},
 		{"x", `{"valid": "0"}`, "valid must be at least 1 minute"},
-		{"x", `{"valid": "bad"}`, "valid: 'bad' is not a duration"},
+		{"x", `{"valid": "bad"}`, `valid: "bad" is not a duration`},
 		{"x", `{"valid": "9h", "max_valid": "8h"}`, "valid 9h is longer than max_valid 8h"},
 		{"google", `{"valid": "2d"}`, "valid 2d is longer than max_valid 1d"},
-		{"x", `{"claims": {"sub": "a"}}`, "the claim 'sub' is reserved"},
-		{"x", `{"claims": {"DeployEnv": "a"}}`, "the claim 'DeployEnv' is not a snake_case name"},
+		{"x", `{"claims": {"sub": "a"}}`, `the claim "sub" is reserved`},
+		{"x", `{"claims": {"DeployEnv": "a"}}`, `the claim "DeployEnv" is not a snake_case name`},
 	} {
 		cfg := federationConfig(t, `{"federation": {"types": {"`+c.name+`": `+c.def+`}}}`)
 		_, err := Types(cfg)
-		if err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), "token type '"+c.name+"' in "+cfg.Path) {
+		if err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), fmt.Sprintf("token type %q in %q", c.name, cfg.Path)) {
 			t.Errorf("TokenTypes of %s %s: %v, want an error with %q", c.name, c.def, err, c.want)
 		}
 	}
@@ -207,9 +208,9 @@ func TestResolve(t *testing.T) {
 		name string
 		want string
 	}{
-		{cfg, TokenFederate{Type: "nosuch"}, "web", "unknown token type 'nosuch': must be one of azure, azure-deploy, google"},
+		{cfg, TokenFederate{Type: "nosuch"}, "web", `unknown token type "nosuch": must be one of azure, azure-deploy, google`},
 		{cfg, TokenFederate{Type: "google"}, "web", "the token type google needs an audience"},
-		{cfg, TokenFederate{Type: "azure", Claims: map[string]string{"aud": "x"}}, "web", "the claim 'aud' is reserved"},
+		{cfg, TokenFederate{Type: "azure", Claims: map[string]string{"aud": "x"}}, "web", `the claim "aud" is reserved`},
 		{cfg, TokenFederate{Type: "google", Audience: "x"}, strings.Repeat("a", 128), "longer than 127 bytes"},
 		{&simpleca.Config{Path: simpleca.ConfigFile}, TokenFederate{Type: "azure"}, "web", "needs an issuer: set federation.issuer or ca_publish_base_url"},
 		{federationConfig(t, `{"federation": {"types": {"api": {}}}}`), TokenFederate{Type: "azure"}, "web", "api names the tokens"},

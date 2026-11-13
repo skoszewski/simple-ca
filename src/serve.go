@@ -110,10 +110,6 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("--port must be from 1 to 65535, got %d", port)
 	}
-	listener, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(port)))
-	if err != nil {
-		return err
-	}
 	server := &http.Server{ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second,
 		WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,21 +137,27 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 			}
 		}
 		if len(certificate.Certificate) == 0 {
-			return fmt.Errorf("no CERTIFICATE PEM block in %s", tlsCert)
+			return fmt.Errorf("no CERTIFICATE PEM block in %q", tlsCert)
 		}
 		leaf, err := x509.ParseCertificate(certificate.Certificate[0])
 		if err != nil {
-			return fmt.Errorf("%s: %w", tlsCert, err)
+			return fmt.Errorf("%q: %w", tlsCert, err)
 		}
 		key, err := simpleca.LoadKey(tlsKey)
 		if err != nil {
 			return err
 		}
 		if !key.Public().(interface{ Equal(crypto.PublicKey) bool }).Equal(leaf.PublicKey) {
-			return fmt.Errorf("the key in %s does not match the certificate in %s", tlsKey, tlsCert)
+			return fmt.Errorf("the key in %q does not match the certificate in %q", tlsKey, tlsCert)
 		}
 		certificate.PrivateKey = key
 		server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{certificate}}
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(port)))
+	if err != nil {
+		return err
+	}
+	if server.TLSConfig != nil {
 		listening("https://" + listener.Addr().String())
 		return server.ServeTLS(listener, "", "")
 	}
@@ -234,7 +236,7 @@ type indexCA struct {
 // when it names none.
 func issuingCADir(rootDir string, r *http.Request) (string, bool) {
 	ca := r.PathValue("ca")
-	if !simpleca.KebabCaseRE.MatchString(ca) || !simpleca.FileExists(filepath.Join(rootDir, ca, "ca_cert.pem")) {
+	if !simpleca.IssuingCAExists(rootDir, ca) {
 		return "", false
 	}
 	return filepath.Join(rootDir, ca), true

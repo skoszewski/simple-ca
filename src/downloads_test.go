@@ -107,13 +107,9 @@ func TestServeDownloads(t *testing.T) {
 		resp.Header.Get("Location") != "/downloads/" {
 		t.Errorf("/downloads: status %d to %q, want 307 to /downloads/", resp.StatusCode, resp.Header.Get("Location"))
 	}
-	if _, body := get(server, "/"); !strings.Contains(body, `text-head-link hover:underline" href="/downloads/">Downloads</a>`) ||
-		!strings.Contains(body, `hover:text-ink hover:underline" href="/downloads/">Downloads</a>`) {
-		t.Error("the index page does not link to /downloads/ in its header and below the page")
-	}
-	if _, body := get(server, "/"); !strings.Contains(body, `text-head-link hover:underline" href="/apt/">Apt</a>`) ||
+	if _, body := get(server, "/"); !strings.Contains(body, `hover:text-ink hover:underline" href="/downloads/">Downloads</a>`) ||
 		!strings.Contains(body, `hover:text-ink hover:underline" href="/apt/">Apt</a>`) {
-		t.Error("the index page does not link to /apt/ in its header and below the page")
+		t.Error("the index page does not link to /downloads/ and /apt/ below the page")
 	}
 
 	// The apt page tells how to set up the repository, and has no key.asc to point to.

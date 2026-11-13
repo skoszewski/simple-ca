@@ -26,7 +26,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -49,7 +48,7 @@ func MakePFX(certPath, caDir, password string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(pfxPath, pfxBytes, 0o600); err != nil {
+	if err := simpleca.WritePrivateFile(pfxPath, pfxBytes); err != nil {
 		return err
 	}
 	fmt.Println("done.")
@@ -64,10 +63,10 @@ func EncodePFX(certPath, caDir, password string) ([]byte, error) {
 	keyPath := filepath.Join(certDir, certName+"_key.pem")
 
 	if !DirExists(certDir) {
-		return nil, fmt.Errorf("certificate directory %s does not exist", certDir)
+		return nil, fmt.Errorf("certificate directory %q does not exist", certDir)
 	}
 	if !DirExists(caDir) {
-		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
+		return nil, fmt.Errorf("CA directory %q does not exist", caDir)
 	}
 	if !simpleca.FileExists(certPath) || !simpleca.FileExists(keyPath) {
 		return nil, errors.New("server certificate or key not found")
@@ -78,7 +77,7 @@ func EncodePFX(certPath, caDir, password string) ([]byte, error) {
 	}
 	rootCertPath := filepath.Join(rootDir, "ca_cert.pem")
 	if !simpleca.FileExists(rootCertPath) {
-		return nil, fmt.Errorf("root CA certificate not found in %s", rootDir)
+		return nil, fmt.Errorf("root CA certificate not found in %q", rootDir)
 	}
 	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {

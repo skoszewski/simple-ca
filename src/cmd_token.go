@@ -105,7 +105,7 @@ func runTokenCreate(args []string) error {
 	defaults := cfg.Tokens
 	if !given["valid"] && defaults.Valid != "" {
 		if *valid, err = simpleca.ParseDuration(defaults.Valid); err != nil {
-			return fmt.Errorf("tokens.valid of %s: %w", cfg.Path, err)
+			return fmt.Errorf("tokens.valid of %q: %w", cfg.Path, err)
 		}
 	}
 	if !given["scope"] {
@@ -163,7 +163,7 @@ func claimFlag(claims *map[string]string) func(string) error {
 	return func(s string) error {
 		name, value, ok := strings.Cut(s, "=")
 		if !ok {
-			return fmt.Errorf("'%s' is not a claim such as env=prod", s)
+			return fmt.Errorf("%q is not a claim such as env=prod", s)
 		}
 		if *claims == nil {
 			*claims = map[string]string{}
@@ -194,12 +194,12 @@ func runTokenIssue(args []string) error {
 	case fed.Type == "":
 		return errors.New("--token-type is required; token create makes the tokens of simple-ca")
 	case !simpleca.KebabCaseRE.MatchString(name):
-		return fmt.Errorf("name '%s' is not a kebab-case name, such as web-deploy", name)
+		return fmt.Errorf("name %q is not a kebab-case name, such as web-deploy", name)
 	}
 	dir := cli.ResolveCADir(*caDir)
 	caKeyPath := filepath.Join(dir, "ca_key.pem")
 	if !simpleca.FileExists(filepath.Join(dir, "ca_cert.pem")) || !simpleca.FileExists(caKeyPath) {
-		return fmt.Errorf("CA certificate and key not found in %s. Please point --ca-dir to a CA directory", dir)
+		return fmt.Errorf("CA certificate and key not found in %q. Please point --ca-dir to a CA directory", dir)
 	}
 	if err := simpleca.ReadKeyPassphrase(caKeyPath); err != nil {
 		return err
@@ -236,7 +236,7 @@ func prefixList(list *[]string) func(string) error {
 	return func(s string) error {
 		for _, p := range strings.Split(s, ",") {
 			if p = strings.TrimSpace(p); p == "" {
-				return fmt.Errorf("empty prefix in '%s'", s)
+				return fmt.Errorf("empty prefix in %q", s)
 			}
 			*list = append(*list, p)
 		}
@@ -303,14 +303,14 @@ func runTokenDescribe(args []string) error {
 	if len(rest) == 1 {
 		dir := cli.ResolveCADir(*caDir)
 		if !simpleca.FileExists(filepath.Join(dir, "ca_cert.pem")) {
-			return fmt.Errorf("CA certificate not found in %s. Please point --ca-dir to a CA directory", dir)
+			return fmt.Errorf("CA certificate not found in %q. Please point --ca-dir to a CA directory", dir)
 		}
 		db, err := tokens.LoadTokens(dir)
 		if err != nil {
 			return err
 		}
 		if name, tok = rest[0], db.Tokens[rest[0]]; tok == nil {
-			return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(dir, tokens.TokensFile))
+			return fmt.Errorf("token %q not found in %q", name, filepath.Join(dir, tokens.TokensFile))
 		}
 	} else {
 		var b []byte
@@ -333,7 +333,7 @@ func runTokenDescribe(args []string) error {
 		c, err := verifyJWT(caCert, strings.TrimSpace(string(b)))
 		switch {
 		case err != nil && caCert != nil:
-			return fmt.Errorf("the token is not one signed by the CA in %s", dir)
+			return fmt.Errorf("the token is not one signed by the CA in %q", dir)
 		case err != nil:
 			return errors.New("the token is not a JWT of simple-ca token create")
 		}
@@ -354,7 +354,7 @@ func runTokenDescribe(args []string) error {
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	for _, a := range append(attributes, notes...) {
-		fmt.Fprintf(tw, "%s:\t%s\n", a[0], a[1])
+		fmt.Fprintf(tw, "%s:\t%s\n", simpleca.Printable(a[0]), simpleca.Printable(a[1]))
 	}
 	return tw.Flush()
 }
@@ -373,7 +373,7 @@ func runTokenRevoke(args []string) error {
 		return err
 	}
 	simpleca.Audit(dir, "token.revoke", "name", rest[0], "via", "cli", "actor", simpleca.CLIActor())
-	fmt.Printf("Token %s revoked\n", rest[0])
+	fmt.Printf("Token %q revoked\n", rest[0])
 	return nil
 }
 
@@ -393,7 +393,7 @@ func runTokenPurge(args []string) error {
 			return err
 		}
 		simpleca.Audit(dir, "token.purge", "name", rest[0], "via", "cli", "actor", simpleca.CLIActor())
-		fmt.Printf("Token %s removed\n", rest[0])
+		fmt.Printf("Token %q removed\n", rest[0])
 		return nil
 	}
 	n, err := purgeTokens(dir, 0)
@@ -447,7 +447,7 @@ func runTokenJWKS(args []string) error {
 	}
 	dir := cli.ResolveCADir(*caDir)
 	if !simpleca.FileExists(filepath.Join(dir, "ca_cert.pem")) {
-		return fmt.Errorf("CA certificate not found in %s. Please point --ca-dir to a CA directory", dir)
+		return fmt.Errorf("CA certificate not found in %q. Please point --ca-dir to a CA directory", dir)
 	}
 	b, err := tokens.CAJWKS(dir)
 	if err != nil {

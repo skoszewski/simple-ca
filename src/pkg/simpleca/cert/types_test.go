@@ -98,8 +98,8 @@ func TestConfigCertTypesRefused(t *testing.T) {
 	for _, c := range []struct{ types, want string }{
 		{`{"types": {"Bad_Name": {"key_usage": ["digitalSignature"]}}}`, "kebab-case"},
 		{`{"types": {"device": {"names": "robot"}}}`, "names must be 'server' or 'user'"},
-		{`{"types": {"device": {"key_usage": ["keyCertSign"]}}}`, "invalid key usage 'keyCertSign'"},
-		{`{"types": {"device": {"ext_key_usage": ["deviceAuth"]}}}`, "invalid EKU 'deviceAuth'"},
+		{`{"types": {"device": {"key_usage": ["keyCertSign"]}}}`, `invalid key usage "keyCertSign"`},
+		{`{"types": {"device": {"ext_key_usage": ["deviceAuth"]}}}`, `invalid EKU "deviceAuth"`},
 	} {
 		writeConfig(t, dir, c.types)
 		cfg, err := simpleca.LoadConfig(dir)

@@ -108,11 +108,11 @@ func run() error {
 				return cmd.run(os.Args[3:])
 			}
 		}
-		fmt.Fprintf(os.Stderr, "simple-ca-wif: unknown command '%s %s'\n", name, os.Args[2])
+		fmt.Fprintf(os.Stderr, "simple-ca-wif: unknown command %q\n", name+" "+os.Args[2])
 		usage(os.Stderr)
 		return errUsage
 	}
-	fmt.Fprintf(os.Stderr, "simple-ca-wif: unknown cloud '%s'\n", name)
+	fmt.Fprintf(os.Stderr, "simple-ca-wif: unknown cloud %q\n", name)
 	usage(os.Stderr)
 	return errUsage
 }

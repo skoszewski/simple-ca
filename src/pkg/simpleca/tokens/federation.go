@@ -79,9 +79,9 @@ func checkClaims(where string, claims map[string]string) error {
 	for _, name := range slices.Sorted(maps.Keys(claims)) {
 		switch {
 		case slices.Contains(reservedClaims, name):
-			return fmt.Errorf("%s: the claim '%s' is reserved by simple-ca and cannot be given", where, name)
+			return fmt.Errorf("%s: the claim %q is reserved by simple-ca and cannot be given", where, name)
 		case !claimNameRE.MatchString(name):
-			return fmt.Errorf("%s: the claim '%s' is not a snake_case name, such as deploy_env", where, name)
+			return fmt.Errorf("%s: the claim %q is not a snake_case name, such as deploy_env", where, name)
 		}
 	}
 	return nil
@@ -94,7 +94,7 @@ func Types(c *simpleca.Config) (map[string]TokenTypeDef, error) {
 	types := maps.Clone(builtinTokenTypes)
 	for _, name := range slices.Sorted(maps.Keys(c.Federation.Types)) {
 		t := c.Federation.Types[name]
-		where := fmt.Sprintf("token type '%s' in %s", name, c.Path)
+		where := fmt.Sprintf("token type %q in %q", name, c.Path)
 		if !simpleca.KebabCaseRE.MatchString(name) {
 			return nil, fmt.Errorf("%s: the name is not a kebab-case name, such as gcp-deploy", where)
 		}
@@ -109,7 +109,7 @@ func Types(c *simpleca.Config) (map[string]TokenTypeDef, error) {
 		case !builtin:
 			base, ok := builtinTokenTypes[t.Base]
 			if !ok {
-				return nil, fmt.Errorf("%s: unknown base '%s': must be one of %s", where, t.Base,
+				return nil, fmt.Errorf("%s: unknown base %q: must be one of %s", where, t.Base,
 					strings.Join(slices.Sorted(maps.Keys(builtinTokenTypes)), ", "))
 			}
 			def = base
@@ -121,7 +121,7 @@ func Types(c *simpleca.Config) (map[string]TokenTypeDef, error) {
 		if t.Subject != "" {
 			for _, p := range placeholderRE.FindAllString(t.Subject, -1) {
 				if p != "{name}" && p != "{ca}" {
-					return nil, fmt.Errorf("%s: unknown placeholder %s in the subject: must be {name} or {ca}", where, p)
+					return nil, fmt.Errorf("%s: unknown placeholder %q in the subject: must be {name} or {ca}", where, p)
 				}
 			}
 			def.Subject = t.Subject
@@ -135,7 +135,7 @@ func Types(c *simpleca.Config) (map[string]TokenTypeDef, error) {
 				return nil, fmt.Errorf("%s: max_valid: %w", where, err)
 			}
 			if def.MaxValid > 0 && d > def.MaxValid {
-				return nil, fmt.Errorf("%s: max_valid %s is longer than the %s its base allows", where, t.MaxValid,
+				return nil, fmt.Errorf("%s: max_valid %q is longer than the %s its base allows", where, t.MaxValid,
 					simpleca.DurationText(def.MaxValid))
 			}
 			def.MaxValid = d
@@ -207,7 +207,7 @@ func (f TokenFederate) Resolve(cfg *simpleca.Config, caID, name string) (*Federa
 	}
 	def, ok := types[f.Type]
 	if !ok {
-		return nil, fmt.Errorf("unknown token type '%s': must be one of %s", f.Type, tokenTypeNames(types))
+		return nil, fmt.Errorf("unknown token type %q: must be one of %s", f.Type, tokenTypeNames(types))
 	}
 	audience := cmp.Or(f.Audience, def.Audience)
 	if def.NeedsAudience && audience == "" {
@@ -218,12 +218,12 @@ func (f TokenFederate) Resolve(cfg *simpleca.Config, caID, name string) (*Federa
 	}
 	issuer := Issuer(cfg, caID)
 	if issuer == "" {
-		return nil, fmt.Errorf("the token type %s needs an issuer: set federation.issuer or ca_publish_base_url of %s",
+		return nil, fmt.Errorf("the token type %s needs an issuer: set federation.issuer or ca_publish_base_url of %q",
 			f.Type, cfg.Path)
 	}
 	subject := strings.NewReplacer("{name}", name, "{ca}", caID).Replace(def.Subject)
 	if def.MaxSubject > 0 && len(subject) > def.MaxSubject {
-		return nil, fmt.Errorf("the subject '%s' of the token type %s is longer than %d bytes", subject, f.Type, def.MaxSubject)
+		return nil, fmt.Errorf("the subject %q of the token type %s is longer than %d bytes", subject, f.Type, def.MaxSubject)
 	}
 	claims := maps.Clone(def.Claims)
 	if claims == nil {

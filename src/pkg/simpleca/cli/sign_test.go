@@ -23,13 +23,22 @@
 package cli
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
+	"flag"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
@@ -146,5 +155,82 @@ func TestSign(t *testing.T) {
 	}
 	if _, err := signCSR(empty, issuingDir, forceDir, "server", 30, nil, nil, true, nil); err == nil {
 		t.Fatal("signing +.csr succeeded, want an error for the empty file name")
+	}
+}
+
+func TestCertSignCommand(t *testing.T) {
+	caDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(caDir, simpleca.ConfigFile), []byte(`{"days": {"cert": 45}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cert.MakeCA(caDir, "Test CA", 3650, "", "", "ec"); err != nil {
+		t.Fatal(err)
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: "api.example.com"}, DNSNames: []string{"api.example.com"}}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrPath := filepath.Join(t.TempDir(), "api.csr")
+	if err := os.WriteFile(csrPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	certPath := filepath.Join(caDir, "api_cert.pem")
+
+	// cert sign takes the days of simple-ca.json, and adds the usages of --eku and --ku.
+	if err := run([]string{"cert", "sign", "--ca-dir", caDir, "--force", "--eku", "codeSigning",
+		"--ku", "keyAgreement, contentCommitment", csrPath}); err != nil {
+		t.Fatalf("cert sign: %v", err)
+	}
+	crt, err := simpleca.LoadCert(certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if days := crt.NotAfter.Sub(crt.NotBefore).Hours() / 24; days != 45 {
+		t.Errorf("valid for %v days, want days.cert, 45", days)
+	}
+	if !slices.Contains(crt.ExtKeyUsage, x509.ExtKeyUsageCodeSigning) ||
+		crt.KeyUsage&(x509.KeyUsageKeyAgreement|x509.KeyUsageContentCommitment) != x509.KeyUsageKeyAgreement|x509.KeyUsageContentCommitment {
+		t.Errorf("extended key usage %v, key usage %v, want codeSigning, keyAgreement and contentCommitment added", crt.ExtKeyUsage, crt.KeyUsage)
+	}
+	entries, err := simpleca.ReadAudit(caDir)
+	if err != nil || len(entries) == 0 || entries[len(entries)-1].Event != "cert.issue" {
+		t.Errorf("audit records %+v, %v, want cert.issue last", entries, err)
+	}
+
+	// --days replaces days.cert; an empty key usage and a missing CSR are refused.
+	if err := run([]string{"cert", "sign", "--ca-dir", caDir, "--force", "--days", "10", csrPath}); err != nil {
+		t.Fatalf("cert sign --days 10: %v", err)
+	}
+	if crt, err := simpleca.LoadCert(certPath); err != nil || crt.NotAfter.Sub(crt.NotBefore).Hours()/24 != 10 {
+		t.Errorf("cert sign --days 10: %v, want 10 days", err)
+	}
+	if err := run([]string{"cert", "sign", "--ca-dir", caDir, "--force", "--ku", "keyAgreement,,contentCommitment", csrPath}); !errors.Is(err, ErrUsage) {
+		t.Errorf("cert sign with an empty key usage: %v, want it refused", err)
+	}
+	if err := run([]string{"cert", "sign", "--ca-dir", caDir, "--force", filepath.Join(t.TempDir(), "missing.csr")}); err == nil {
+		t.Error("cert sign of a missing CSR succeeded, want an error")
+	}
+}
+
+func TestDurationVar(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	valid := DurationVar(fs, "valid", time.Hour, "validity `period`")
+	if f := fs.Lookup("valid"); f == nil || f.Value.String() != simpleca.DurationText(time.Hour) || f.DefValue != f.Value.String() {
+		t.Fatalf("the flag valid: %+v, want the default %q", f, simpleca.DurationText(time.Hour))
+	}
+	if err := fs.Parse([]string{"--valid", "8h"}); err != nil || *valid != 8*time.Hour {
+		t.Errorf("--valid 8h: %v, %v, want 8h", *valid, err)
+	}
+	if fs.Lookup("valid").Value.String() != simpleca.DurationText(8*time.Hour) {
+		t.Errorf("String of 8h: %q", fs.Lookup("valid").Value.String())
+	}
+	if err := fs.Set("valid", "soon"); err == nil || *valid != 8*time.Hour {
+		t.Errorf("--valid soon: %v, %v, want an error and 8h kept", *valid, err)
 	}
 }

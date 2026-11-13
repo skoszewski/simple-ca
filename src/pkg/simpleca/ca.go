@@ -43,7 +43,7 @@ func LocateCA(caDir string) (rootDir, issuingCA string, err error) {
 	}
 	certPath := filepath.Join(abs, "ca_cert.pem")
 	if !FileExists(certPath) {
-		return "", "", fmt.Errorf("CA certificate not found in %s", caDir)
+		return "", "", fmt.Errorf("CA certificate not found in %q", caDir)
 	}
 	cert, err := LoadCert(certPath)
 	if err != nil {
@@ -63,7 +63,7 @@ func LoadCert(path string) (*x509.Certificate, error) {
 	}
 	block, _ := pem.Decode(b)
 	if block == nil || block.Type != "CERTIFICATE" {
-		return nil, fmt.Errorf("no CERTIFICATE PEM block in %s", path)
+		return nil, fmt.Errorf("no CERTIFICATE PEM block in %q", path)
 	}
 	return x509.ParseCertificate(block.Bytes)
 }

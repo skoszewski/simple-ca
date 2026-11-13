@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 // rebuildCABundle writes ca_bundle.pem containing the root CA cert followed by
@@ -78,19 +79,26 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 		return errors.New("--days must be a positive integer")
 	}
 	if !slices.Contains(keyTypes, keyType) {
-		return fmt.Errorf("--key-type '%s' must be rsa or ec", keyType)
+		return fmt.Errorf("--key-type %q must be rsa or ec", keyType)
 	}
 	if !DirExists(caDir) {
-		return fmt.Errorf("CA directory %s does not exist", caDir)
+		return fmt.Errorf("CA directory %q does not exist", caDir)
 	}
 	if caName == "" {
 		return errors.New("CA name is required")
 	}
 	if issuingCA != "" && !simpleca.KebabCaseRE.MatchString(issuingCA) {
-		return fmt.Errorf("issuing CA name '%s' is not a kebab-case name, such as servers or lab-servers", issuingCA)
+		return fmt.Errorf("issuing CA name %q is not a kebab-case name, such as servers or lab-servers", issuingCA)
 	}
 	if slices.Contains(ReservedNames, issuingCA) {
-		return fmt.Errorf("issuing CA name '%s' is taken by the pages that serve shows at /%s/", issuingCA, issuingCA)
+		return fmt.Errorf("issuing CA name %q is taken by the pages that serve shows at /%s/", issuingCA, issuingCA)
+	}
+	if baseURL != "" {
+		srv, err := weburl.Server(baseURL, false)
+		if err != nil {
+			return fmt.Errorf("--ca-url: %w", err)
+		}
+		baseURL = srv
 	}
 	if simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) {
 		rootDir, name, err := simpleca.LocateCA(caDir)
@@ -98,7 +106,7 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 			return err
 		}
 		if name != "" {
-			return fmt.Errorf("%s holds the issuing CA '%s'; run ca create with --ca-dir of its root CA, %s",
+			return fmt.Errorf("%q holds the issuing CA %q; run ca create with --ca-dir of its root CA, %q",
 				caDir, name, rootDir)
 		}
 	}
@@ -126,10 +134,10 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 	if !simpleca.FileExists(rootCertPath) || !simpleca.FileExists(rootKeyPath) {
 		if issuingCA != "" {
 			return fmt.Errorf(
-				"cannot create issuing CA '%s' without existing root CA. "+
+				"cannot create issuing CA %q without existing root CA. "+
 					"Please create the root CA first", caName)
 		}
-		fmt.Printf("Generating root CA certificate '%s' and key...\n", caName)
+		fmt.Printf("Generating root CA certificate %q and key...\n", caName)
 		key, err := newKey(keyType)
 		if err != nil {
 			return err
@@ -165,12 +173,12 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 		if err := MakeCRL(caDir, crlDays); err != nil {
 			return err
 		}
-		fmt.Printf("CRL written to %s\n", filepath.Join(caDir, "crl.pem"))
+		fmt.Printf("CRL written to %q\n", filepath.Join(caDir, "crl.pem"))
 		return rebuildCABundle(caDir)
 	}
 
 	if issuingCA == "" {
-		fmt.Printf("Root CA already exists in %s, skipping.\n", caDir)
+		fmt.Printf("Root CA already exists in %q, skipping.\n", caDir)
 		return nil
 	}
 
@@ -180,10 +188,10 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 	issuingCAKey := filepath.Join(issuingCADir, "ca_key.pem")
 
 	if simpleca.FileExists(issuingCACert) && simpleca.FileExists(issuingCAKey) {
-		fmt.Printf("Issuing CA '%s' already exists in %s, skipping.\n", issuingCA, issuingCADir)
+		fmt.Printf("Issuing CA %q already exists in %q, skipping.\n", issuingCA, issuingCADir)
 	} else {
-		fmt.Printf("Generating issuing CA certificate '%s' and key...\n", caName)
-		if err := os.MkdirAll(issuingCADir, 0o755); err != nil {
+		fmt.Printf("Generating issuing CA certificate %q and key...\n", caName)
+		if err := simpleca.MkdirAll(issuingCADir); err != nil {
 			return err
 		}
 		rootCert, err := simpleca.LoadCert(rootCertPath)
@@ -248,7 +256,7 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 		if err := MakeCRL(issuingCADir, crlDays); err != nil {
 			return err
 		}
-		fmt.Printf("CRL written to %s\n", filepath.Join(issuingCADir, "crl.pem"))
+		fmt.Printf("CRL written to %q\n", filepath.Join(issuingCADir, "crl.pem"))
 	}
 
 	return rebuildCABundle(caDir)

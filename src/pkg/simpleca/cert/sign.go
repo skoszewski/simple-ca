@@ -55,7 +55,7 @@ func RequestCert(caDir string, csrData []byte, certType string, days int, ekus, 
 		return nil, errors.New("the validity in days must be a positive integer")
 	}
 	if !DirExists(caDir) {
-		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
+		return nil, fmt.Errorf("CA directory %q does not exist", caDir)
 	}
 	csr, err := ParseCSR(csrData)
 	if err != nil {
@@ -165,7 +165,7 @@ func IssueLeaf(caDir, certType string, days int, ekus, kus []string, tmpl *x509.
 	}
 	def, ok := types[certType]
 	if !ok {
-		return nil, fmt.Errorf("unknown type '%s': must be one of %s", certType, TypeNames(types))
+		return nil, fmt.Errorf("unknown type %q: must be one of %s", certType, TypeNames(types))
 	}
 	keyUsage, extKeyUsages, extKeyUsageOIDs, err := ParseUsages(
 		append(slices.Clone(def.KeyUsage), kus...), append(slices.Clone(def.ExtKeyUsage), ekus...))
@@ -176,7 +176,7 @@ func IssueLeaf(caDir, certType string, days int, ekus, kus []string, tmpl *x509.
 	caCertPath := filepath.Join(caDir, "ca_cert.pem")
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
 	if !simpleca.FileExists(caCertPath) || !simpleca.FileExists(caKeyPath) {
-		return nil, fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
+		return nil, fmt.Errorf("CA certificate and key not found in %q, which is not a CA directory", caDir)
 	}
 	caCert, err := simpleca.LoadCert(caCertPath)
 	if err != nil {
@@ -224,7 +224,7 @@ func CertFile(name string) (string, error) {
 	clean := strings.Trim(FileNameRE.ReplaceAllString(strings.TrimSpace(name), "_"), "_")
 	switch {
 	case clean == "":
-		return "", fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", name)
+		return "", fmt.Errorf("%q gives no file name: it needs a letter or a digit", name)
 	case clean == "ca":
 		return "", errors.New("the name ca gives ca_cert.pem, the file of the CA certificate")
 	}

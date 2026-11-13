@@ -91,7 +91,7 @@ func KeyPassphrase(tty bool) (string, error) {
 		}
 		pass = strings.TrimSuffix(strings.TrimSuffix(string(b), "\n"), "\r")
 		if pass == "" {
-			return "", fmt.Errorf("the passphrase in %s is empty", file)
+			return "", fmt.Errorf("the passphrase in %q is empty", file)
 		}
 	case tty && PromptPassphrase != nil:
 		b, err := PromptPassphrase("Passphrase for private keys: ")
@@ -304,23 +304,23 @@ func LoadKey(path string) (crypto.Signer, error) {
 	}
 	block, _ := pem.Decode(b)
 	if block == nil {
-		return nil, fmt.Errorf("no PEM block in %s", path)
+		return nil, fmt.Errorf("no PEM block in %q", path)
 	}
 	der := block.Bytes
 	if block.Type == "ENCRYPTED PRIVATE KEY" {
 		pass, err := KeyPassphrase(false)
 		if err != nil {
-			return nil, fmt.Errorf("%s is encrypted: %w", path, err)
+			return nil, fmt.Errorf("%q is encrypted: %w", path, err)
 		}
 		if der, err = decryptKeyDER(der, pass); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, fmt.Errorf("%q: %w", path, err)
 		}
 	}
 	var key any
 	if key, err = x509.ParsePKCS8PrivateKey(der); err != nil {
 		if key, err = x509.ParsePKCS1PrivateKey(der); err != nil {
 			if key, err = x509.ParseECPrivateKey(der); err != nil {
-				return nil, fmt.Errorf("no RSA or ECDSA private key in %s", path)
+				return nil, fmt.Errorf("no RSA or ECDSA private key in %q", path)
 			}
 		}
 	}
@@ -330,11 +330,11 @@ func LoadKey(path string) (crypto.Signer, error) {
 		signer = k
 	case *ecdsa.PrivateKey:
 		if k.Curve != elliptic.P256() {
-			return nil, fmt.Errorf("the ECDSA key in %s is not on the curve P-256", path)
+			return nil, fmt.Errorf("the ECDSA key in %q is not on the curve P-256", path)
 		}
 		signer = k
 	default:
-		return nil, fmt.Errorf("the key in %s is not an RSA or ECDSA P-256 key", path)
+		return nil, fmt.Errorf("the key in %q is not an RSA or ECDSA P-256 key", path)
 	}
 	loadedKeysMu.Lock()
 	loadedKeys[path] = loadedKey{file: b, key: signer}

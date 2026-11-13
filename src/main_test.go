@@ -12,7 +12,12 @@ import (
 )
 
 // TestMain runs the tests without holding back refused clients; TestAuthGuard holds them back.
+// With SIMPLE_CA_TEST_MAIN=1 it runs main with the arguments of the test binary instead.
 func TestMain(m *testing.M) {
+	if os.Getenv("SIMPLE_CA_TEST_MAIN") == "1" {
+		main()
+		os.Exit(0)
+	}
 	authFreeFailures = 1 << 30
 	os.Exit(m.Run())
 }

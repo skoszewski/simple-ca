@@ -133,7 +133,7 @@ func WriteOpenSSLConf(caDir string) (string, error) {
 		def := types[name]
 		keyUsage, extKeyUsages, extKeyUsageOIDs, err := ParseUsages(def.KeyUsage, def.ExtKeyUsage)
 		if err != nil {
-			return "", fmt.Errorf("type '%s': %w", name, err)
+			return "", fmt.Errorf("type %q: %w", name, err)
 		}
 		fmt.Fprintf(&b, "\n[ ext_%s ]\n", name)
 		fmt.Fprintf(&b, "basicConstraints       = critical, CA:FALSE\n")

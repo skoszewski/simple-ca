@@ -238,7 +238,40 @@ before they call their API, so opening one counts nothing.
 The `{ca}` part of a route names an issuing CA only when it is a kebab-case name, the form
 `ca create` gives them, with a `ca_cert.pem` in its directory. A path value is unescaped by the
 mux, so it can hold `/` and `..`; checking its form, and not what it must not start with, keeps
-every route inside the root CA directory.
+every route inside the root CA directory. `simpleca.IssuingCAExists` is that test, for the
+routes and for the CA URLs of the commands.
+
+## Every URL is checked where it is read, in one of three shapes
+
+The programs append paths to the URLs they are given, so each URL has the shape its use needs,
+checked by `pkg/weburl`, which imports nothing of the module, so the client programs use it too:
+
+- a server URL, scheme and host with an optional port only: `ca_publish_base_url`,
+  `federation.issuer` and `token-setup --url`. The programs add `/NAME` of an issuing CA and the
+  paths of `serve`, so a path of its own would be doubled or point elsewhere;
+- a CA URL, a server URL or a server URL and `/NAME`: the `ca_url` of `request-token`, the
+  `CA_URL` of `request-cert` and `google machine --ca-url`. A program that has the CA directory
+  checks that `NAME` exists; a client learns it from the 404 of `serve`, which it reports as
+  the missing issuing CA;
+- an endpoint of another service, whose path is kept: `oidc.issuer`, the endpoints of its
+  discovery document and the `token_uri` of a service account file.
+
+A port is 1 to 65535, since `net/url` takes any digits. `simple-ca.json` is checked when it is
+loaded, so a wrong URL is an error of every command and of `serve`, not a wrong certificate
+extension or issuer.
+
+## Untrusted strings are quoted with %q in messages, and escaped in listings
+
+A value from outside the code, such as an argument, a path, a file, a certificate, a request or
+the answer of another service, can hold a line end, a quote or a terminal sequence. In a message,
+an error, a status line, an HTTP or ACME error, it is formatted with `%q`, so it cannot end the
+message, forge another line or change the terminal, and a list of values is quoted item by
+item. Listings show data and keep their columns, so their values are not quoted but escaped by
+`simpleca.Printable`, which writes a rune that is not printable as `%q` does and keeps the rest,
+a backslash too, so paths and the quoted values of the audit log read as they are.
+`simple-ca-trust` has its own copy, since it imports nothing of the CA. Values whose characters
+a check limits already, such as kebab-case names, hex serials and addresses, are printed as
+they are, and the files the programs write keep their own formats.
 
 ## index.txt is changed under a lock file and replaced at once
 
@@ -248,6 +281,15 @@ it. Each change reads the file, changes it and writes it back, under `index.txt.
 not lose each other's entries and an interrupted write leaves the file as it was. A field with a
 tab or a line end is never written, and a request whose subject holds a control character is
 refused where it is read, since the subject is a field of the file.
+
+## The group access to the private files is an environment variable, set on creation
+
+`SIMPLE_CA_PRIVATE_GROUP_WRITE` makes the private files `0660` and the directories `0770`, so
+`serve` and an administrator of the same group can both work on a CA directory. It is an
+environment variable, so every program picks it up, the commands, `serve` and `simple-ca-wif`,
+and a systemd unit sets it with `Environment=`. The mode is set with a chmod when a file or a
+directory is created, so the umask does not change it, and an existing file is opened as it is,
+since a group member cannot change the mode of a file of another account.
 
 ## A token adds no usages, and no certificate outlives its CA
 
@@ -399,6 +441,12 @@ Package `main` of `simple-ca` keeps what only it runs: the token and audit comma
 package; those that run commands through the command table are in `cli`, and those of what
 `main` keeps stay in `main`. The parser of the lines of the REPL is `pkg/replline`, which imports
 nothing of the module, so it is tested alone.
+
+The tests open no terminal: the line editing of the REPL, the passphrase prompt and the
+following of the terminal size need one, which the standard library cannot make, and are not
+tested. The `main` functions, and the commands that cache a key passphrase, run in a child
+process of the test binary, so their exit codes are checked and the cache of one test does not
+reach the others.
 
 The client code that `request-cert`, `token-setup`, `request-token` and `simple-ca-wif` share,
 the requests to `serve` and to the clouds and the keys of `federation.json`, is the package

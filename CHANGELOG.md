@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.20.5
+
+fix: every URL is checked, untrusted values are quoted, and SIMPLE_CA_PRIVATE_GROUP_WRITE shares the private files.
+
+- The messages, errors and status lines of all programs, the errors of the APIs and pages, and
+  the ACME problems quote each value from outside the program, such as a name, a path, a URL,
+  a serial, a certificate field, a request field or the answer of another service, as
+  `"value"` with `\n`, `\t`, `\x1b` and `\"` escaped, instead of printing it bare or in `'...'`.
+  A list of values is quoted item by item.
+- The listings, `cert show`, `ca show`, `cert list`, `token list`, `token describe`,
+  `audit list`, `context show`, the prompt of a session and `simple-ca-trust add`, `remove` and
+  `list`, keep their layout and escape the characters of a value that are not printable, such
+  as a line end or a terminal sequence, as `\n` or `\x1b`.
+- `ca_publish_base_url` and `federation.issuer` of `simple-ca.json`, `ca create --ca-url`,
+  `simple-ca-wif google setup --issuer` and `token-setup --url` take a URL of scheme and host
+  with an optional port only, `federation.issuer` and `--issuer` an `https` one; a path, a query,
+  a fragment, a user name or a port outside 1 to 65535 is an error. A `federation.issuer` that
+  ended with `/NAME` of an issuing CA, which doubled `/NAME` in the JWTs and in `federation.json`,
+  is refused.
+- `ca create --ca-url` stores the URL without a trailing `/`.
+- The `ca_url` of `request-token`, the `CA_URL` of `request-cert` and
+  `simple-ca-wif google machine --ca-url` take the URL of the server, or that URL and `/NAME` of
+  an issuing CA. A URL ending with `/api/sign` or `/api/federation-token` is no longer taken.
+- `google machine --ca-url` must name the CA of `--ca-dir`, and the issuing CA must exist;
+  `request-token` and `request-cert` report a 404 of `serve` as `SERVER has no issuing CA NAME`.
+- `oidc.issuer`, the endpoints of its discovery document and the `token_uri` of a service account
+  file of `simple-ca-wif` must be absolute `http` or `https` URLs with a host, and no user name or
+  fragment.
+- With `SIMPLE_CA_PRIVATE_GROUP_WRITE` set, the programs create the keys, `tokens-db.json`,
+  `acme.json`, the audit log, the lock files and the PFX files with mode `0660`, and the issuing
+  CA directories with mode `0770`, whatever the umask.
+- Without it, the private files are `0600` as before, and new issuing CA directories are `0750`
+  instead of `0755`.
+- An existing file that is appended to or rewritten in place keeps its mode and owner.
+- `src/Dockerfile.test`, which runs the test suite on Linux while an image builds, is in the
+  repository.
+- `build.mjs` reads its command line with `parseArgs` of `node:util`: an unknown option or an
+  option without its value is refused with the reason before the usage, `--registry --push` is
+  refused instead of taking `--push` as the registry, and `--` ends the options.
+- `serve` reads and checks `--tls-cert` and `--tls-key` before it opens its port, so a refused
+  certificate or key leaves the port free.
+- The tests run every command of the seven programs, their exit codes, and every route of
+  `serve`, also the ACME accounts and orders without lego; the Linux test run covers them too.
+
 ## 1.20.4
 
 fix: simple-ca-wif google setup replaces the issuer of simple-ca.json with --issuer, and updates an existing provider.

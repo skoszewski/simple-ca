@@ -71,7 +71,7 @@ func RevocationReason(revoked string) (string, int, error) {
 			return r.Name, r.Code, nil
 		}
 	}
-	return "", 0, fmt.Errorf("unknown revocation reason '%s'", name)
+	return "", 0, fmt.Errorf("unknown revocation reason %q", name)
 }
 
 // MakeCRL writes crl.pem of the CA in caDir, listing the certificates its index.txt marks as
@@ -85,14 +85,14 @@ func MakeCRL(caDir string, days int) error {
 	caCertPath := filepath.Join(signingDir, "ca_cert.pem")
 	caKeyPath := filepath.Join(signingDir, "ca_key.pem")
 	if !simpleca.FileExists(caCertPath) || !simpleca.FileExists(caKeyPath) {
-		return fmt.Errorf("CA certificate or key not found in %s", signingDir)
+		return fmt.Errorf("CA certificate or key not found in %q", signingDir)
 	}
 	caCert, err := simpleca.LoadCert(caCertPath)
 	if err != nil {
 		return err
 	}
 	if len(caCert.SubjectKeyId) == 0 {
-		return fmt.Errorf("CA certificate %s has no subject key identifier", caCertPath)
+		return fmt.Errorf("CA certificate %q has no subject key identifier", caCertPath)
 	}
 	caKey, err := simpleca.LoadKey(caKeyPath)
 	if err != nil {
@@ -109,15 +109,15 @@ func MakeCRL(caDir string, days int) error {
 		}
 		serial, ok := new(big.Int).SetString(e.Serial, 16)
 		if !ok {
-			return fmt.Errorf("invalid serial '%s' in %s", e.Serial, filepath.Join(signingDir, indexFile))
+			return fmt.Errorf("invalid serial %q in %q", e.Serial, filepath.Join(signingDir, indexFile))
 		}
 		revokedAt, err := ParseIndexTime(e.Revoked)
 		if err != nil {
-			return fmt.Errorf("invalid revocation date of serial %s in %s: %w", e.Serial, filepath.Join(signingDir, indexFile), err)
+			return fmt.Errorf("invalid revocation date of serial %s in %q: %w", e.Serial, filepath.Join(signingDir, indexFile), err)
 		}
 		_, reasonCode, err := RevocationReason(e.Revoked)
 		if err != nil {
-			return fmt.Errorf("serial %s in %s: %w", e.Serial, filepath.Join(signingDir, indexFile), err)
+			return fmt.Errorf("serial %s in %q: %w", e.Serial, filepath.Join(signingDir, indexFile), err)
 		}
 		revoked = append(revoked, x509.RevocationListEntry{SerialNumber: serial, RevocationTime: revokedAt, ReasonCode: reasonCode})
 	}
@@ -130,7 +130,7 @@ func MakeCRL(caDir string, days int) error {
 	}
 	if err == nil {
 		if _, ok := number.SetString(strings.TrimSpace(string(b)), 16); !ok {
-			return fmt.Errorf("invalid CRL number in %s", numberPath)
+			return fmt.Errorf("invalid CRL number in %q", numberPath)
 		}
 	}
 
@@ -182,7 +182,7 @@ func MarkRevoked(caDir, serial, reason string) (bool, error) {
 	}
 	i := slices.IndexFunc(entries, func(e IndexEntry) bool { return strings.EqualFold(e.Serial, serial) })
 	if i < 0 {
-		return false, fmt.Errorf("certificate with serial %s not found in %s", serial, filepath.Join(caDir, indexFile))
+		return false, fmt.Errorf("certificate with serial %q not found in %q", serial, filepath.Join(caDir, indexFile))
 	}
 	if entries[i].Status == "R" {
 		return false, nil
@@ -206,16 +206,16 @@ func RevokeCert(certPath, caDir, reason string) error {
 		}
 		i := slices.IndexFunc(names, func(name string) bool { return strings.EqualFold(name, reason) })
 		if i < 0 {
-			return fmt.Errorf("unknown revocation reason '%s': must be one of %s", reason, strings.Join(names, ", "))
+			return fmt.Errorf("unknown revocation reason %q: must be one of %s", reason, strings.Join(names, ", "))
 		}
 		reason = names[i]
 	}
 	if !simpleca.FileExists(certPath) {
-		return fmt.Errorf("certificate not found: %s", certPath)
+		return fmt.Errorf("certificate not found: %q", certPath)
 	}
 	signingDir := caDir
 	if !DirExists(signingDir) {
-		return fmt.Errorf("CA directory not found: %s", signingDir)
+		return fmt.Errorf("CA directory not found: %q", signingDir)
 	}
 
 	cert, err := simpleca.LoadCert(certPath)
@@ -232,9 +232,9 @@ func RevokeCert(certPath, caDir, reason string) error {
 	}
 	simpleca.Audit(signingDir, "cert.revoke", "serial", serial, "reason", reason, "via", "cli", "actor", simpleca.CLIActor())
 	if reason != "" {
-		fmt.Printf("Certificate %s (serial %s) marked as revoked, reason %s.\n", certPath, serial, reason)
+		fmt.Printf("Certificate %q (serial %s) marked as revoked, reason %s.\n", certPath, serial, reason)
 	} else {
-		fmt.Printf("Certificate %s (serial %s) marked as revoked.\n", certPath, serial)
+		fmt.Printf("Certificate %q (serial %s) marked as revoked.\n", certPath, serial)
 	}
 	return nil
 }

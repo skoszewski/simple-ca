@@ -66,7 +66,8 @@ func TestOIDCResolved(t *testing.T) {
 	}{
 		{simpleca.OIDCConfig{Provider: "other", Issuer: "https://idp.example.com", ClientID: "x"}, "must be one of entra, generic, keycloak"},
 		{simpleca.OIDCConfig{Issuer: "https://idp.example.com"}, "oidc.client_id"},
-		{simpleca.OIDCConfig{Issuer: "idp.example.com", ClientID: "x"}, "not an HTTP or HTTPS URL"},
+		{simpleca.OIDCConfig{Issuer: "idp.example.com", ClientID: "x"}, "not an http or https URL"},
+		{simpleca.OIDCConfig{Issuer: "https://idp.example.com/realms/lab#x", ClientID: "x"}, "has a fragment"},
 	} {
 		if _, on, err := Resolved(c.in, path); err == nil || on || !strings.Contains(err.Error(), c.want) ||
 			!strings.Contains(err.Error(), path) {

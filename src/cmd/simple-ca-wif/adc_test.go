@@ -161,7 +161,7 @@ func TestADCServiceAccount(t *testing.T) {
 
 func TestCredentialsChoice(t *testing.T) {
 	useADC(t, map[string]any{"type": "external_account"})
-	if err := googleCredentials(""); err == nil || !strings.Contains(err.Error(), "'external_account' is not supported") {
+	if err := googleCredentials(""); err == nil || !strings.Contains(err.Error(), `"external_account" is not supported`) {
 		t.Errorf("external_account: %v", err)
 	}
 	if err := googleCredentials("flag-token"); err != nil || accessToken != "flag-token" {
@@ -173,7 +173,7 @@ func TestCredentialsChoice(t *testing.T) {
 	}
 	t.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing.json"))
-	if err := googleCredentials(""); err == nil || !strings.Contains(err.Error(), "missing.json of GOOGLE_APPLICATION_CREDENTIALS does not exist") {
+	if err := googleCredentials(""); err == nil || !strings.Contains(err.Error(), `missing.json" of GOOGLE_APPLICATION_CREDENTIALS does not exist`) {
 		t.Errorf("no file of GOOGLE_APPLICATION_CREDENTIALS: %v", err)
 	}
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
@@ -182,5 +182,19 @@ func TestCredentialsChoice(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	if err := googleCredentials(""); err == nil || !strings.Contains(err.Error(), "gcloud auth application-default login") {
 		t.Errorf("no file of gcloud: %v", err)
+	}
+}
+
+func TestADCTokenURIRefused(t *testing.T) {
+	for uri, want := range map[string]string{
+		"oauth2.example.com/token":          `token_uri: "oauth2.example.com/token" is not an http or https URL`,
+		"https://oauth2.example.com/t#frag": `token_uri: "https://oauth2.example.com/t#frag" has a fragment`,
+		"https://oauth2.example.com/t\nx":   `token_uri: "https://oauth2.example.com/t\nx" is not a URL`,
+	} {
+		useADC(t, map[string]any{"type": "service_account", "client_email": "wif@lab-project.iam.gserviceaccount.com",
+			"private_key_id": "key-1", "token_uri": uri, "private_key": "unused"})
+		if err := googleCredentials(""); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("token_uri %q: %v, want %s", uri, err, want)
+		}
 	}
 }

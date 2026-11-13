@@ -80,7 +80,10 @@ writes it, and it can be written or edited by hand. A setting not described here
 }
 ```
 
-- `ca_publish_base_url` - base URL for the AIA and CRL Distribution Point extensions.
+- `ca_publish_base_url` - the URL of `serve` for the AIA and CRL Distribution Point extensions,
+  `http` or `https`, scheme and host with an optional port only, such as `http://pki.example.com`;
+  the extensions of an issuing CA `NAME` add `/NAME`. A URL with a path, a query, a fragment or a
+  user name is an error of every command that reads the file.
 - `acme` - the [ACME](acme.md) server of `serve`:
   - `domains` - the domains whose names and the names below them it issues certificates for;
     without them, `serve` has no ACME server;
@@ -113,6 +116,8 @@ writes it, and it can be written or edited by hand. A setting not described here
 - `federation` - the JWTs for [workload identity federation](workload-identity.md), which a token
   with the scope `federate` gets and `token issue` prints:
   - `issuer` - their `iss` claim for the root CA, followed by `/NAME` for the issuing CA `NAME`;
+    an `https` URL of scheme and host with an optional port only, such as
+    `https://pki.example.com`, else an error of every command that reads the file;
     `ca_publish_base_url` without it;
   - `types` - the token types, by kebab-case name. A type named `google` or `azure` redefines the
     built-in type, and any other name defines a new type, starting from the built-in type `base`

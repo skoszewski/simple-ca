@@ -158,10 +158,10 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 		return nil, errors.New("the validity in days must be a positive integer")
 	}
 	if leafKeyType != "" && !slices.Contains(keyTypes, leafKeyType) {
-		return nil, fmt.Errorf("--key-type '%s' must be rsa or ec", leafKeyType)
+		return nil, fmt.Errorf("--key-type %q must be rsa or ec", leafKeyType)
 	}
 	if !DirExists(caDir) {
-		return nil, fmt.Errorf("CA directory %s does not exist", caDir)
+		return nil, fmt.Errorf("CA directory %q does not exist", caDir)
 	}
 	if subjectName == "" {
 		return nil, errors.New("subject name is required")
@@ -181,7 +181,7 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 	}
 	def, ok := types[certType]
 	if !ok {
-		return nil, fmt.Errorf("unknown type '%s': must be one of %s", certType, TypeNames(types))
+		return nil, fmt.Errorf("unknown type %q: must be one of %s", certType, TypeNames(types))
 	}
 	keyUsage, extKeyUsages, extKeyUsageOIDs, err := ParseUsages(
 		append(slices.Clone(def.KeyUsage), kus...), append(slices.Clone(def.ExtKeyUsage), ekus...))
@@ -198,7 +198,7 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 	rest := sans
 	if !userNames {
 		if !simpleca.IsHostname(subjectName) {
-			return nil, fmt.Errorf("invalid CN '%s': a %s certificate's CN must be a hostname or FQDN", subjectName, certType)
+			return nil, fmt.Errorf("invalid CN %q: a %s certificate's CN must be a hostname or FQDN", subjectName, certType)
 		}
 		cn = subjectName
 		dnsNames = []string{cn}
@@ -213,11 +213,11 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 			rest = rest[1:]
 			switch {
 			case email == "" && !EmailRE.MatchString(next):
-				return nil, fmt.Errorf("invalid emailAddress '%s': the CN is '%s', so the second argument must be the email address", next, cn)
+				return nil, fmt.Errorf("invalid emailAddress %q: the CN is %q, so the second argument must be the email address", next, cn)
 			case email == "":
 				email = next
 			case EmailRE.MatchString(next):
-				return nil, fmt.Errorf("invalid CN '%s': the emailAddress is '%s', so the second argument must be the CN", next, email)
+				return nil, fmt.Errorf("invalid CN %q: the emailAddress is %q, so the second argument must be the CN", next, email)
 			default:
 				cn = next
 			}
@@ -242,9 +242,9 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 		case userNames && EmailRE.MatchString(entry):
 			emails = append(emails, entry)
 		case !userNames:
-			return nil, fmt.Errorf("invalid SAN '%s': must be a hostname, FQDN, IPv4 or IPv6 address, or numeric OID", entry)
+			return nil, fmt.Errorf("invalid SAN %q: must be a hostname, FQDN, IPv4 or IPv6 address, or numeric OID", entry)
 		default:
-			return nil, fmt.Errorf("invalid SAN '%s': must be an email address or numeric OID", entry)
+			return nil, fmt.Errorf("invalid SAN %q: must be an email address or numeric OID", entry)
 		}
 	}
 
@@ -252,13 +252,13 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 		certDir = caDir
 	}
 	if !DirExists(certDir) {
-		return nil, fmt.Errorf("certificate directory %s does not exist", certDir)
+		return nil, fmt.Errorf("certificate directory %q does not exist", certDir)
 	}
 
 	caCertPath := filepath.Join(caDir, "ca_cert.pem")
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
 	if !simpleca.FileExists(caCertPath) || !simpleca.FileExists(caKeyPath) {
-		return nil, fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
+		return nil, fmt.Errorf("CA certificate and key not found in %q, which is not a CA directory", caDir)
 	}
 
 	publishURL := cfg.CAPublishBaseURL
@@ -268,7 +268,7 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 
 	certName := CertFileName(cn, email, userNames)
 	if certName == "" {
-		return nil, fmt.Errorf("'%s' gives no file name: it needs a letter or a digit", cmp.Or(cn, email))
+		return nil, fmt.Errorf("%q gives no file name: it needs a letter or a digit", cmp.Or(cn, email))
 	}
 
 	subject := pkix.Name{CommonName: cn}

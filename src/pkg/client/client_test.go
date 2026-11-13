@@ -31,6 +31,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -183,7 +184,7 @@ func TestPostErrors(t *testing.T) {
 			srv, _ := serve(t, tc.status, tc.answer)
 			var result map[string]any
 			err := Post(srv.URL+"/api/x", "application/json", "", []byte("{}"), &result)
-			want := fmt.Sprintf("%s/api/x: %d %s", srv.URL, tc.status, tc.message)
+			want := fmt.Sprintf("%q: %d %q", srv.URL+"/api/x", tc.status, tc.message)
 			if err == nil || err.Error() != want {
 				t.Errorf("error %v, want %q", err, want)
 			}
@@ -191,11 +192,20 @@ func TestPostErrors(t *testing.T) {
 	}
 }
 
+func TestPostErrorEscapesMessage(t *testing.T) {
+	srv, _ := serve(t, http.StatusBadRequest, `{"error":"bad\nforged line \u001b[31mred"}`)
+	err := Post(srv.URL+"/api/x", "application/json", "", []byte("{}"), nil)
+	want := `"` + srv.URL + `/api/x": 400 "bad\nforged line \x1b[31mred"`
+	if err == nil || err.Error() != want {
+		t.Errorf("error %v, want %s", err, want)
+	}
+}
+
 func TestPostAnswerNotJSON(t *testing.T) {
 	srv, _ := serve(t, http.StatusOK, "<html>proxy</html>")
 	var result map[string]any
 	err := Post(srv.URL+"/api/x", "application/json", "", nil, &result)
-	if err == nil || !strings.HasPrefix(err.Error(), srv.URL+"/api/x: ") {
+	if err == nil || !strings.HasPrefix(err.Error(), strconv.Quote(srv.URL+"/api/x")+": ") {
 		t.Errorf("error %v, want one starting with the URL", err)
 	}
 	var syntax *json.SyntaxError
@@ -209,7 +219,7 @@ func TestPostAnswerLargerThanMaxAnswer(t *testing.T) {
 		srv, _ := serve(t, http.StatusOK, `{"token":"`+strings.Repeat("a", MaxAnswer)+`"}`)
 		var result struct{ Token string }
 		err := Post(srv.URL, "application/json", "", nil, &result)
-		if err == nil || !strings.HasPrefix(err.Error(), srv.URL+": ") {
+		if err == nil || !strings.HasPrefix(err.Error(), strconv.Quote(srv.URL)+": ") {
 			t.Errorf("error %v, want the cut answer refused with the URL", err)
 		}
 	})
@@ -228,7 +238,7 @@ func TestPostAnswerLargerThanMaxAnswer(t *testing.T) {
 		srv, _ := serve(t, http.StatusInternalServerError, strings.Repeat("e", MaxAnswer+100))
 		var result map[string]any
 		err := Post(srv.URL, "application/json", "", nil, &result)
-		want := srv.URL + ": 500 " + strings.Repeat("e", MaxAnswer)
+		want := fmt.Sprintf("%q: 500 %q", srv.URL, strings.Repeat("e", MaxAnswer))
 		if err == nil {
 			t.Fatal("a 500 answer is not an error")
 		}
@@ -252,7 +262,7 @@ func TestPostRequestErrors(t *testing.T) {
 
 func TestExchange(t *testing.T) {
 	answer := `{"ca":"root","name":"web","token":"jwt-of-token","scopes":["sign"]}`
-	for _, caURL := range []string{"", "/", "/ca1", "/ca1/api/token-setup?x=1"} {
+	for _, caURL := range []string{"", "/", "/ca1", "/ca1/"} {
 		t.Run(caURL, func(t *testing.T) {
 			srv, got := serve(t, http.StatusOK, answer)
 			token, err := Exchange(srv.URL+caURL, "ABCD-EFGH")
@@ -277,9 +287,10 @@ func TestExchange(t *testing.T) {
 }
 
 func TestExchangeInvalidURL(t *testing.T) {
-	for _, caURL := range []string{"", "pki.example.com", "https://", "/api", "http://[::1"} {
+	for _, caURL := range []string{"", "pki.example.com", "https://", "/api", "http://[::1",
+		"https://pki.example.com/ca1/api/token-setup"} {
 		_, err := Exchange(caURL, "code")
-		if err == nil || !strings.Contains(err.Error(), "is not a URL such as") {
+		if err == nil || !strings.Contains(err.Error(), "such as") {
 			t.Errorf("Exchange(%q): error %v", caURL, err)
 		}
 	}
@@ -288,7 +299,7 @@ func TestExchangeInvalidURL(t *testing.T) {
 func TestExchangeAnswerWithoutToken(t *testing.T) {
 	srv, _ := serve(t, http.StatusOK, `{"ca":"root","name":"web"}`)
 	_, err := Exchange(srv.URL, "code")
-	want := srv.URL + "/api/token-setup: the answer holds no token"
+	want := strconv.Quote(srv.URL+"/api/token-setup") + ": the answer holds no token"
 	if err == nil || err.Error() != want {
 		t.Errorf("error %v, want %q", err, want)
 	}
@@ -297,7 +308,7 @@ func TestExchangeAnswerWithoutToken(t *testing.T) {
 func TestExchangeServerError(t *testing.T) {
 	srv, _ := serve(t, http.StatusNotFound, `{"error":"the setup code is not known"}`)
 	_, err := Exchange(srv.URL, "code")
-	want := srv.URL + "/api/token-setup: 404 the setup code is not known"
+	want := fmt.Sprintf("%q: 404 %q", srv.URL+"/api/token-setup", "the setup code is not known")
 	if err == nil || err.Error() != want {
 		t.Errorf("error %v, want %q", err, want)
 	}
@@ -310,8 +321,6 @@ func TestFederationToken(t *testing.T) {
 	for _, tc := range []struct{ suffix, path string }{
 		{"", "/api/federation-token"},
 		{"/", "/api/federation-token"},
-		{"/api/federation-token", "/api/federation-token"},
-		{"/api/federation-token/", "/api/federation-token"},
 		{"/ca1", "/ca1/api/federation-token"},
 		{"/ca1/", "/ca1/api/federation-token"},
 	} {
@@ -341,12 +350,21 @@ func TestFederationToken(t *testing.T) {
 func TestFederationTokenErrors(t *testing.T) {
 	srv, _ := serve(t, http.StatusOK, `{"token_type":"google"}`)
 	_, _, err := FederationToken(srv.URL, "api-token")
-	if want := srv.URL + "/api/federation-token: the answer holds no token"; err == nil || err.Error() != want {
+	if want := strconv.Quote(srv.URL) + ": the answer holds no token"; err == nil || err.Error() != want {
 		t.Errorf("error %v, want %q", err, want)
+	}
+	srv, _ = serve(t, http.StatusNotFound, "404 page not found")
+	_, _, err = FederationToken(srv.URL+"/nosuch", "api-token")
+	if want := strconv.Quote(srv.URL) + " has no issuing CA nosuch"; err == nil || err.Error() != want {
+		t.Errorf("error %v, want %q", err, want)
+	}
+	if _, _, err = FederationToken(srv.URL+"/ca1/api/federation-token", "api-token"); err == nil ||
+		!strings.Contains(err.Error(), "not /NAME of an issuing CA") {
+		t.Errorf("a CA URL with the path of the API: %v", err)
 	}
 	srv, _ = serve(t, http.StatusForbidden, `{"error":"the token does not have the scope federate"}`)
 	_, _, err = FederationToken(srv.URL, "api-token")
-	want := srv.URL + "/api/federation-token: 403 the token does not have the scope federate"
+	want := fmt.Sprintf("%q: 403 %q", srv.URL+"/api/federation-token", "the token does not have the scope federate")
 	if err == nil || err.Error() != want {
 		t.Errorf("error %v, want %q", err, want)
 	}
@@ -393,7 +411,7 @@ func TestGoogleTokenErrors(t *testing.T) {
 		`{"error":"invalid_grant","error_description":"The audience does not match"}`)
 	redirectTo(t, srv)
 	_, err = GoogleToken("provider", "jwt")
-	if want := STSURL + ": 400 The audience does not match"; err == nil || err.Error() != want {
+	if want := fmt.Sprintf("%q: 400 %q", STSURL, "The audience does not match"); err == nil || err.Error() != want {
 		t.Errorf("error %v, want %q", err, want)
 	}
 }
@@ -441,14 +459,14 @@ func TestServiceAccountTokenErrors(t *testing.T) {
 	srv, _ := serve(t, http.StatusOK, `{"expireTime":"2026-11-11T13:00:00Z"}`)
 	redirectTo(t, srv)
 	_, err := ServiceAccountToken(email, DefaultGoogleScope, "federated")
-	if want := target + ": the answer holds no accessToken"; err == nil || err.Error() != want {
+	if want := strconv.Quote(target) + ": the answer holds no accessToken"; err == nil || err.Error() != want {
 		t.Errorf("error %v, want %q", err, want)
 	}
 	answer := `{"error":{"code":403,"message":"Permission denied","status":"PERMISSION_DENIED"}}`
 	srv, _ = serve(t, http.StatusForbidden, answer)
 	redirectTo(t, srv)
 	_, err = ServiceAccountToken(email, DefaultGoogleScope, "federated")
-	if want := target + ": 403 " + answer; err == nil || err.Error() != want {
+	if want := fmt.Sprintf("%q: 403 %q", target, answer); err == nil || err.Error() != want {
 		t.Errorf("error %v, want %q", err, want)
 	}
 }
@@ -502,14 +520,14 @@ func TestEntraTokenErrors(t *testing.T) {
 	srv, _ := serve(t, http.StatusOK, `{"token_type":"Bearer"}`)
 	redirectTo(t, srv)
 	_, err := EntraToken("tenant", "app-id", DefaultEntraScope, "jwt")
-	if want := target + ": the answer holds no access_token"; err == nil || err.Error() != want {
+	if want := strconv.Quote(target) + ": the answer holds no access_token"; err == nil || err.Error() != want {
 		t.Errorf("error %v, want %q", err, want)
 	}
 	srv, _ = serve(t, http.StatusUnauthorized,
 		`{"error":"invalid_client","error_description":"AADSTS70021: No matching federated identity record found"}`)
 	redirectTo(t, srv)
 	_, err = EntraToken("tenant", "app-id", DefaultEntraScope, "jwt")
-	want := target + ": 401 AADSTS70021: No matching federated identity record found"
+	want := fmt.Sprintf("%q: 401 %q", target, "AADSTS70021: No matching federated identity record found")
 	if err == nil || err.Error() != want {
 		t.Errorf("error %v, want %q", err, want)
 	}

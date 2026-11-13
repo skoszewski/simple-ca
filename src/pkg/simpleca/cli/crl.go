@@ -64,7 +64,7 @@ func runCRLCreate(args []string) error {
 			return err
 		}
 		cert.AuditCRL(dir, "via", "cli", "actor", simpleca.CLIActor())
-		fmt.Printf("CRL written to %s\n", filepath.Join(dir, "crl.pem"))
+		fmt.Printf("CRL written to %q\n", filepath.Join(dir, "crl.pem"))
 		return nil
 	}
 
@@ -90,11 +90,11 @@ func runCRLCreate(args []string) error {
 	var errs []error
 	for _, d := range dirs {
 		if err := cert.MakeCRL(d, *days); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", d, err))
+			errs = append(errs, fmt.Errorf("%q: %w", d, err))
 			continue
 		}
 		cert.AuditCRL(d, "via", "cli", "actor", simpleca.CLIActor())
-		fmt.Printf("CRL written to %s\n", filepath.Join(d, "crl.pem"))
+		fmt.Printf("CRL written to %q\n", filepath.Join(d, "crl.pem"))
 	}
 	return errors.Join(errs...)
 }

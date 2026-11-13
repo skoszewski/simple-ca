@@ -40,9 +40,12 @@ import (
 	"runtime"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // buildVersion is the version a release build is given at link time with
@@ -172,7 +175,7 @@ func run(args []string) error {
 		// The file name of a stored CA holds the first 16 hexadecimal digits of its fingerprint.
 		want := plain(*wanted)
 		if _, err := hex.DecodeString(want); err != nil || len(want) != 2*sha256.Size {
-			fmt.Fprintf(os.Stderr, "simple-ca-trust remove: --fingerprint %s is not a SHA-256 fingerprint\n\n%s", *wanted, usage)
+			fmt.Fprintf(os.Stderr, "simple-ca-trust remove: --fingerprint %q is not a SHA-256 fingerprint\n\n%s", *wanted, usage)
 			return errUsage
 		}
 		stored, err := readCerts(filepath.Join(store.dir, "simple-ca-"+strings.ToLower(want[:16])+".crt"))
@@ -211,9 +214,9 @@ func run(args []string) error {
 			return err
 		}
 		if command == "add" {
-			fmt.Printf("root CA %s, SHA-256 fingerprint %s\n", root.Subject, fingerprint(root))
+			fmt.Printf("root CA %s, SHA-256 fingerprint %s\n", printable(root.Subject.String()), fingerprint(root))
 			if *wanted != "" && plain(*wanted) != plain(fingerprint(root)) {
-				return fmt.Errorf("the root CA in %s does not have the fingerprint of --fingerprint; nothing was added", path)
+				return fmt.Errorf("the root CA in %q does not have the fingerprint of --fingerprint; nothing was added", path)
 			}
 		}
 		cas = append([]*x509.Certificate{root}, issuing...)
@@ -228,14 +231,14 @@ func run(args []string) error {
 		var err error
 		if command == "add" {
 			if _, err := os.Stat(path); err == nil {
-				fmt.Printf("%s %s is trusted already\n", role, cert.Subject)
+				fmt.Printf("%s %s is trusted already\n", role, printable(cert.Subject.String()))
 				continue
 			}
 			err = os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}), 0o644)
 		} else {
 			err = os.Remove(path)
 			if errors.Is(err, fs.ErrNotExist) {
-				fmt.Printf("%s %s is not trusted by simple-ca-trust\n", role, cert.Subject)
+				fmt.Printf("%s %s is not trusted by simple-ca-trust\n", role, printable(cert.Subject.String()))
 				continue
 			}
 		}
@@ -247,9 +250,9 @@ func run(args []string) error {
 		}
 		changed = true
 		if command == "add" {
-			fmt.Printf("%s %s added as %s\n", role, cert.Subject, path)
+			fmt.Printf("%s %s added as %s\n", role, printable(cert.Subject.String()), path)
 		} else {
-			fmt.Printf("%s %s removed\n", role, cert.Subject)
+			fmt.Printf("%s %s removed\n", role, printable(cert.Subject.String()))
 		}
 	}
 	if !changed {
@@ -293,17 +296,17 @@ func loadCAs(path string) (*x509.Certificate, []*x509.Certificate, error) {
 	var root *x509.Certificate
 	for _, cert := range certs {
 		if !cert.IsCA {
-			return nil, nil, fmt.Errorf("%s: %s is not a CA certificate", path, cert.Subject)
+			return nil, nil, fmt.Errorf("%q: %q is not a CA certificate", path, cert.Subject)
 		}
 		if bytes.Equal(cert.RawSubject, cert.RawIssuer) && cert.CheckSignatureFrom(cert) == nil {
 			if root != nil {
-				return nil, nil, fmt.Errorf("%s: more than one root CA: %s and %s", path, root.Subject, cert.Subject)
+				return nil, nil, fmt.Errorf("%q: more than one root CA: %q and %q", path, root.Subject, cert.Subject)
 			}
 			root = cert
 		}
 	}
 	if root == nil {
-		return nil, nil, fmt.Errorf("%s: no root CA, a CA certificate signed by its own key", path)
+		return nil, nil, fmt.Errorf("%q: no root CA, a CA certificate signed by its own key", path)
 	}
 	var issuing []*x509.Certificate
 	for _, cert := range certs {
@@ -311,7 +314,7 @@ func loadCAs(path string) (*x509.Certificate, []*x509.Certificate, error) {
 			continue
 		}
 		if err := cert.CheckSignatureFrom(root); err != nil {
-			return nil, nil, fmt.Errorf("%s: %s is not signed by the root CA %s", path, cert.Subject, root.Subject)
+			return nil, nil, fmt.Errorf("%q: %q is not signed by the root CA %q", path, cert.Subject, root.Subject)
 		}
 		issuing = append(issuing, cert)
 	}
@@ -336,14 +339,14 @@ func readCerts(path string) ([]*x509.Certificate, error) {
 		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, fmt.Errorf("%q: %w", path, err)
 		}
 		certs = append(certs, cert)
 	}
 	if len(certs) == 0 {
 		cert, err := x509.ParseCertificate(b)
 		if err != nil {
-			return nil, fmt.Errorf("%s: no PEM or DER certificate", path)
+			return nil, fmt.Errorf("%q: no PEM or DER certificate", path)
 		}
 		certs = append(certs, cert)
 	}
@@ -373,20 +376,41 @@ func list(dir string) error {
 		}
 		block, _ := pem.Decode(b)
 		if block == nil {
-			return fmt.Errorf("%s: no PEM certificate", path)
+			return fmt.Errorf("%q: no PEM certificate", path)
 		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+			return fmt.Errorf("%q: %w", path, err)
 		}
 		role := "issuing CA"
 		if bytes.Equal(cert.RawSubject, cert.RawIssuer) {
 			role = "root CA"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", role, cert.Subject, cert.NotAfter.UTC().Format(time.DateTime+" UTC"),
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", role, printable(cert.Subject.String()), cert.NotAfter.UTC().Format(time.DateTime+" UTC"),
 			fingerprint(cert))
 	}
 	return tw.Flush()
+}
+
+// printable returns s for a listing, without quotes: each rune that is not printable, such as a
+// line end, a tab, an escape or an invalid byte, is written as Go writes it in a quoted string,
+// such as \n, \x1b or \u and four hexadecimal digits; the other runes, a backslash too, are kept.
+func printable(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		var q string
+		switch {
+		case r == utf8.RuneError && !strings.HasPrefix(s[i:], string(utf8.RuneError)):
+			q = strconv.Quote(s[i : i+1])
+		case unicode.IsPrint(r):
+			b.WriteRune(r)
+			continue
+		default:
+			q = strconv.QuoteRune(r)
+		}
+		b.WriteString(q[1 : len(q)-1])
+	}
+	return b.String()
 }
 
 func main() {

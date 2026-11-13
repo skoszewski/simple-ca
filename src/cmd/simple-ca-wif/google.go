@@ -38,12 +38,14 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/skoszewski/simple-ca/src/pkg/client"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/tokens"
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 // iamURL is the base URL of the IAM API v1, and resourceManagerURL that of the Resource Manager
@@ -91,7 +93,7 @@ type googleError struct {
 }
 
 func (e *googleError) Error() string {
-	return fmt.Sprintf("%s: %d %s", e.target, e.code, e.message)
+	return fmt.Sprintf("%q: %d %q", e.target, e.code, e.message)
 }
 
 // isNotFound reports whether err is an answer 404 of a Google API.
@@ -149,7 +151,7 @@ func googleCall(method, target string, body, result any) error {
 		return nil
 	}
 	if err := json.Unmarshal(answer, result); err != nil {
-		return fmt.Errorf("%s %s: %w", method, target, err)
+		return fmt.Errorf("%s %q: %w", method, target, err)
 	}
 	return nil
 }
@@ -169,7 +171,7 @@ func (op operation) wait() error {
 	deadline := time.Now().Add(pollTimeout)
 	for !op.Done {
 		if time.Now().After(deadline) {
-			return fmt.Errorf("the operation %s is not done after %s", op.Name, pollTimeout)
+			return fmt.Errorf("the operation %q is not done after %s", op.Name, pollTimeout)
 		}
 		time.Sleep(pollInterval)
 		if err := googleCall(http.MethodGet, iamURL+op.Name, nil, &op); err != nil {
@@ -177,7 +179,7 @@ func (op operation) wait() error {
 		}
 	}
 	if op.Error != nil {
-		return fmt.Errorf("the operation %s failed: %d %s", op.Name, op.Error.Code, op.Error.Message)
+		return fmt.Errorf("the operation %q failed: %d %q", op.Name, op.Error.Code, op.Error.Message)
 	}
 	return nil
 }
@@ -199,7 +201,8 @@ type binding struct {
 
 // grant adds each member of grants, role and member pairs, to the binding of its role without
 // a condition in the IAM policy of resource, read at getURL with getBody, and writes the policy
-// with its etag to setURL when a member is new; it prints a line for each pair. With newAccount,
+// with its etag to setURL when a member is new; it prints a line for each pair. resource is
+// printed as it is given, with its name quoted by the caller. With newAccount,
 // the calls are retried while Google does not show the service account created in this run. A
 // policy changed meanwhile is refused by Google, and the error says to run the command again.
 func grant(resource, getURL string, getBody any, setURL string, grants [][2]string, newAccount bool) error {
@@ -224,7 +227,7 @@ func grant(resource, getURL string, getBody any, setURL string, grants [][2]stri
 			status = "created"
 		}
 		changed = changed || status == "created"
-		lines = append(lines, fmt.Sprintf("role %s of %s on %s: %s", role, member, resource, status))
+		lines = append(lines, fmt.Sprintf("role %q of %q on %s: %s", role, member, resource, status))
 	}
 	if changed {
 		err := retryNewAccount(newAccount, func() error {
@@ -259,8 +262,9 @@ func runGoogleSetup(args []string) error {
 	project := fs.String("project", "", "`ID` of the Google Cloud project")
 	pool := fs.String("pool", "", "`ID` of the workload identity pool")
 	provider := fs.String("provider", "simple-ca", "`ID` of the workload identity pool provider")
-	issuer := fs.String("issuer", "", "`URL` of federation.issuer of simple-ca.json, set or replaced; the issuer of\n"+
-		"an issuing CA is followed by /NAME of the CA")
+	issuer := fs.String("issuer", "", "`URL` of federation.issuer of simple-ca.json, set or replaced: the https URL of\n"+
+		"serve, scheme and host only, such as https://pki.example.com; the issuer of an issuing CA is that\n"+
+		"URL followed by /NAME of the CA")
 	typeName := fs.String("type", "gcp-wif", "`name` of the token type in federation.types of simple-ca.json")
 	mapping := fs.String("attribute-mapping", "google.subject=assertion.sub", "attribute mapping of the provider:\n"+
 		"comma-separated `pairs` attribute=expression")
@@ -271,16 +275,16 @@ func runGoogleSetup(args []string) error {
 	case *project == "" || *pool == "":
 		return usageError(fs, "--project and --pool are required")
 	case !poolIDRE.MatchString(*pool) || strings.HasPrefix(*pool, "gcp-"):
-		return fmt.Errorf("pool ID '%s' must be 4 to 32 lower-case letters, digits and hyphens, not starting with gcp-", *pool)
+		return fmt.Errorf("pool ID %q must be 4 to 32 lower-case letters, digits and hyphens, not starting with gcp-", *pool)
 	case !poolIDRE.MatchString(*provider) || strings.HasPrefix(*provider, "gcp-"):
-		return fmt.Errorf("provider ID '%s' must be 4 to 32 lower-case letters, digits and hyphens, not starting with gcp-",
+		return fmt.Errorf("provider ID %q must be 4 to 32 lower-case letters, digits and hyphens, not starting with gcp-",
 			*provider)
 	}
 	attributes := map[string]string{}
 	for pair := range strings.SplitSeq(*mapping, ",") {
 		key, value, ok := strings.Cut(strings.TrimSpace(pair), "=")
 		if !ok || key == "" || value == "" {
-			return fmt.Errorf("'%s' of --attribute-mapping is not a pair such as google.subject=assertion.sub", pair)
+			return fmt.Errorf("%q of --attribute-mapping is not a pair such as google.subject=assertion.sub", pair)
 		}
 		attributes[key] = value
 	}
@@ -295,7 +299,12 @@ func runGoogleSetup(args []string) error {
 	if err != nil {
 		return err
 	}
-	setIssuer := strings.TrimSuffix(*issuer, "/")
+	setIssuer := ""
+	if *issuer != "" {
+		if setIssuer, err = weburl.Server(*issuer, true); err != nil {
+			return fmt.Errorf("--issuer: %w", err)
+		}
+	}
 	issuerStatus := "unchanged"
 	switch {
 	case setIssuer == "" || strings.TrimSuffix(cfg.Federation.Issuer, "/") == setIssuer:
@@ -308,9 +317,9 @@ func runGoogleSetup(args []string) error {
 	iss := tokens.Issuer(cfg, caID)
 	switch {
 	case iss == "":
-		return fmt.Errorf("the CA has no issuer: give --issuer, or set federation.issuer or ca_publish_base_url of %s", cfg.Path)
+		return fmt.Errorf("the CA has no issuer: give --issuer, or set federation.issuer or ca_publish_base_url of %q", cfg.Path)
 	case !strings.HasPrefix(iss, "https://"):
-		return fmt.Errorf("the issuer %s of the CA does not start with https://, which Google requires", iss)
+		return fmt.Errorf("the issuer %q of the CA does not start with https://, which Google requires", iss)
 	}
 	jwks, err := tokens.CAJWKS(dir)
 	if err != nil {
@@ -329,9 +338,9 @@ func runGoogleSetup(args []string) error {
 	}
 	number, ok := strings.CutPrefix(proj.Name, "projects/")
 	if !ok || number == "" {
-		return fmt.Errorf("the project %s has the name '%s', not projects/NUMBER", *project, proj.Name)
+		return fmt.Errorf("the project %q has the name %q, not projects/NUMBER", *project, proj.Name)
 	}
-	fmt.Fprintf(stdout, "project %s: number %s\n", *project, number)
+	fmt.Fprintf(stdout, "project %q: number %q\n", *project, number)
 	poolName := "projects/" + number + "/locations/global/workloadIdentityPools/" + *pool
 	providerName := poolName + "/providers/" + *provider
 
@@ -366,9 +375,9 @@ func runGoogleSetup(args []string) error {
 		return err
 	}
 	if p.State == "DELETED" {
-		return fmt.Errorf("the pool %s is deleted: undelete it first", poolName)
+		return fmt.Errorf("the pool %q is deleted: undelete it first", poolName)
 	}
-	fmt.Fprintf(stdout, "pool %s: %s\n", poolName, status)
+	fmt.Fprintf(stdout, "pool %q: %s\n", poolName, status)
 
 	// The provider.
 	var prov struct {
@@ -393,9 +402,9 @@ func runGoogleSetup(args []string) error {
 	} else if err == nil {
 		switch {
 		case prov.State == "DELETED":
-			return fmt.Errorf("the provider %s is deleted: undelete it first", providerName)
+			return fmt.Errorf("the provider %q is deleted: undelete it first", providerName)
 		case prov.OIDC == nil:
-			return fmt.Errorf("the provider %s is not an OIDC provider", providerName)
+			return fmt.Errorf("the provider %q is not an OIDC provider", providerName)
 		}
 		// The fields that differ from the CA are updated; the keys are compared as JSON, whatever their layout.
 		var mask []string
@@ -424,7 +433,7 @@ func runGoogleSetup(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "provider %s: %s\n", providerName, status)
+	fmt.Fprintf(stdout, "provider %q: %s\n", providerName, status)
 
 	// simple-ca.json.
 	typeStatus := "unchanged"
@@ -439,8 +448,8 @@ func runGoogleSetup(args []string) error {
 			return err
 		}
 	}
-	fmt.Fprintf(stdout, "issuer %s in %s: %s\n", iss, cfg.Path, issuerStatus)
-	fmt.Fprintf(stdout, "token type %s in %s: %s\n", *typeName, cfg.Path, typeStatus)
+	fmt.Fprintf(stdout, "issuer %q in %q: %s\n", iss, cfg.Path, issuerStatus)
+	fmt.Fprintf(stdout, "token type %q in %q: %s\n", *typeName, cfg.Path, typeStatus)
 	return nil
 }
 
@@ -481,7 +490,7 @@ func runGoogleMachine(args []string) error {
 		return func(s string) error {
 			for p := range strings.SplitSeq(s, ",") {
 				if p = strings.TrimSpace(p); p == "" {
-					return fmt.Errorf("empty prefix in '%s'", s)
+					return fmt.Errorf("empty prefix in %q", s)
 				}
 				*list = append(*list, p)
 			}
@@ -499,7 +508,8 @@ func runGoogleMachine(args []string) error {
 	var setupClients []string
 	fs.Func("otc-network", "comma-separated client `prefixes` the setup code is exchanged from; may be\n"+
 		"specified multiple times (default: any)", prefixList(&setupClients))
-	caURL := fs.String("ca-url", "", "`URL` of the CA at serve, as the machine reaches it (default: the issuer of the CA)")
+	caURL := fs.String("ca-url", "", "`URL` of the CA at serve, as the machine reaches it: the URL of serve for the root\n"+
+		"CA, followed by /NAME for the issuing CA NAME of --ca-dir (default: the issuer of the CA)")
 	outputDir := fs.String("output-dir", ".", "`directory` of NAME.token and federation.json")
 	var rest []string
 	for fs.Parse(args); fs.NArg() > 0; fs.Parse(args) {
@@ -517,7 +527,7 @@ func runGoogleMachine(args []string) error {
 	case (given["otc-valid"] || given["otc-network"]) && !*otc:
 		return usageError(fs, "--otc-valid and --otc-network need --otc")
 	case *serviceAccount != "" && !accountIDRE.MatchString(*serviceAccount):
-		return fmt.Errorf("service account ID '%s' must be 6 to 30 lower-case letters, digits and hyphens, starting "+
+		return fmt.Errorf("service account ID %q must be 6 to 30 lower-case letters, digits and hyphens, starting "+
 			"with a letter and not ending with a hyphen", *serviceAccount)
 	}
 	name := rest[0]
@@ -557,9 +567,20 @@ func runGoogleMachine(args []string) error {
 	if err := simpleca.ReadKeyPassphrase(filepath.Join(dir, "ca_key.pem")); err != nil {
 		return err
 	}
-	_, caID, err := simpleca.LocateCA(dir)
+	rootDir, caID, err := simpleca.LocateCA(dir)
 	if err != nil {
 		return err
+	}
+	if *caURL != "" {
+		urlCA, err := simpleca.CheckCAURL(rootDir, *caURL)
+		switch {
+		case err != nil:
+			return fmt.Errorf("--ca-url: %w", err)
+		case urlCA != caID && caID == "":
+			return fmt.Errorf("--ca-url %q names the issuing CA %q, not the root CA of --ca-dir", *caURL, urlCA)
+		case urlCA != caID:
+			return fmt.Errorf("--ca-url %q does not name the issuing CA %q of --ca-dir", *caURL, caID)
+		}
 	}
 	cfg, err := simpleca.LoadRootConfig(dir)
 	if err != nil {
@@ -567,7 +588,7 @@ func runGoogleMachine(args []string) error {
 	}
 	m := audienceRE.FindStringSubmatch(cfg.Federation.Types[*typeName].Audience)
 	if m == nil {
-		return fmt.Errorf("the token type %s of %s has no audience of a Google workload identity pool provider: "+
+		return fmt.Errorf("the token type %q of %q has no audience of a Google workload identity pool provider: "+
 			"run simple-ca-wif google setup", *typeName, cfg.Path)
 	}
 	fed := &tokens.TokenFederate{Type: *typeName}
@@ -586,7 +607,7 @@ func runGoogleMachine(args []string) error {
 		return err
 	}
 	if _, ok := db.Tokens[name]; ok {
-		return fmt.Errorf("token '%s' exists", name)
+		return fmt.Errorf("token %q exists", name)
 	}
 	principal := "principal://iam.googleapis.com/projects/" + m[2] + "/locations/global/workloadIdentityPools/" + m[3] +
 		"/subject/" + resolved.Subject
@@ -616,10 +637,10 @@ func runGoogleMachine(args []string) error {
 				return err
 			}
 			email = cmp.Or(account.Email, email)
-			fmt.Fprintf(stdout, "service account %s: %s\n", email, status)
+			fmt.Fprintf(stdout, "service account %q: %s\n", email, status)
 			accountURL := projectURL + "/" + email
 			newAccount = status == "created"
-			if err := grant(email, accountURL+":getIamPolicy?options.requestedPolicyVersion=3", nil, accountURL+":setIamPolicy",
+			if err := grant(strconv.Quote(email), accountURL+":getIamPolicy?options.requestedPolicyVersion=3", nil, accountURL+":setIamPolicy",
 				[][2]string{{"roles/iam.workloadIdentityUser", principal}}, newAccount); err != nil {
 				return err
 			}
@@ -631,7 +652,7 @@ func runGoogleMachine(args []string) error {
 				grants = append(grants, [2]string{role, member})
 			}
 			projectURL := resourceManagerURL + "projects/" + url.PathEscape(*project)
-			if err := grant("project "+*project, projectURL+":getIamPolicy",
+			if err := grant("project "+strconv.Quote(*project), projectURL+":getIamPolicy",
 				map[string]any{"options": map[string]int{"requestedPolicyVersion": 3}}, projectURL+":setIamPolicy",
 				grants, newAccount); err != nil {
 				return err
@@ -647,13 +668,13 @@ func runGoogleMachine(args []string) error {
 	record := append([]any{"name", name, "scopes", "federate", "setup_code", setupValid > 0}, tokens.FederateAudit(fed)...)
 	simpleca.Audit(dir, "token.create", append(record, "via", "cli", "actor", simpleca.CLIActor())...)
 	if *otc {
-		fmt.Fprintf(stdout, "token %s: created, setup code %s\n", name, token)
+		fmt.Fprintf(stdout, "token %q: created, setup code %s\n", name, token)
 	} else {
 		_, err := tokenFile.WriteString(token + "\n")
 		if err := cmp.Or(err, tokenFile.Close()); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "token %s in %s: created\n", name, tokenPath)
+		fmt.Fprintf(stdout, "token %q in %q: created\n", name, tokenPath)
 	}
 
 	// federation.json.
@@ -666,7 +687,7 @@ func runGoogleMachine(args []string) error {
 		return err
 	}
 	succeeded = true
-	fmt.Fprintf(stdout, "%s: created\n", configPath)
+	fmt.Fprintf(stdout, "%q: created\n", configPath)
 	return nil
 }
 

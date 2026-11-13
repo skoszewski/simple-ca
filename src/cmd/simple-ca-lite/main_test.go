@@ -24,6 +24,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -173,7 +174,7 @@ func TestCertificateFlow(t *testing.T) {
 		t.Fatalf("crl create --all: %v\n%s", err, errOut)
 	}
 	for _, d := range []string{root, servers} {
-		if !strings.Contains(out, "CRL written to "+filepath.Join(d, "crl.pem")) {
+		if !strings.Contains(out, fmt.Sprintf("CRL written to %q", filepath.Join(d, "crl.pem"))) {
 			t.Errorf("crl create --all: %q, want the CRL of %s", out, d)
 		}
 		if b, err := os.ReadFile(filepath.Join(d, "crl.pem")); err != nil || !strings.Contains(string(b), "-----BEGIN X509 CRL-----") {

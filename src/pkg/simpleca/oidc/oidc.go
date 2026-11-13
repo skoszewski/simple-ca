@@ -37,10 +37,10 @@ import (
 	"mime"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +48,7 @@ import (
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/jose"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/tokens"
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 // The hooks of the sign-in, which the program serving it sets.
@@ -135,10 +136,10 @@ func (c *Client) fetch(url string, v any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s answers %s", url, resp.Status)
+		return fmt.Errorf("%q answers %q", url, resp.Status)
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, oidcMaxDocument)).Decode(v); err != nil {
-		return fmt.Errorf("%s: %w", url, err)
+		return fmt.Errorf("%q: %w", url, err)
 	}
 	return nil
 }
@@ -161,13 +162,13 @@ func (c *Client) discover(oc simpleca.OIDCConfig) (*oidcDiscovery, error) {
 	}
 	switch {
 	case d.Issuer != oc.Issuer:
-		return nil, fmt.Errorf("the discovery document of %s names the issuer '%s'", oc.Issuer, d.Issuer)
+		return nil, fmt.Errorf("the discovery document of %q names the issuer %q", oc.Issuer, d.Issuer)
 	case d.AuthorizationEndpoint == "" || d.TokenEndpoint == "" || d.JWKSURI == "":
-		return nil, fmt.Errorf("the discovery document of %s lacks an endpoint or jwks_uri", oc.Issuer)
+		return nil, fmt.Errorf("the discovery document of %q lacks an endpoint or jwks_uri", oc.Issuer)
 	}
 	for _, endpoint := range []string{d.AuthorizationEndpoint, d.TokenEndpoint, d.JWKSURI} {
-		if u, err := url.Parse(endpoint); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return nil, fmt.Errorf("the discovery document of %s names '%s', which is not an http or https URL", oc.Issuer, endpoint)
+		if _, err := weburl.Endpoint(endpoint, false); err != nil {
+			return nil, fmt.Errorf("the discovery document of %q: %w", oc.Issuer, err)
 		}
 	}
 	c.mu.Lock()
@@ -200,7 +201,7 @@ func (c *Client) key(oc simpleca.OIDCConfig, kid string) (crypto.PublicKey, erro
 	case ok:
 		return k, nil
 	case fetched:
-		return nil, StatusError(http.StatusUnauthorized, "invalid ID token: the provider has no key '%s'", kid)
+		return nil, StatusError(http.StatusUnauthorized, "invalid ID token: the provider has no key %q", kid)
 	}
 	var jwks struct {
 		Keys []json.RawMessage `json:"keys"`
@@ -225,7 +226,7 @@ func (c *Client) key(oc simpleca.OIDCConfig, kid string) (crypto.PublicKey, erro
 	if k, ok := find(); ok {
 		return k, nil
 	}
-	return nil, StatusError(http.StatusUnauthorized, "invalid ID token: the provider has no key '%s'", kid)
+	return nil, StatusError(http.StatusUnauthorized, "invalid ID token: the provider has no key %q", kid)
 }
 
 // checkIDToken verifies the ID token raw of the provider of oc and returns its claims, or an error
@@ -244,7 +245,7 @@ func (c *Client) checkIDToken(oc simpleca.OIDCConfig, raw string) (map[string]an
 		return nil, invalid("not a JWT")
 	}
 	if !slices.Contains(oidcAlgorithms, h.Alg) {
-		return nil, invalid("the algorithm '" + h.Alg + "' is not accepted")
+		return nil, invalid(fmt.Sprintf("the algorithm %q is not accepted", h.Alg))
 	}
 
 	pub, err := c.key(oc, h.Kid)
@@ -280,11 +281,11 @@ func (c *Client) checkIDToken(oc simpleca.OIDCConfig, raw string) (map[string]an
 	nonce := str("nonce")
 	switch {
 	case str("iss") != oc.Issuer:
-		return nil, invalid("issued by '" + str("iss") + "', not by " + oc.Issuer)
+		return nil, invalid(fmt.Sprintf("issued by %q, not by %q", str("iss"), oc.Issuer))
 	case !slices.Contains(audience, oc.ClientID):
-		return nil, invalid("not issued for the client " + oc.ClientID)
+		return nil, invalid(fmt.Sprintf("not issued for the client %q", oc.ClientID))
 	case str("azp") != "" && str("azp") != oc.ClientID:
-		return nil, invalid("authorized for the client '" + str("azp") + "'")
+		return nil, invalid(fmt.Sprintf("authorized for the client %q", str("azp")))
 	case !hasExp || !now.Before(exp):
 		return nil, invalid("expired")
 	case !hasIat || iat.After(now.Add(oidcSkew)):
@@ -371,7 +372,7 @@ func (u *oidcUsers) profileFor(user string, groups, roles []string) *oidcProfile
 // defaults of cfg, and the key of its CA.
 func (p *oidcProfile) prepare(rootDir string, cfg *simpleca.Config, name string) (*tokens.APIToken, crypto.Signer, error) {
 	if p.CA != "" && !slices.Contains(simpleca.CAIDs(rootDir), p.CA) {
-		return nil, nil, fmt.Errorf("'%s' is not an issuing CA of %s", p.CA, rootDir)
+		return nil, nil, fmt.Errorf("%q is not an issuing CA of %q", p.CA, rootDir)
 	}
 	t, defaults := p.Token, cfg.Tokens
 	valid := time.Hour
@@ -422,7 +423,7 @@ func Check(rootDir string, cfg *simpleca.Config) error {
 	}
 	for _, p := range users.Profiles {
 		if _, _, err := p.prepare(rootDir, cfg, p.Name); err != nil {
-			return fmt.Errorf("profile %s of %s: %w", p.Name, users.path, err)
+			return fmt.Errorf("profile %s of %q: %w", p.Name, users.path, err)
 		}
 	}
 	return nil
@@ -515,7 +516,11 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 	}
 	users := claimValues(claims, oc.UserClaim, oc.ClientID)
 	if len(users) == 0 || users[0] == "" {
-		fail(StatusError(http.StatusForbidden, "the ID token has no user claim %s", strings.Join(oc.UserClaim, " or ")))
+		claimNames := make([]string, len(oc.UserClaim))
+		for i, p := range oc.UserClaim {
+			claimNames[i] = strconv.Quote(p)
+		}
+		fail(StatusError(http.StatusForbidden, "the ID token has no user claim %s", strings.Join(claimNames, " or ")))
 		return
 	}
 	user := users[0]
@@ -537,12 +542,12 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 	}
 	profile := profiles.profileFor(user, groups, roles)
 	if profile == nil {
-		fail(StatusError(http.StatusForbidden, "no profile of %s is given to %s", UsersFile, user))
+		fail(StatusError(http.StatusForbidden, "no profile of %s is given to %q", UsersFile, user))
 		return
 	}
 	name := strings.Trim(oidcNameRE.ReplaceAllString(strings.ToLower(user), "-"), "-")
 	if !simpleca.KebabCaseRE.MatchString(name) {
-		fail(StatusError(http.StatusForbidden, "the user %s makes no token name", user))
+		fail(StatusError(http.StatusForbidden, "the user %q makes no token name", user))
 		return
 	}
 	tok, caKey, err := profile.prepare(c.rootDir, cfg, name)
@@ -551,7 +556,7 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !tok.ClientAllowed(client) {
-		fail(StatusError(http.StatusForbidden, "the token of %s is not used from %s", user, client))
+		fail(StatusError(http.StatusForbidden, "the token of %q is not used from %s", user, client))
 		return
 	}
 	sub, _ := claims["sub"].(string)
@@ -620,12 +625,12 @@ func oidcToken(caDir, name string, tok *tokens.APIToken, caKey crypto.Signer, re
 	old, ok := db.Tokens[name]
 	switch {
 	case ok && !old.OwnedBy(tok.OIDC):
-		return "", nil, StatusError(http.StatusConflict, "the token '%s' exists and is not the token of this user", name)
+		return "", nil, StatusError(http.StatusConflict, "the token %q exists and is not the token of this user", name)
 	case ok && old.Active(time.Now()) && reuse:
 		jwt, err := tokens.SignToken(caKey, name, old)
 		return jwt, old, err
 	case ok && old.Active(time.Now()) && !replace:
-		return "", nil, StatusError(http.StatusConflict, "the token '%s' of this user is active; replace it or use it", name)
+		return "", nil, StatusError(http.StatusConflict, "the token %q of this user is active; replace it or use it", name)
 	}
 	jwt, err := tokens.SignToken(caKey, name, tok)
 	if err != nil {

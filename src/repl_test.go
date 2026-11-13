@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +16,7 @@ import (
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cli"
+	"golang.org/x/term"
 )
 
 // newHierarchy makes a root CA with the issuing CA servers in a new directory, and returns it with
@@ -306,7 +310,7 @@ func TestContextValues(t *testing.T) {
 	fs = cli.NewFlagSet("test", "", "test")
 	fs.String("ca-dir", "", "")
 	fs.Int("days", 1, "")
-	if _, _, err := cli.ParseArgs(fs, []string{"--ca-dir", caDir}, 0, 0); err == nil || !strings.Contains(err.Error(), "'days'") {
+	if _, _, err := cli.ParseArgs(fs, []string{"--ca-dir", caDir}, 0, 0); err == nil || !strings.Contains(err.Error(), `"days"`) {
 		t.Fatalf("a refused value: %v", err)
 	}
 }
@@ -333,4 +337,133 @@ func TestFileHistory(t *testing.T) {
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("history file: %v %v", err, info)
 	}
+}
+
+func TestComplete(t *testing.T) {
+	startSession(t)
+	var out bytes.Buffer
+	tm := term.NewTerminal(struct {
+		io.Reader
+		io.Writer
+	}{strings.NewReader(""), &out}, "")
+	completes := func(line string, pos int, want string) {
+		t.Helper()
+		out.Reset()
+		got, gotPos, ok := complete(tm, line, pos)
+		if want == "" {
+			if ok {
+				t.Errorf("complete %q: %q, want nothing", line, got)
+			}
+			return
+		}
+		if !ok || got != want || gotPos != len(want)-len(line)+pos {
+			t.Errorf("complete %q at %d: %q at %d, %v, want %q", line, pos, got, gotPos, ok, want)
+		}
+	}
+	lists := func(line string, want ...string) {
+		t.Helper()
+		out.Reset()
+		if _, _, ok := complete(tm, line, len(line)); ok {
+			t.Errorf("complete %q completed, want the candidates listed", line)
+		}
+		for _, w := range want {
+			if !strings.Contains(out.String(), w) {
+				t.Errorf("complete %q listed %q, want %q in it", line, out.String(), w)
+			}
+		}
+	}
+
+	lists("", "audit", "cert", "context", "token", "help", "exit", "quit")
+	lists("c", "ca  cert  context  crl")
+	completes("ce", 2, "cert ")
+	completes("cert cr", 7, "cert create ")
+	completes("cert cr x.pem", 7, "cert create  x.pem")
+	completes("token r", 7, "token re")
+	lists("token re", "renew  revoke")
+	completes("nosuch x", 8, "")
+	completes("context use ", 12, "")
+
+	caDir := newHierarchy(t)
+	if err := placeCA(caDir); err != nil {
+		t.Fatal(err)
+	}
+	completes("context use ", 12, "context use servers ")
+	completes("context set ", 12, "")
+	if err := runText("context set otc-valid=1h"); err != nil {
+		t.Fatal(err)
+	}
+	completes("context set ", 12, "context set otc-valid=")
+	completes("context add o", 13, "context add otc-valid=")
+	completes("context delete ", 15, "context delete otc-valid ")
+}
+
+func TestRunREPLScript(t *testing.T) {
+	t.Chdir(".")
+	caDir := newHierarchy(t)
+	t.Setenv("SIMPLE_CA_DIR", "")
+	stdin, input := os.Stdin, cli.Input
+	t.Cleanup(func() { os.Stdin, cli.Input, cli.Session = stdin, input, false })
+	for _, c := range []struct {
+		script string
+		want   error
+	}{
+		{"context use servers\ncontext list\nexit\nnosuch\n", nil},
+		{"context use nosuch\n", errReported},
+	} {
+		script := filepath.Join(t.TempDir(), "script")
+		if err := os.WriteFile(script, []byte(c.script), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Open(script)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Chdir(caDir)
+		os.Stdin = f
+		err = runREPL()
+		f.Close()
+		if !errors.Is(err, c.want) || !cli.Session {
+			t.Errorf("runREPL of %q: %v, session %v, want %v in a session", c.script, err, cli.Session, c.want)
+		}
+	}
+	if sessionRoot == "" {
+		t.Error("runREPL in a CA directory has no CA in its session")
+	}
+}
+
+func TestHistoryPath(t *testing.T) {
+	t.Setenv("SIMPLE_CA_HISTORY", "/srv/history")
+	if got := historyPath(); got != "/srv/history" {
+		t.Errorf("historyPath of SIMPLE_CA_HISTORY: %q", got)
+	}
+	t.Setenv("SIMPLE_CA_HISTORY", "")
+	if runtime.GOOS == "windows" {
+		return
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got := historyPath(); got != filepath.Join(home, ".simple-ca_history") {
+		t.Errorf("historyPath of HOME: %q", got)
+	}
+	t.Setenv("HOME", "")
+	if got := historyPath(); got != "" {
+		t.Errorf("historyPath without a home directory: %q, want none", got)
+	}
+	if h := loadHistory(); h.path != "" || h.Len() != 0 {
+		t.Errorf("history without a home directory: %q %q, want none kept", h.path, h.entries)
+	}
+}
+
+func TestHistoryWarning(t *testing.T) {
+	t.Setenv("SIMPLE_CA_HISTORY", t.TempDir())
+	stderr := srvCaptureStderr(t)
+	h := loadHistory()
+	if h.path != "" {
+		t.Errorf("history path %q of a directory, want none", h.path)
+	}
+	h.Add("ca show")
+	if h.Len() != 1 {
+		t.Errorf("history %q, want the line kept in memory", h.entries)
+	}
+	srvWaitFor(t, stderr, "warning: history: ", "; the history of this session is not kept\n")
 }

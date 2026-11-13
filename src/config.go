@@ -64,7 +64,7 @@ func loadTheme(caDir string) (themeConfig, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&theme); err != nil {
-		return themeConfig{}, fmt.Errorf("could not read %s: %w", path, err)
+		return themeConfig{}, fmt.Errorf("could not read %q: %w", path, err)
 	}
 	if _, err := theme.css(path); err != nil {
 		return themeConfig{}, err
@@ -99,10 +99,10 @@ func (t themeConfig) css(path string) (template.CSS, error) {
 			color := strings.TrimSpace(set.colors[role])
 			switch {
 			case !slices.Contains(themeRoles, role):
-				return "", fmt.Errorf("%s of %s: unknown role '%s': must be one of %s", set.name, path, role,
+				return "", fmt.Errorf("%s of %q: unknown role %q: must be one of %s", set.name, path, role,
 					strings.Join(themeRoles, ", "))
 			case !themeColorRE.MatchString(color):
-				return "", fmt.Errorf("%s.%s of %s: '%s' is not a CSS colour such as #0369a1", set.name, role, path, color)
+				return "", fmt.Errorf("%s.%s of %q: %q is not a CSS colour such as #0369a1", set.name, role, path, color)
 			}
 			fmt.Fprintf(&b, " --%s: %s;", role, color)
 		}

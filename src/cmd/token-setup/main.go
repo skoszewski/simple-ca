@@ -27,12 +27,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net/url"
 	"os"
 	"runtime/debug"
 	"strings"
 
 	"github.com/skoszewski/simple-ca/src/pkg/client"
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 // buildVersion is the version a release build is given at link time with
@@ -54,7 +54,7 @@ Options:
 		flag.PrintDefaults()
 	}
 	serverURL := flag.String("url", os.Getenv("SIMPLE_CA_URL"),
-		"`URL` of the server, such as https://pki.example.com; a path is left out\n(default: SIMPLE_CA_URL)")
+		"`URL` of the server, scheme and host only, such as https://pki.example.com\n(default: SIMPLE_CA_URL)")
 	tokenFile := flag.String("token-file", os.Getenv("SIMPLE_CA_TOKEN_FILE"),
 		"new `file` the token is written to (default: SIMPLE_CA_TOKEN_FILE)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -76,10 +76,13 @@ Options:
 		flag.Usage()
 		return errUsage
 	}
-	u, err := url.Parse(*serverURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("'%s' is not a URL such as https://pki.example.com; give --url or set SIMPLE_CA_URL", *serverURL)
+	if *serverURL == "" {
+		return errors.New("no URL of the server: give --url or set SIMPLE_CA_URL")
 	}
+	if _, err := weburl.Server(*serverURL, false); err != nil {
+		return fmt.Errorf("--url: %w", err)
+	}
+	var err error
 	// The token file is made before the code is used, new and readable by its owner alone.
 	written := *tokenFile == ""
 	var file *os.File
@@ -108,7 +111,7 @@ Options:
 		return fmt.Errorf("--token-file: %w", err)
 	}
 	written = true
-	fmt.Printf("Token written to %s\n", *tokenFile)
+	fmt.Printf("Token written to %q\n", *tokenFile)
 	return nil
 }
 

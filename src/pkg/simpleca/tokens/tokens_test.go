@@ -101,18 +101,18 @@ func TestMakeTokenRefused(t *testing.T) {
 		want string
 	}
 	cases := []refusal{
-		{tokenArgs{name: "deploy", types: []string{"server"}, domains: []string{"example.com"}}, "token 'deploy' exists"},
+		{tokenArgs{name: "deploy", types: []string{"server"}, domains: []string{"example.com"}}, `token "deploy" exists`},
 		{tokenArgs{name: "bad name", types: []string{"server"}, domains: []string{"example.com"}}, "kebab-case"},
-		{tokenArgs{name: "other", types: []string{"nosuch"}, domains: []string{"example.com"}}, "unknown type 'nosuch'"},
+		{tokenArgs{name: "other", types: []string{"nosuch"}, domains: []string{"example.com"}}, `unknown type "nosuch"`},
 		{tokenArgs{name: "other", types: []string{"server"}}, "needs a domain or an IP address"},
 		{tokenArgs{name: "other", types: []string{"server"}, domains: []string{"192.0.2.1"}}, "is not a domain name"},
-		{tokenArgs{name: "scoped", scopes: []string{"admin"}}, "unknown scope 'admin'"},
+		{tokenArgs{name: "scoped", scopes: []string{"admin"}}, `unknown scope "admin"`},
 		{tokenArgs{name: "scoped", scopes: []string{"tokens"}, domains: []string{"example.com"}}, "need the scope sign"},
 		{tokenArgs{name: "scoped", scopes: []string{"tokens"}, types: []string{"server"}}, "need the scope sign"},
 		{tokenArgs{name: "all", scopes: []string{"*", "tokens"}}, "must be given alone"},
 		{tokenArgs{name: "all", types: []string{"*", "server"}}, "must be given alone"},
 		{tokenArgs{name: "all", scopes: []string{"*"}}, "needs a domain or an IP address"},
-		{tokenArgs{name: "ips", domains: []string{"*"}, clients: []string{"*"}}, "client '*'"},
+		{tokenArgs{name: "ips", domains: []string{"*"}, clients: []string{"*"}}, `client "*"`},
 		{tokenArgs{name: "short", valid: time.Millisecond, domains: []string{"example.com"}}, "at least 1s"},
 	}
 	for _, name := range []string{"Servers", "lab_servers", "lab--servers", "-lab", "lab-", "lab.servers"} {
@@ -397,7 +397,7 @@ func TestLockTokens(t *testing.T) {
 	}
 
 	// A held lock makes the others wait and then fail, naming the locker.
-	locked := fmt.Sprintf("locked by process %d", os.Getpid())
+	locked := fmt.Sprintf("locked by process \"%d\"", os.Getpid())
 	if _, err := LockTokens(root.dir); err == nil || !strings.Contains(err.Error(), locked) || !strings.Contains(err.Error(), lockPath) {
 		t.Fatalf("LockTokens while locked: %v, want a lock error naming this process and the lock file", err)
 	}
@@ -484,7 +484,7 @@ func TestPrepareTokenFederate(t *testing.T) {
 		fed  *TokenFederate
 		want string
 	}{
-		{&TokenFederate{Type: "nosuch"}, "unknown token type 'nosuch'"},
+		{&TokenFederate{Type: "nosuch"}, `unknown token type "nosuch"`},
 		{&TokenFederate{Type: "google"}, "needs an audience"},
 		{&TokenFederate{Type: "azure", Claims: map[string]string{"sub": "x"}}, "reserved"},
 	} {

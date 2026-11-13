@@ -162,7 +162,7 @@ func (s *Server) state(caDir string) (*acmeState, error) {
 		}
 		if err == nil {
 			if err := json.Unmarshal(b, st); err != nil {
-				return nil, fmt.Errorf("could not read %s: %w", filepath.Join(caDir, stateFile), err)
+				return nil, fmt.Errorf("could not read %q: %w", filepath.Join(caDir, stateFile), err)
 			}
 		}
 		if st.Accounts == nil {
@@ -200,7 +200,8 @@ func (s *Server) save(caDir string) error {
 		return err
 	}
 	tmp := filepath.Join(caDir, stateFile+".tmp")
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+	os.Remove(tmp)
+	if err := simpleca.WritePrivateFile(tmp, append(b, '\n')); err != nil {
 		return err
 	}
 	return os.Rename(tmp, filepath.Join(caDir, stateFile))
@@ -369,10 +370,10 @@ func (ca *acmeCA) verify(r *http.Request, jwkAllowed bool) (*acmeRequest, error)
 			return nil, err
 		}
 		if !ok || acct.Status == "" {
-			return nil, problem(http.StatusBadRequest, "accountDoesNotExist", "no account %s", header.Kid)
+			return nil, problem(http.StatusBadRequest, "accountDoesNotExist", "no account %q", header.Kid)
 		}
 		if acct.Status != "valid" {
-			return nil, problem(http.StatusUnauthorized, "unauthorized", "the account is %s", acct.Status)
+			return nil, problem(http.StatusUnauthorized, "unauthorized", "the account is %q", acct.Status)
 		}
 		req.account = id
 		req.key, req.thumbprint, err = jose.ParseJWK(acct.Key)
@@ -422,7 +423,7 @@ func (ca *acmeCA) route(w http.ResponseWriter, req *acmeRequest, path string) er
 	case path == "revoke-cert":
 		return ca.revoke(w, req)
 	}
-	return problem(http.StatusNotFound, "malformed", "no resource %s", path)
+	return problem(http.StatusNotFound, "malformed", "no resource %q", path)
 }
 
 // accountObject returns the account object of the account id.
@@ -685,7 +686,7 @@ func (ca *acmeCA) orderObject(st *acmeState, oid string, o *acmeOrder) map[strin
 func (ca *acmeCA) ownOrder(st *acmeState, req *acmeRequest, oid string) (*acmeOrder, error) {
 	o := st.Orders[oid]
 	if o == nil {
-		return nil, problem(http.StatusNotFound, "malformed", "no order %s", oid)
+		return nil, problem(http.StatusNotFound, "malformed", "no order %q", oid)
 	}
 	if o.Account != req.account {
 		return nil, problem(http.StatusUnauthorized, "unauthorized", "the order is of another account")
@@ -743,7 +744,7 @@ func (ca *acmeCA) challengeObject(aid string, c acmeChallenge) map[string]any {
 func (ca *acmeCA) ownAuthz(st *acmeState, req *acmeRequest, aid string) (*acmeAuthz, error) {
 	a := st.Authzs[aid]
 	if a == nil {
-		return nil, problem(http.StatusNotFound, "malformed", "no authorization %s", aid)
+		return nil, problem(http.StatusNotFound, "malformed", "no authorization %q", aid)
 	}
 	if a.Account != req.account {
 		return nil, problem(http.StatusUnauthorized, "unauthorized", "the authorization is of another account")
@@ -798,7 +799,7 @@ func (ca *acmeCA) challenge(w http.ResponseWriter, req *acmeRequest, aid, typ st
 	}
 	i := slices.IndexFunc(a.Challenges, func(c acmeChallenge) bool { return c.Type == typ })
 	if i < 0 {
-		return problem(http.StatusNotFound, "malformed", "no challenge %s", typ)
+		return problem(http.StatusNotFound, "malformed", "no challenge %q", typ)
 	}
 	c := &a.Challenges[i]
 	if c.Status == "pending" && a.Status == "pending" && len(req.payload) > 0 {
@@ -920,7 +921,7 @@ func (ca *acmeCA) finalize(w http.ResponseWriter, req *acmeRequest, oid string) 
 	}
 	ca.orderObject(st, oid, o)
 	if o.Status != "ready" {
-		return problem(http.StatusForbidden, "orderNotReady", "the order is %s", o.Status)
+		return problem(http.StatusForbidden, "orderNotReady", "the order is %q", o.Status)
 	}
 	var requested []string
 	for _, n := range append([]string{csr.Subject.CommonName}, csr.DNSNames...) {

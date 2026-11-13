@@ -73,7 +73,7 @@ func newKey(keyType string) (crypto.Signer, error) {
 	case "ec":
 		return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	}
-	return nil, fmt.Errorf("key type '%s' must be rsa or ec", keyType)
+	return nil, fmt.Errorf("key type %q must be rsa or ec", keyType)
 }
 
 // writeKey writes key to path as a PKCS#8 PEM file readable by the owner alone, encrypted with
@@ -101,7 +101,7 @@ func writeKey(key crypto.Signer, path string) error {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	err = cmp.Or(tmp.Chmod(0o600), pem.Encode(tmp, &pem.Block{Type: blockType, Bytes: der}), tmp.Close())
+	err = cmp.Or(tmp.Chmod(simpleca.PrivateMode()), pem.Encode(tmp, &pem.Block{Type: blockType, Bytes: der}), tmp.Close())
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func ConvertKey(path string, encrypt bool) (bool, error) {
 		blockType = "ENCRYPTED PRIVATE KEY"
 	}
 
-	// The key is written to a new file of the owner alone, which then replaces it.
+	// The key is written to a new file of the private mode, which then replaces it.
 	f, err := os.CreateTemp(filepath.Dir(path), ".key-*")
 	if err != nil {
 		return false, err
@@ -173,7 +173,7 @@ func ConvertKey(path string, encrypt bool) (bool, error) {
 	if err := f.Close(); err != nil {
 		return false, err
 	}
-	if err := os.Chmod(f.Name(), 0o600); err != nil {
+	if err := os.Chmod(f.Name(), simpleca.PrivateMode()); err != nil {
 		return false, err
 	}
 	return true, os.Rename(f.Name(), path)

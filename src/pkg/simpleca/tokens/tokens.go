@@ -159,7 +159,7 @@ func toPrefixes(what string, values []string, any bool) ([]string, error) {
 		}
 		prefix, ok := simpleca.ParsePrefix(s)
 		if !ok {
-			return nil, fmt.Errorf("%s '%s' is not an IP address or a prefix such as 10.0.0.0/8", what, s)
+			return nil, fmt.Errorf("%s %q is not an IP address or a prefix such as 10.0.0.0/8", what, s)
 		}
 		prefixes = append(prefixes, prefix.String())
 	}
@@ -223,7 +223,7 @@ func LoadTokens(caDir string) (*TokensDB, error) {
 		return nil, err
 	}
 	if err := json.Unmarshal(b, db); err != nil {
-		return nil, fmt.Errorf("could not read %s: %w", filepath.Join(caDir, TokensFile), err)
+		return nil, fmt.Errorf("could not read %q: %w", filepath.Join(caDir, TokensFile), err)
 	}
 	if db.Tokens == nil {
 		db.Tokens = map[string]*APIToken{}
@@ -231,14 +231,15 @@ func LoadTokens(caDir string) (*TokensDB, error) {
 	return db, nil
 }
 
-// Save writes the database to tokens-db.json of caDir, readable by its owner alone.
+// Save writes the database to tokens-db.json of caDir, a new file of the private mode.
 func (db *TokensDB) Save(caDir string) error {
 	b, err := json.MarshalIndent(db, "", "  ")
 	if err != nil {
 		return err
 	}
 	tmp := filepath.Join(caDir, TokensFile+".tmp")
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+	os.Remove(tmp)
+	if err := simpleca.WritePrivateFile(tmp, append(b, '\n')); err != nil {
 		return err
 	}
 	return os.Rename(tmp, filepath.Join(caDir, TokensFile))
@@ -284,7 +285,7 @@ func AddToken(caDir, name string, fed *TokenFederate, valid time.Duration, scope
 		return "", err
 	}
 	if _, ok := db.Tokens[name]; ok {
-		return "", fmt.Errorf("token '%s' exists", name)
+		return "", fmt.Errorf("token %q exists", name)
 	}
 
 	result := code
@@ -307,14 +308,14 @@ func PrepareToken(caDir, name string, fed *TokenFederate, valid time.Duration, s
 		return nil, nil, errors.New("the validity of a token must be at least 1s")
 	}
 	if !simpleca.KebabCaseRE.MatchString(name) {
-		return nil, nil, fmt.Errorf("token name '%s' is not a kebab-case name, such as web-deploy", name)
+		return nil, nil, fmt.Errorf("token name %q is not a kebab-case name, such as web-deploy", name)
 	}
 	if len(scopes) == 0 {
 		scopes = []string{"sign"}
 	}
 	for _, s := range scopes {
 		if s != "*" && !slices.Contains(TokenScopes, s) {
-			return nil, nil, fmt.Errorf("unknown scope '%s': must be one of %s or *", s, strings.Join(TokenScopes, ", "))
+			return nil, nil, fmt.Errorf("unknown scope %q: must be one of %s or *", s, strings.Join(TokenScopes, ", "))
 		}
 	}
 	if err := cmp.Or(checkAll("scope", scopes), checkAll("type", certTypes)); err != nil {
@@ -339,7 +340,7 @@ func PrepareToken(caDir, name string, fed *TokenFederate, valid time.Duration, s
 	for _, d := range domains {
 		d = strings.ToLower(strings.TrimSuffix(d, "."))
 		if d != "*" && !simpleca.IsHostname(d) {
-			return nil, nil, fmt.Errorf("domain '%s' is not a domain name or *", d)
+			return nil, nil, fmt.Errorf("domain %q is not a domain name or *", d)
 		}
 		names = append(names, d)
 	}
@@ -361,12 +362,12 @@ func PrepareToken(caDir, name string, fed *TokenFederate, valid time.Duration, s
 	}
 	for _, t := range certTypes {
 		if _, ok := types[t]; !ok && t != "*" {
-			return nil, nil, fmt.Errorf("unknown type '%s': must be one of %s or *", t, cert.TypeNames(types))
+			return nil, nil, fmt.Errorf("unknown type %q: must be one of %s or *", t, cert.TypeNames(types))
 		}
 	}
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
 	if !simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) || !simpleca.FileExists(caKeyPath) {
-		return nil, nil, fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
+		return nil, nil, fmt.Errorf("CA certificate and key not found in %q, which is not a CA directory", caDir)
 	}
 	caKey, err := simpleca.LoadKey(caKeyPath)
 	if err != nil {

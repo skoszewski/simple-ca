@@ -47,12 +47,12 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 		certDir = caDir
 	}
 	if !cert.DirExists(certDir) {
-		return nil, fmt.Errorf("certificate directory %s does not exist", certDir)
+		return nil, fmt.Errorf("certificate directory %q does not exist", certDir)
 	}
 	base := filepath.Base(csrPath)
 	file, err := cert.CertFile(strings.TrimSuffix(base, filepath.Ext(base)))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", base, err)
+		return nil, fmt.Errorf("%q: %w", base, err)
 	}
 	certOut := filepath.Join(certDir, file)
 	data, err := os.ReadFile(csrPath)
@@ -61,11 +61,11 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 	}
 	crt, err := cert.RequestCert(caDir, data, certType, days, ekus, kus)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", csrPath, err)
+		return nil, fmt.Errorf("%q: %w", csrPath, err)
 	}
 
 	// The certificate is shown, and written only once it is approved or with force.
-	fmt.Printf("The %s certificate for %s:\n\n", certType, csrPath)
+	fmt.Printf("The %s certificate for %q:\n\n", certType, csrPath)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	cert.WriteCertFields(tw, crt, time.Now())
 	if err := tw.Flush(); err != nil {
@@ -88,6 +88,6 @@ func signCSR(csrPath, caDir, certDir, certType string, days int, ekus, kus []str
 	if err := cert.StoreCert(caDir, certOut, crt); err != nil {
 		return nil, err
 	}
-	fmt.Printf("Certificate written to %s\n", certOut)
+	fmt.Printf("Certificate written to %q\n", certOut)
 	return crt, nil
 }

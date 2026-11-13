@@ -1,0 +1,18 @@
+# The test suite of simple-ca on Linux, run while the image builds, by the user 1000, so the tests
+# of file permissions see them as a user does; the Go module and build caches persist between
+# builds in cache mounts, and the temporary files of the tests are in a tmpfs on /tmp.
+# The build context is src/. The build argument PACKAGES names the packages to test, ./... by
+# default.
+#
+#   docker buildx build -f src/Dockerfile.test --progress plain --output type=cacheonly src
+#   docker buildx build -f src/Dockerfile.test --build-arg PACKAGES=./pkg/... --output type=cacheonly src
+
+FROM golang:1.27
+ENV GOMODCACHE=/cache/mod GOCACHE=/cache/build
+WORKDIR /src
+COPY --chown=1000:1000 . .
+USER 1000:1000
+RUN --mount=type=cache,target=/cache,uid=1000,gid=1000 go mod download
+ARG PACKAGES=./...
+RUN --mount=type=cache,target=/cache,uid=1000,gid=1000 --mount=type=tmpfs,target=/tmp \
+    go test -count=1 $PACKAGES

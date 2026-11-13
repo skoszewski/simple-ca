@@ -92,6 +92,43 @@ func TestConfigSave(t *testing.T) {
 	}
 }
 
+func TestLoadConfigURLs(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `{"ca_publish_base_url": "http://pki.example.com:8080", "federation": {"issuer": "https://pki.example.com/"}}`)
+	if _, err := LoadConfig(dir); err != nil {
+		t.Errorf("server URLs: %v", err)
+	}
+	for config, want := range map[string]string{
+		`{"ca_publish_base_url": "http://pki.example.com/pki"}`:         "ca_publish_base_url of",
+		`{"ca_publish_base_url": "pki.example.com"}`:                    "ca_publish_base_url of",
+		`{"federation": {"issuer": "https://pki.example.com/gcp-wif"}}`: "federation.issuer of",
+		`{"federation": {"issuer": "http://pki.example.com"}}`:          "not an https URL",
+	} {
+		writeConfig(t, dir, config)
+		if _, err := LoadConfig(dir); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("LoadConfig of %s: %v, want %q", config, err, want)
+		}
+	}
+}
+
+func TestIssuingCAExists(t *testing.T) {
+	root := newRoot(t, "ec")
+	newIssuing(t, root, "servers", "ec")
+	for name, want := range map[string]bool{"servers": true, "users": false, "../servers": false, "": false} {
+		if got := IssuingCAExists(root.dir, name); got != want {
+			t.Errorf("IssuingCAExists(%q) = %v", name, got)
+		}
+	}
+	for raw, want := range map[string]string{"https://pki.example.com": "", "https://pki.example.com/servers/": "servers"} {
+		if ca, err := CheckCAURL(root.dir, raw); err != nil || ca != want {
+			t.Errorf("CheckCAURL(%q) = %q, %v", raw, ca, err)
+		}
+	}
+	if _, err := CheckCAURL(root.dir, "https://pki.example.com/users"); err == nil || !strings.Contains(err.Error(), "does not have") {
+		t.Errorf("CheckCAURL of a missing issuing CA: %v", err)
+	}
+}
+
 func TestLoadRootConfig(t *testing.T) {
 	root := newRoot(t, "ec")
 	issuing := newIssuing(t, root, "servers", "ec")

@@ -102,12 +102,12 @@ func ParseArgs(fs *flag.FlagSet, args []string, minArgs, maxArgs int) ([]string,
 			case name == "ca-dir":
 				return nil, nil, errors.New("the session works on the CA of its context; switch it with context use")
 			case fs.Lookup(name) == nil:
-				fmt.Fprintf(fs.Output(), "%s: unknown option '%s'\n", fs.Name(), name)
+				fmt.Fprintf(fs.Output(), "%s: unknown option %q\n", fs.Name(), name)
 				fs.Usage()
 				return nil, nil, ErrUsage
 			}
 			if err := fs.Set(name, value); err != nil {
-				return nil, nil, fmt.Errorf("option '%s': %w", name, err)
+				return nil, nil, fmt.Errorf("option %q: %w", name, err)
 			}
 		}
 		rest = args[min(end+1, len(args)):]
@@ -161,7 +161,7 @@ func applyContext(fs *flag.FlagSet) error {
 		}
 		for _, value := range values[key] {
 			if err := fs.Set(name, value); err != nil {
-				return fmt.Errorf("context value '%s' of the option '%s' of %s: %w", value, name, cmp.Or(caID, "root"), err)
+				return fmt.Errorf("context value %q of the option %q of %q: %w", value, name, cmp.Or(caID, "root"), err)
 			}
 		}
 	}
@@ -202,7 +202,7 @@ func usageFlags(fs *flag.FlagSet) (ekus, kus *[]string) {
 		for _, ku := range strings.Split(s, ",") {
 			ku = strings.TrimSpace(ku)
 			if ku == "" {
-				return fmt.Errorf("empty key usage in '%s'", s)
+				return fmt.Errorf("empty key usage in %q", s)
 			}
 			*kus = append(*kus, ku)
 		}

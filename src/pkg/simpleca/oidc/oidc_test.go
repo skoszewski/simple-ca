@@ -35,6 +35,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -127,6 +128,35 @@ func TestOIDCKeys(t *testing.T) {
 		t.Errorf("JWKS fetches: %d, want %d", fetches-before, 2)
 	}
 	mu.Unlock()
+}
+
+func TestDiscoverRefusesEndpoints(t *testing.T) {
+	for name, endpoints := range map[string][3]string{
+		"jwks_uri not a URL":         {"/authorize", "/token", "jwks.example.com"},
+		"token_endpoint with a user": {"/authorize", "https://u:p@idp.example.com/token", "/jwks"},
+		"authorization_endpoint ftp": {"ftp://idp.example.com/authorize", "/token", "/jwks"},
+		"jwks_uri with a line end":   {"/authorize", "/token", "https://idp.example.com/jwks\nforged"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var idp *httptest.Server
+			idp = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				abs := func(e string) string {
+					if strings.HasPrefix(e, "/") {
+						return idp.URL + e
+					}
+					return e
+				}
+				json.NewEncoder(w).Encode(map[string]string{"issuer": idp.URL, "authorization_endpoint": abs(endpoints[0]),
+					"token_endpoint": abs(endpoints[1]), "jwks_uri": abs(endpoints[2])})
+			}))
+			defer idp.Close()
+			_, err := NewClient(t.TempDir()).discover(simpleca.OIDCConfig{Issuer: idp.URL, ClientID: "simple-ca"})
+			want := fmt.Sprintf("the discovery document of %q: ", idp.URL)
+			if err == nil || !strings.HasPrefix(err.Error(), want) || strings.Contains(err.Error(), "\n") {
+				t.Errorf("discover: %v, want %s and the endpoint quoted", err, want)
+			}
+		})
+	}
 }
 
 func TestOIDCCheck(t *testing.T) {

@@ -27,6 +27,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -183,7 +184,8 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 	case "/api/certs/pfx":
 		certPath, ok := cert.CertFiles(dir)[req.Serial]
 		if !ok || !simpleca.FileExists(strings.TrimSuffix(certPath, "_cert.pem")+"_key.pem") {
-			webuiFail(w, http.StatusNotFound, "no certificate file with a key of the CA directory holds the certificate "+req.Serial)
+			webuiFail(w, http.StatusNotFound,
+				fmt.Sprintf("no certificate file with a key of the CA directory holds the certificate %q", req.Serial))
 			return
 		}
 		password := rand.Text()
@@ -205,7 +207,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 				return strings.EqualFold(c.Name, req.Reason)
 			})
 			if i < 0 {
-				webuiFail(w, http.StatusBadRequest, "unknown revocation reason '"+req.Reason+"'")
+				webuiFail(w, http.StatusBadRequest, fmt.Sprintf("unknown revocation reason %q", req.Reason))
 				return
 			}
 			reason = cert.CRLReasons[i].Name
@@ -215,7 +217,7 @@ func (s *webuiServer) certAPI(w http.ResponseWriter, r *http.Request) {
 		case err != nil:
 			webuiFail(w, http.StatusBadRequest, err.Error())
 		case !revoked:
-			webuiFail(w, http.StatusBadRequest, "certificate "+req.Serial+" is revoked already")
+			webuiFail(w, http.StatusBadRequest, fmt.Sprintf("certificate %q is revoked already", req.Serial))
 		default:
 			simpleca.Audit(dir, "cert.revoke", append([]any{"serial", req.Serial, "reason", reason}, s.auditActor()...)...)
 			webuiReply(w, http.StatusOK, map[string]string{"serial": req.Serial})
@@ -249,7 +251,7 @@ func (s *webuiServer) listCerts(w http.ResponseWriter, dir string) {
 		}
 		expires, err := cert.ParseIndexTime(e.Expires)
 		if err != nil {
-			webuiFail(w, http.StatusInternalServerError, "invalid expiry of serial "+e.Serial)
+			webuiFail(w, http.StatusInternalServerError, fmt.Sprintf("invalid expiry of serial %q", e.Serial))
 			return
 		}
 		c := webuiCert{Serial: e.Serial, Subject: cert.SubjectAttributes(e.Subject), Status: status, Expires: expires, Key: "-"}
@@ -307,6 +309,6 @@ func (s *webuiServer) showCert(w http.ResponseWriter, dir, serial string) {
 			"key": cert.KeyStatus(strings.TrimSuffix(path, "_cert.pem") + "_key.pem"), "certificate": cert.CertDetails(crt, time.Now())})
 		return
 	}
-	webuiFail(w, http.StatusNotFound, "no certificate file of the CA directory holds the certificate "+serial+
-		"; a later certificate of the same name may have replaced it")
+	webuiFail(w, http.StatusNotFound, fmt.Sprintf("no certificate file of the CA directory holds the certificate %q"+
+		"; a later certificate of the same name may have replaced it", serial))
 }

@@ -55,7 +55,7 @@ func runAuditList(args []string) error {
 				return t, nil
 			}
 		}
-		return time.Time{}, fmt.Errorf("--%s '%s' is not an RFC 3339 time or a date such as 2026-11-03", option, value)
+		return time.Time{}, fmt.Errorf("--%s %q is not an RFC 3339 time or a date such as 2026-11-03", option, value)
 	}
 	var from, to time.Time
 	if *since != "" {
@@ -84,7 +84,7 @@ func runAuditList(args []string) error {
 		case !from.IsZero() && e.Time.Before(from):
 		case !to.IsZero() && !e.Time.Before(to):
 		default:
-			fmt.Println(e.Line)
+			fmt.Println(simpleca.Printable(e.Line))
 		}
 	}
 	return nil

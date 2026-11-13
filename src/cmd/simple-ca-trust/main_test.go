@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -165,5 +166,47 @@ func TestAddListRemove(t *testing.T) {
 	goos = "darwin"
 	if err := run([]string{"add", "--ca-dir", caDir}); err == nil || !strings.Contains(err.Error(), "Linux version") {
 		t.Errorf("add on darwin: %v, want an error naming the Linux version", err)
+	}
+}
+
+func TestListEscapesSubject(t *testing.T) {
+	dir := t.TempDir()
+	root, _ := testCert(t, "Evil\nroot CA \x1b[31mred", true, nil, nil)
+	if err := os.WriteFile(filepath.Join(dir, fileName(root)),
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: root.Raw}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writer
+	err = list(dir)
+	os.Stdout = stdout
+	writer.Close()
+	printed, _ := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(printed), "\n"), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[1], `CN=Evil\nroot CA \x1b[31mred`) || strings.Contains(lines[1], "\x1b") {
+		t.Errorf("list: %q, want the subject on one line, escaped", printed)
+	}
+}
+
+func TestPrintable(t *testing.T) {
+	for in, want := range map[string]string{
+		"CN=web.example.com, O=Lab": "CN=web.example.com, O=Lab",
+		"a\nb\tc":                   `a\nb\tc`,
+		"red\x1b[31m":               `red\x1b[31m`,
+		"zero\u200bwidth":           `zero\u200bwidth`,
+		"bad\xffbyte":               `bad\xffbyte`,
+		`C:\Users\ca`:               `C:\Users\ca`,
+		"\uFFFD replacement":        "\uFFFD replacement",
+	} {
+		if got := printable(in); got != want {
+			t.Errorf("printable(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

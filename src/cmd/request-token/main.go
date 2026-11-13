@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/src/pkg/client"
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 // buildVersion is the version a release build is given at link time with
@@ -131,7 +132,7 @@ func run() error {
 			return c.run(args)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "request-token: unknown subcommand '%s'\n", name)
+	fmt.Fprintf(os.Stderr, "request-token: unknown subcommand %q\n", name)
 	usage(os.Stderr)
 	return errUsage
 }
@@ -185,6 +186,11 @@ func parse(fs *flag.FlagSet, args []string, names ...string) (client.Settings, s
 			}
 		}
 	})
+	if s.CAURL != "" {
+		if _, _, err := weburl.CA(s.CAURL); err != nil {
+			return s, "", fmt.Errorf("the URL of the CA, ca_url, SIMPLE_CA_URL or --ca-url: %w", err)
+		}
+	}
 	return s, path, nil
 }
 
@@ -243,7 +249,7 @@ func runAPI(args []string) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "Token written to %s\n", s.TokenFile)
+	fmt.Fprintf(os.Stderr, "Token written to %q\n", s.TokenFile)
 	return nil
 }
 
@@ -260,7 +266,7 @@ func simpleCAJWT(s client.Settings) (string, time.Time, error) {
 			return "", time.Time{}, err
 		}
 		if token = strings.TrimSpace(string(b)); token == "" {
-			return "", time.Time{}, fmt.Errorf("%s is empty", s.TokenFile)
+			return "", time.Time{}, fmt.Errorf("%q is empty", s.TokenFile)
 		}
 	case token == "":
 		return "", time.Time{}, errors.New("no token: give token, token_file, SIMPLE_CA_TOKEN, SIMPLE_CA_TOKEN_FILE or --token-file")
@@ -471,7 +477,7 @@ func runGoogleCredConfig(args []string) error {
 		}
 		cred["credential_source"] = map[string]any{"file": path, "format": map[string]string{"type": "text"}}
 	default:
-		return fmt.Errorf("unknown credential source '%s': must be executable or file", *source)
+		return fmt.Errorf("unknown credential source %q: must be executable or file", *source)
 	}
 
 	b, err := json.MarshalIndent(cred, "", "  ")
@@ -489,7 +495,7 @@ func runGoogleCredConfig(args []string) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "Credential file written to %s\n", *outputFile)
+	fmt.Fprintf(os.Stderr, "Credential file written to %q\n", *outputFile)
 	if *source == "executable" {
 		fmt.Fprintln(os.Stderr, "Google runs its command only with GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1.")
 	}

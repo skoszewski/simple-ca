@@ -185,8 +185,8 @@ func WriteCertFields(w io.Writer, cert *x509.Certificate, now time.Time) {
 		b, _ := hex.DecodeString(h)
 		return ColonHex(b)
 	}
-	fmt.Fprintf(w, "Subject:\t%s\n", NameString(cert.Subject))
-	fmt.Fprintf(w, "Issuer:\t%s\n", NameString(cert.Issuer))
+	fmt.Fprintf(w, "Subject:\t%s\n", simpleca.Printable(NameString(cert.Subject)))
+	fmt.Fprintf(w, "Issuer:\t%s\n", simpleca.Printable(NameString(cert.Issuer)))
 	fmt.Fprintf(w, "Serial:\t%s\n", c.Serial)
 	fmt.Fprintf(w, "Valid from:\t%s\n", c.NotBefore.Format(DisplayTimeFormat))
 	fmt.Fprintf(w, "Valid until:\t%s\n", c.NotAfter.Format(DisplayTimeFormat))
@@ -216,7 +216,7 @@ func WriteCertFields(w io.Writer, cert *x509.Certificate, now time.Time) {
 		{"CRL distribution point", c.CRLDistributionPoints}, {"SHA-256 fingerprint", []string{colons(c.SHA256Fingerprint)}}} {
 		for _, value := range field.values {
 			if value != "" {
-				fmt.Fprintf(w, "%s:\t%s\n", field.label, value)
+				fmt.Fprintf(w, "%s:\t%s\n", field.label, simpleca.Printable(value))
 			}
 		}
 	}
@@ -240,14 +240,14 @@ func ShowCert(w io.Writer, path string) error {
 		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return fmt.Errorf("could not read %s: %w", path, err)
+			return fmt.Errorf("could not read %q: %w", path, err)
 		}
 		certs = append(certs, cert)
 	}
 	if len(certs) == 0 {
 		cert, err := x509.ParseCertificate(b)
 		if err != nil {
-			return fmt.Errorf("no PEM or DER certificate in %s", path)
+			return fmt.Errorf("no PEM or DER certificate in %q", path)
 		}
 		certs = append(certs, cert)
 	}
@@ -279,7 +279,7 @@ func ShowInfo(w io.Writer, caDir string) error {
 	}
 	kind := "root CA"
 	if issuingCA != "" {
-		kind = fmt.Sprintf("issuing CA '%s' of the root CA in %s", issuingCA, rootDir)
+		kind = fmt.Sprintf("issuing CA %q of the root CA in %q", issuingCA, rootDir)
 	}
 	cert, err := simpleca.LoadCert(filepath.Join(signingDir, "ca_cert.pem"))
 	if err != nil {
@@ -301,7 +301,7 @@ func ShowInfo(w io.Writer, caDir string) error {
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(tw, "Role:\t%s\n", kind)
-	fmt.Fprintf(tw, "Directory:\t%s\n", signingDir)
+	fmt.Fprintf(tw, "Directory:\t%s\n", simpleca.Printable(signingDir))
 	WriteCertFields(tw, cert, now)
 	fmt.Fprintf(tw, "Private key:\t%s\n", KeyStatus(filepath.Join(signingDir, "ca_key.pem")))
 	fmt.Fprintf(tw, "Certificates:\t%d valid, %d revoked, %d expired\n", counts["valid"], counts["revoked"], counts["expired"])
@@ -317,11 +317,11 @@ func ShowInfo(w io.Writer, caDir string) error {
 	default:
 		block, _ := pem.Decode(b)
 		if block == nil || block.Type != "X509 CRL" {
-			return fmt.Errorf("no X509 CRL PEM block in %s", crlPath)
+			return fmt.Errorf("no X509 CRL PEM block in %q", crlPath)
 		}
 		crl, err := x509.ParseRevocationList(block.Bytes)
 		if err != nil {
-			return fmt.Errorf("could not read %s: %w", crlPath, err)
+			return fmt.Errorf("could not read %q: %w", crlPath, err)
 		}
 		fmt.Fprintf(tw, "CRL:\tnumber %s, %d revoked, updated %s, next update %s\n", crl.Number,
 			len(crl.RevokedCertificateEntries), crl.ThisUpdate.UTC().Format(DisplayTimeFormat),
@@ -343,7 +343,7 @@ func ShowInfo(w io.Writer, caDir string) error {
 		}
 		issuing := "none"
 		if len(names) > 0 {
-			issuing = strings.Join(names, ", ")
+			issuing = simpleca.Printable(strings.Join(names, ", "))
 		}
 		fmt.Fprintf(tw, "Issuing CAs:\t%s\n", issuing)
 	}
@@ -355,7 +355,7 @@ func ShowInfo(w io.Writer, caDir string) error {
 func ListCerts(w io.Writer, caDir string, statuses []string) error {
 	signingDir := caDir
 	if !DirExists(signingDir) {
-		return fmt.Errorf("CA directory not found: %s", signingDir)
+		return fmt.Errorf("CA directory not found: %q", signingDir)
 	}
 	entries, err := ReadIndex(signingDir)
 	if err != nil {
@@ -376,18 +376,18 @@ func ListCerts(w io.Writer, caDir string, statuses []string) error {
 		}
 		expires, err := ParseIndexTime(e.Expires)
 		if err != nil {
-			return fmt.Errorf("invalid expiry of serial %s: %w", e.Serial, err)
+			return fmt.Errorf("invalid expiry of serial %q: %w", e.Serial, err)
 		}
 		revoked, reason := "-", "-"
 		if e.Revoked != "" {
 			t, err := ParseIndexTime(e.Revoked)
 			if err != nil {
-				return fmt.Errorf("invalid revocation date of serial %s: %w", e.Serial, err)
+				return fmt.Errorf("invalid revocation date of serial %q: %w", e.Serial, err)
 			}
 			revoked = t.UTC().Format(DisplayTimeFormat)
 			name, _, err := RevocationReason(e.Revoked)
 			if err != nil {
-				return fmt.Errorf("serial %s: %w", e.Serial, err)
+				return fmt.Errorf("serial %q: %w", e.Serial, err)
 			}
 			if name != "" {
 				reason = name
@@ -398,7 +398,7 @@ func ListCerts(w io.Writer, caDir string, statuses []string) error {
 			key = KeyStatus(path)
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", status, expires.UTC().Format(DisplayTimeFormat), revoked, reason, key,
-			e.Serial, e.Subject)
+			simpleca.Printable(e.Serial), simpleca.Printable(e.Subject))
 	}
 	return tw.Flush()
 }

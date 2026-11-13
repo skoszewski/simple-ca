@@ -129,13 +129,13 @@ func writeAuditFile(rootDir string, line []byte) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	f, err := CreatePrivateFile(path, os.O_WRONLY|os.O_APPEND)
 	if err != nil {
 		return err
 	}
 	_, err = f.Write(line)
 	if err := cmp.Or(err, f.Close()); err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return fmt.Errorf("%q: %w", path, err)
 	}
 	return nil
 }
@@ -203,16 +203,16 @@ func parseAuditLine(line string) ([][2]string, error) {
 	for rest = strings.TrimLeft(rest, " "); rest != ""; rest = strings.TrimLeft(rest, " ") {
 		key, value, ok := strings.Cut(rest, "=")
 		if !ok || key == "" || strings.Contains(key, " ") {
-			return nil, fmt.Errorf("'%s' is not a key=value pair", rest)
+			return nil, fmt.Errorf("%q is not a key=value pair", rest)
 		}
 		rest = value
 		if strings.HasPrefix(rest, `"`) {
 			quoted, err := strconv.QuotedPrefix(rest)
 			if err != nil {
-				return nil, fmt.Errorf("the value of %s is not a quoted string", key)
+				return nil, fmt.Errorf("the value of %q is not a quoted string", key)
 			}
 			if value, err = strconv.Unquote(quoted); err != nil {
-				return nil, fmt.Errorf("the value of %s is not a quoted string", key)
+				return nil, fmt.Errorf("the value of %q is not a quoted string", key)
 			}
 			rest = rest[len(quoted):]
 		} else {

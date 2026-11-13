@@ -235,7 +235,8 @@ simple-ca cert sign --ca-dir /tmp/ca/servers --type user --cert-dir . --force al
 Creates `{name}.pfx` next to `CERT_PATH`, a leaf certificate, from the certificate, its key and
 the chain of the CA in the CA directory, which signed it: the root CA, and the issuing CA when
 the CA directory holds one. The password defaults to `changeit`. The bundle is encrypted with
-PBES2 (AES-256-CBC) and written with mode 0600; a `.pfx` that exists is an error.
+PBES2 (AES-256-CBC) and written with the [private mode](#file-modes-and-a-shared-ca); a `.pfx`
+that exists is an error.
 
 ## cert revoke and crl create
 
@@ -350,7 +351,8 @@ openssl pkey -in web_key.pem -passin env:SIMPLE_CA_KEY_PASSWORD -out /etc/ssl/pr
 CA of the CA directory and of all its issuing CAs. The behaviour of both commands:
 
 - a key already in the form asked for is left as it is;
-- each key converted is printed, and replaced by a new file with mode 0600;
+- each key converted is printed, and replaced by a new file of the
+  [private mode](#file-modes-and-a-shared-ca);
 - keys written to a `--cert-dir` outside the CA directories are not converted.
 
 A passphrase is changed with `key decrypt` under the old one, then `key encrypt` under the new
@@ -359,6 +361,40 @@ one.
 ```sh
 export SIMPLE_CA_KEY_PASSWORD_FILE=/etc/simple-ca/key-password
 simple-ca key encrypt --ca-dir /tmp/ca --all
+```
+
+## File modes and a shared CA
+
+The programs create the private files of a CA, the keys, `tokens-db.json`, `acme.json`, the
+audit log, the lock files and the PFX files, with the private mode, and the issuing CA
+directories with the directory mode:
+
+- by default, the private mode is `0600` and the directory mode `0750`;
+- when `SIMPLE_CA_PRIVATE_GROUP_WRITE` is set to any value, they are `0660` and `0770`.
+
+The mode is set when a file or a directory is created, whatever the umask; an existing file keeps
+its mode and owner. The keys, `tokens-db.json` and `acme.json` are replaced by a new file each time
+they change, so they get the mode of the program that changed them last.
+
+The variable lets accounts of one group work on the same CA directory, such as `serve` running as
+`simple-ca` and an administrator running `simple-ca` or `simple-ca-wif` on `SIMPLE_CA_DIR`. Each
+of them needs the variable. The directory gets the group and the setgid bit, so the files created
+in it get that group, and the files that exist get the group and its access once:
+
+```sh
+CA_DIR=/etc/simple-ca
+CA_GROUP=simple-ca
+
+chgrp -R "$CA_GROUP" "$CA_DIR"
+find "$CA_DIR" -type d -exec chmod 2770 {} +
+find "$CA_DIR" -type f -perm -u=w -exec chmod g+rw {} +
+```
+
+A systemd unit gets the variable from a drop-in, made with `systemctl edit simple-ca`:
+
+```ini
+[Service]
+Environment=SIMPLE_CA_PRIVATE_GROUP_WRITE=1
 ```
 
 ## Certificate page

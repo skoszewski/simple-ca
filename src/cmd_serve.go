@@ -80,7 +80,7 @@ func runServe(args []string) error {
 	}
 	for option, dir := range map[string]string{"--downloads": *downloads, "--packages": *packages} {
 		if info, err := os.Stat(dir); dir != "" && (err != nil || !info.IsDir()) {
-			return fmt.Errorf("%s: '%s' is not a directory", option, dir)
+			return fmt.Errorf("%s: %q is not a directory", option, dir)
 		}
 	}
 	downloadsDir, packagesDir = *downloads, *packages
@@ -110,19 +110,19 @@ func runServe(args []string) error {
 	}
 	option := "--trusted-proxy"
 	if !given["trusted-proxy"] {
-		proxies, option = cfg.Serve.TrustedProxies, "serve.trusted_proxies of "+cfg.Path
+		proxies, option = cfg.Serve.TrustedProxies, fmt.Sprintf("serve.trusted_proxies of %q", cfg.Path)
 	}
 	for _, s := range proxies {
 		prefix, ok := simpleca.ParsePrefix(s)
 		if !ok {
-			return fmt.Errorf("%s: '%s' is not an IP address or a prefix such as 10.0.0.0/8", option, s)
+			return fmt.Errorf("%s: %q is not an IP address or a prefix such as 10.0.0.0/8", option, s)
 		}
 		trustedProxies = append(trustedProxies, prefix)
 	}
 	var kept time.Duration
 	if cfg.Tokens.KeepExpired != "" {
 		if kept, err = simpleca.ParseDuration(cfg.Tokens.KeepExpired); err != nil {
-			return fmt.Errorf("tokens.keep_expired of %s: %w", cfg.Path, err)
+			return fmt.Errorf("tokens.keep_expired of %q: %w", cfg.Path, err)
 		}
 	}
 	requestLog = cfg.Serve.RequestLog

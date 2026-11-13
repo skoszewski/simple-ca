@@ -24,6 +24,7 @@ package cli
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -39,6 +40,23 @@ func TestCAURLOption(t *testing.T) {
 		cfg, err := simpleca.LoadConfig(caDir)
 		if err != nil || cfg.CAPublishBaseURL != "http://pki.example.com" {
 			t.Fatalf("ca_publish_base_url after ca create %s: %q, %v", option, cfg.CAPublishBaseURL, err)
+		}
+	}
+	caDir := t.TempDir()
+	if err := run([]string{"ca", "create", "--ca-dir", caDir, "--ca-url", "http://pki.example.com:8080/", "Test CA"}); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, _ := simpleca.LoadConfig(caDir); cfg.CAPublishBaseURL != "http://pki.example.com:8080" {
+		t.Errorf("ca_publish_base_url of a URL with a port and a trailing /: %q", cfg.CAPublishBaseURL)
+	}
+	for _, bad := range []string{"http://pki.example.com/pki", "pki.example.com", "http://pki.example.com:0"} {
+		caDir := t.TempDir()
+		err := run([]string{"ca", "create", "--ca-dir", caDir, "--ca-url", bad, "Test CA"})
+		if err == nil || !strings.Contains(err.Error(), "--ca-url") {
+			t.Errorf("ca create --ca-url %s: %v", bad, err)
+		}
+		if simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) {
+			t.Errorf("ca create --ca-url %s made the CA", bad)
 		}
 	}
 

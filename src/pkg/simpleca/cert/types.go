@@ -56,7 +56,7 @@ func Types(c *simpleca.Config) (map[string]CertTypeDef, error) {
 	types := maps.Clone(builtinTypes)
 	for name, t := range c.Types {
 		if !simpleca.KebabCaseRE.MatchString(name) {
-			return nil, fmt.Errorf("type '%s' in %s is not a kebab-case name, such as web-server", name, c.Path)
+			return nil, fmt.Errorf("type %q in %q is not a kebab-case name, such as web-server", name, c.Path)
 		}
 		def := types[name]
 		if def.Names == "" {
@@ -64,7 +64,7 @@ func Types(c *simpleca.Config) (map[string]CertTypeDef, error) {
 		}
 		if t.Names != "" {
 			if t.Names != "server" && t.Names != "user" {
-				return nil, fmt.Errorf("type '%s' in %s: names must be 'server' or 'user', got '%s'", name, c.Path, t.Names)
+				return nil, fmt.Errorf("type %q in %q: names must be 'server' or 'user', got %q", name, c.Path, t.Names)
 			}
 			def.Names = t.Names
 		}
@@ -75,7 +75,7 @@ func Types(c *simpleca.Config) (map[string]CertTypeDef, error) {
 			def.ExtKeyUsage = *t.ExtKeyUsage
 		}
 		if _, _, _, err := ParseUsages(def.KeyUsage, def.ExtKeyUsage); err != nil {
-			return nil, fmt.Errorf("type '%s' in %s: %w", name, c.Path, err)
+			return nil, fmt.Errorf("type %q in %q: %w", name, c.Path, err)
 		}
 		types[name] = def
 	}
@@ -102,7 +102,7 @@ func ParseUsages(kus, ekus []string) (x509.KeyUsage, []x509.ExtKeyUsage, []asn1.
 			}
 		}
 		if !known {
-			return 0, nil, nil, fmt.Errorf("invalid key usage '%s': must be one of digitalSignature, contentCommitment, "+
+			return 0, nil, nil, fmt.Errorf("invalid key usage %q: must be one of digitalSignature, contentCommitment, "+
 				"keyEncipherment, dataEncipherment, keyAgreement, cRLSign, encipherOnly, decipherOnly", ku)
 		}
 	}
@@ -123,13 +123,13 @@ func ParseUsages(kus, ekus []string) (x509.KeyUsage, []x509.ExtKeyUsage, []asn1.
 			continue
 		}
 		if _, err := x509.ParseOID(eku); err != nil {
-			return 0, nil, nil, fmt.Errorf("invalid EKU '%s': must be a name such as clientAuth or a numeric OID", eku)
+			return 0, nil, nil, fmt.Errorf("invalid EKU %q: must be a name such as clientAuth or a numeric OID", eku)
 		}
 		var oid asn1.ObjectIdentifier
 		for _, arc := range strings.Split(eku, ".") {
 			n, err := strconv.Atoi(arc)
 			if err != nil {
-				return 0, nil, nil, fmt.Errorf("invalid EKU '%s': %w", eku, err)
+				return 0, nil, nil, fmt.Errorf("invalid EKU %q: %w", eku, err)
 			}
 			oid = append(oid, n)
 		}

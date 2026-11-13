@@ -43,6 +43,7 @@ import (
 	"strings"
 
 	"github.com/skoszewski/simple-ca/src/pkg/client"
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 // buildVersion is the version a release build is given at link time with
@@ -75,7 +76,7 @@ Options:
 	if v := os.Getenv("SIMPLE_CA_DAYS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("SIMPLE_CA_DAYS: '%s' is not a number of days", v)
+			return fmt.Errorf("SIMPLE_CA_DAYS: %q is not a number of days", v)
 		}
 		envDays = n
 	}
@@ -101,6 +102,9 @@ Options:
 		fmt.Fprintln(flag.CommandLine.Output(), "request-cert: CA_URL and CN are required")
 		flag.Usage()
 		return errUsage
+	}
+	if _, _, err := weburl.CA(flag.Arg(0)); err != nil {
+		return fmt.Errorf("CA_URL: %w", err)
 	}
 
 	token, code := os.Getenv("SIMPLE_CA_TOKEN"), strings.TrimSpace(*setupCode)
@@ -131,7 +135,7 @@ Options:
 			if err := cmp.Or(err, file.Close()); err != nil {
 				return fmt.Errorf("--token-file: %w", err)
 			}
-			fmt.Printf("Token written to %s\n", *tokenFile)
+			fmt.Printf("Token written to %q\n", *tokenFile)
 		}
 	case *tokenFile != "":
 		b, err := os.ReadFile(*tokenFile)
@@ -139,13 +143,13 @@ Options:
 			return fmt.Errorf("--token-file: %w", err)
 		}
 		if token = strings.TrimSpace(string(b)); token == "" {
-			return fmt.Errorf("--token-file: %s is empty", *tokenFile)
+			return fmt.Errorf("--token-file: %q is empty", *tokenFile)
 		}
 	case token == "":
 		return errors.New("no token: set SIMPLE_CA_TOKEN, or give --token-file, SIMPLE_CA_TOKEN_FILE or --setup-code")
 	}
 
-	url, cn := strings.TrimSuffix(strings.TrimSuffix(flag.Arg(0), "/"), "/api/sign")+"/api/sign", flag.Arg(1)
+	cn := flag.Arg(1)
 	prefix := cn
 	if rest, ok := strings.CutPrefix(cn, "*."); ok {
 		prefix = "wildcard." + rest
@@ -188,7 +192,7 @@ Options:
 		return err
 	}
 	var result struct{ Serial, Certificate, Chain string }
-	if err := client.Post(url, "application/json", token, body, &result); err != nil {
+	if err := client.PostCA(flag.Arg(0), "/api/sign", token, body, &result); err != nil {
 		return err
 	}
 
@@ -206,7 +210,7 @@ Options:
 		return err
 	}
 	written = true
-	fmt.Printf("Certificate %s written to %s, its chain to %s and its key to %s\n", result.Serial, certPath, chainPath, keyPath)
+	fmt.Printf("Certificate %q written to %q, its chain to %q and its key to %q\n", result.Serial, certPath, chainPath, keyPath)
 	return nil
 }
 

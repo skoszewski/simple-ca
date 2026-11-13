@@ -38,7 +38,7 @@ import (
 // ---- systemd journal --------------------------------------------------------
 
 // journalSocket is the socket of the native protocol of the systemd journal.
-const journalSocket = "/run/systemd/journal/socket"
+var journalSocket = "/run/systemd/journal/socket"
 
 // journalConnected reports whether stderr is the stream systemd connected to the journal, the
 // device and inode $JOURNAL_STREAM names.

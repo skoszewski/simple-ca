@@ -29,6 +29,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 const (
@@ -216,7 +218,17 @@ func LoadConfig(caDir string) (*Config, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(cfg); err != nil {
-		return nil, fmt.Errorf("could not read %s: %w", cfg.Path, err)
+		return nil, fmt.Errorf("could not read %q: %w", cfg.Path, err)
+	}
+	if cfg.CAPublishBaseURL != "" {
+		if _, err := weburl.Server(cfg.CAPublishBaseURL, false); err != nil {
+			return nil, fmt.Errorf("ca_publish_base_url of %q: %w", cfg.Path, err)
+		}
+	}
+	if cfg.Federation.Issuer != "" {
+		if _, err := weburl.Server(cfg.Federation.Issuer, true); err != nil {
+			return nil, fmt.Errorf("federation.issuer of %q: %w", cfg.Path, err)
+		}
 	}
 	return cfg, nil
 }

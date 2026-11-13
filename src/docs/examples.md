@@ -20,8 +20,9 @@ SIMPLE_CA_TOKEN_FILE=FILE request-cert CA_URL CN [DNS_NAME ...]
 ```
 
 - `CA_URL` is the URL of a CA, `https://pki.example.com` for the root CA or
-  `https://pki.example.com/NAME` for the issuing CA `NAME`; the program adds `/api/sign`, and takes
-  a URL that already ends in it too.
+  `https://pki.example.com/NAME` for the issuing CA `NAME`, a port allowed; the program adds
+  `/api/sign`. Any other path is an error, and a `NAME` the server does not have is the error
+  `SERVER has no issuing CA NAME`.
 - `SIMPLE_CA_TOKEN` is a token of `simple-ca token create` for that CA, or `SIMPLE_CA_TOKEN_FILE`
   names a file holding it, such as a systemd credential or a container secret; the whitespace
   around the token in the file is left out. One of them is set, not both, and an empty file is an
@@ -120,8 +121,8 @@ go install github.com/skoszewski/simple-ca/src/cmd/request-cert@latest
 The Go command `token-setup`, in `src/cmd/token-setup/`, and `examples/token_setup.py`, in Python 3
 with its standard library, exchange a
 [one-time setup code](signing-api.md#one-time-setup-codes) for its token and print it. `--url`,
-or else `SIMPLE_CA_URL`, is the URL of the server, the same for a code of an issuing CA as for one
-of the root CA:
+or else `SIMPLE_CA_URL`, is the URL of the server, scheme and host with an optional port only, the
+same for a code of an issuing CA as for one of the root CA; a URL with a path is an error:
 
 ```sh
 export SIMPLE_CA_URL=https://pki.example.com:8443
@@ -170,7 +171,7 @@ environment variable replaces it, and an option replaces both:
 
 | JSON key | Environment variable | Option | Setting | Subcommands |
 |---|---|---|---|---|
-| `ca_url` | `SIMPLE_CA_URL` | `--ca-url` | the URL of the CA, such as `https://pki.example.com/gcp-wif` | all but `google-cred-config`; required |
+| `ca_url` | `SIMPLE_CA_URL` | `--ca-url` | the URL of the CA: the URL of the server, scheme and host with an optional port, for the root CA, or that URL and `/NAME` for the issuing CA `NAME`, such as `https://pki.example.com/gcp-wif`; any other path is an error, and a `NAME` the server does not have is the error `SERVER has no issuing CA NAME` | all but `google-cred-config`; required |
 | `token` | `SIMPLE_CA_TOKEN` | | the api token itself | those of the JWT |
 | `token_file` | `SIMPLE_CA_TOKEN_FILE` | `--token-file` | the file holding the api token | those of the JWT, and `api`, which writes it |
 | `provider` | `SIMPLE_CA_PROVIDER` | `--provider` | Google: the provider's name, `//iam.googleapis.com/projects/NUMBER/locations/global/workloadIdentityPools/POOL/providers/ID` | `google-*`; required |

@@ -26,6 +26,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 // ---- helpers ----------------------------------------------------------------
@@ -35,6 +37,15 @@ import (
 func bodyTooLarge(err error) bool {
 	var tooLarge *http.MaxBytesError
 	return errors.As(err, &tooLarge)
+}
+
+// quoteList returns the items for a message, each quoted as %q quotes it, joined by ", ".
+func quoteList(items []string) string {
+	quoted := make([]string, len(items))
+	for i, item := range items {
+		quoted[i] = strconv.Quote(item)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // tooLargeText is the message of a request body larger than limit bytes.

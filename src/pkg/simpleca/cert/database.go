@@ -83,7 +83,7 @@ func ReadIndex(dir string) ([]IndexEntry, error) {
 		}
 		f := strings.Split(line, "\t")
 		if len(f) != 6 {
-			return nil, fmt.Errorf("%s:%d: %d fields, want 6", path, i+1, len(f))
+			return nil, fmt.Errorf("%q:%d: %d fields, want 6", path, i+1, len(f))
 		}
 		entries = append(entries, IndexEntry{f[0], f[1], f[2], f[3], f[4], f[5]})
 	}
@@ -110,7 +110,7 @@ func EntryStatus(e IndexEntry, now time.Time) (string, error) {
 	}
 	expires, err := ParseIndexTime(e.Expires)
 	if err != nil {
-		return "", fmt.Errorf("invalid expiry of serial %s: %w", e.Serial, err)
+		return "", fmt.Errorf("invalid expiry of serial %q: %w", e.Serial, err)
 	}
 	if !now.Before(expires) {
 		return "expired", nil
@@ -150,7 +150,7 @@ func writeIndex(dir string, entries []IndexEntry) error {
 	for _, e := range entries {
 		fields := []string{e.Status, e.Expires, e.Revoked, e.Serial, e.File, e.Subject}
 		if slices.ContainsFunc(fields, func(f string) bool { return strings.ContainsAny(f, "\t\r\n") }) {
-			return fmt.Errorf("the entry of serial %s holds a tab or a line end", e.Serial)
+			return fmt.Errorf("the entry of serial %q holds a tab or a line end", e.Serial)
 		}
 		b.WriteString(strings.Join(fields, "\t") + "\n")
 	}

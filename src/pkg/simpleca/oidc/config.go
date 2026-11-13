@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 // oidcProviders are the label and claim defaults of each provider.
@@ -49,15 +50,16 @@ func Resolved(c simpleca.OIDCConfig, path string) (simpleca.OIDCConfig, bool, er
 	if c.Provider == "" {
 		c.Provider = "generic"
 	}
+	if _, err := weburl.Endpoint(c.Issuer, false); err != nil {
+		return c, false, fmt.Errorf("oidc.issuer of %q: %w", path, err)
+	}
 	preset, ok := oidcProviders[c.Provider]
 	switch {
 	case !ok:
-		return c, false, fmt.Errorf("oidc.provider of %s: unknown provider '%s': must be one of %s", path, c.Provider,
+		return c, false, fmt.Errorf("oidc.provider of %q: unknown provider %q: must be one of %s", path, c.Provider,
 			strings.Join(slices.Sorted(maps.Keys(oidcProviders)), ", "))
-	case !strings.HasPrefix(c.Issuer, "https://") && !strings.HasPrefix(c.Issuer, "http://"):
-		return c, false, fmt.Errorf("oidc.issuer of %s: '%s' is not an HTTP or HTTPS URL", path, c.Issuer)
 	case c.ClientID == "":
-		return c, false, fmt.Errorf("oidc.client_id of %s is required with oidc.issuer", path)
+		return c, false, fmt.Errorf("oidc.client_id of %q is required with oidc.issuer", path)
 	}
 	if len(c.Scopes) == 0 {
 		c.Scopes = []string{"openid", "profile", "email"}

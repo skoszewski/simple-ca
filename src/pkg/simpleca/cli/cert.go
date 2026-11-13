@@ -68,7 +68,7 @@ func runCertCreate(args []string) error {
 	}
 	out := cmp.Or(*certDir, dir)
 	cert.AuditIssued(dir, crt, *certType, "via", "cli", "actor", simpleca.CLIActor())
-	fmt.Printf("The %s certificate and its key, written to %s:\n\n", *certType, out)
+	fmt.Printf("The %s certificate and its key, written to %q:\n\n", *certType, out)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	cert.WriteCertFields(tw, crt, time.Now())
 	return tw.Flush()

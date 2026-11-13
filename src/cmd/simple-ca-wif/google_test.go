@@ -287,11 +287,11 @@ func TestSetupCreatesThenLeavesAlone(t *testing.T) {
 	}
 	cfgPath := filepath.Join(root, simpleca.ConfigFile)
 	wantLines(t, g.out.String(),
-		"project lab-project: number 123456789",
-		"pool projects/123456789/locations/global/workloadIdentityPools/lab-pool: created",
-		"provider projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca: created",
-		"issuer https://pki.example.com/gcp-wif in "+cfgPath+": created",
-		"token type gcp-wif in "+cfgPath+": created")
+		`project "lab-project": number "123456789"`,
+		`pool "projects/123456789/locations/global/workloadIdentityPools/lab-pool": created`,
+		`provider "projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca": created`,
+		fmt.Sprintf(`issuer "https://pki.example.com/gcp-wif" in %q: created`, cfgPath),
+		fmt.Sprintf(`token type "gcp-wif" in %q: created`, cfgPath))
 	if g.auth != "Bearer test-token" {
 		t.Errorf("Authorization %q", g.auth)
 	}
@@ -353,7 +353,7 @@ func TestSetupPatchesKeys(t *testing.T) {
 	if c := g.changes(n); !slices.Equal(c, []string{"PATCH " + testProvider}) {
 		t.Errorf("changes %v", c)
 	}
-	wantLines(t, g.out.String(), "provider projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca: updated")
+	wantLines(t, g.out.String(), `provider "projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca": updated`)
 	jwks, _ := tokens.CAJWKS(caDir)
 	if got := g.resources[testProvider]["oidc"].(map[string]any)["jwksJson"]; got != string(jwks) {
 		t.Errorf("jwksJson %v", got)
@@ -379,7 +379,7 @@ func TestSetupUpdatesProvider(t *testing.T) {
 	if c := g.changes(n); !slices.Equal(c, []string{"PATCH " + testProvider}) {
 		t.Errorf("changes %v", c)
 	}
-	wantLines(t, g.out.String(), "provider projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca: updated")
+	wantLines(t, g.out.String(), `provider "projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca": updated`)
 	if got := prov["oidc"].(map[string]any)["issuerUri"]; got != issuer {
 		t.Errorf("issuerUri %v, want %v", got, issuer)
 	}
@@ -404,8 +404,8 @@ func TestSetupReplacesIssuer(t *testing.T) {
 		t.Errorf("federation.issuer %q", cfg.Federation.Issuer)
 	}
 	wantLines(t, g.out.String(),
-		"provider projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca: updated",
-		"issuer https://pki.example.com/gcp-wif in "+filepath.Join(root, simpleca.ConfigFile)+": updated")
+		`provider "projects/123456789/locations/global/workloadIdentityPools/lab-pool/providers/simple-ca": updated`,
+		fmt.Sprintf(`issuer "https://pki.example.com/gcp-wif" in %q: updated`, filepath.Join(root, simpleca.ConfigFile)))
 	if got := g.resources[testProvider]["oidc"].(map[string]any)["issuerUri"]; got != "https://pki.example.com/gcp-wif" {
 		t.Errorf("issuerUri %v", got)
 	}
@@ -437,7 +437,9 @@ func TestSetupRefusals(t *testing.T) {
 		seed               map[string]map[string]any
 		googleCalls        bool
 	}{
-		{name: "http issuer", issuer: "http://pki.example.com", want: "https://"},
+		{name: "http issuer", issuer: "http://pki.example.com", want: "not an https URL"},
+		{name: "issuer of an issuing CA", issuer: "https://pki.example.com/gcp-wif", want: `--issuer: "https://pki.example.com/gcp-wif" has a path`},
+		{name: "issuer port", issuer: "https://pki.example.com:0", want: "--issuer"},
 		{name: "no issuer", want: "has no issuer"},
 		{name: "deleted pool", issuer: "https://pki.example.com", want: "undelete it first", googleCalls: true,
 			seed: map[string]map[string]any{testPool: {"state": "DELETED"}}},
@@ -487,12 +489,12 @@ func TestMachineServiceAccount(t *testing.T) {
 	}
 	tokenPath, configPath := filepath.Join(out, "build-01.token"), filepath.Join(out, "federation.json")
 	wantLines(t, g.out.String(),
-		"service account "+testEmail+": created",
-		"role roles/iam.workloadIdentityUser of "+testPrincipal+" on "+testEmail+": created",
-		"role roles/browser of serviceAccount:"+testEmail+" on project lab-project: created",
-		"role roles/viewer of serviceAccount:"+testEmail+" on project lab-project: created",
-		"token build-01 in "+tokenPath+": created",
-		configPath+": created")
+		fmt.Sprintf("service account %q: created", testEmail),
+		fmt.Sprintf(`role "roles/iam.workloadIdentityUser" of %q on %q: created`, testPrincipal, testEmail),
+		fmt.Sprintf(`role "roles/browser" of %q on project "lab-project": created`, "serviceAccount:"+testEmail),
+		fmt.Sprintf(`role "roles/viewer" of %q on project "lab-project": created`, "serviceAccount:"+testEmail),
+		fmt.Sprintf(`token "build-01" in %q: created`, tokenPath),
+		fmt.Sprintf("%q: created", configPath))
 
 	if dn := g.resources[testAccount]["displayName"]; dn != "simple-ca build-01" {
 		t.Errorf("displayName %v", dn)
@@ -602,8 +604,8 @@ func TestMachineWaitsForNewAccount(t *testing.T) {
 		t.Errorf("setIamPolicy of the project %d times, want 2", n)
 	}
 	wantLines(t, g.out.String(),
-		"role roles/iam.workloadIdentityUser of "+testPrincipal+" on "+testEmail+": created",
-		"role roles/browser of serviceAccount:"+testEmail+" on project lab-project: created")
+		fmt.Sprintf(`role "roles/iam.workloadIdentityUser" of %q on %q: created`, testPrincipal, testEmail),
+		fmt.Sprintf(`role "roles/browser" of %q on project "lab-project": created`, "serviceAccount:"+testEmail))
 }
 
 func TestMachinePrincipalWithSetupCode(t *testing.T) {
@@ -615,8 +617,8 @@ func TestMachinePrincipalWithSetupCode(t *testing.T) {
 		"--otc", "--otc-network", "10.30.0.0/16,192.0.2.1", "--output-dir", out, "build-01"}); err != nil {
 		t.Fatal(err)
 	}
-	wantLines(t, g.out.String(), "role roles/browser of "+testPrincipal+" on project lab-project: created")
-	if !strings.Contains(g.out.String(), "token build-01: created, setup code ") {
+	wantLines(t, g.out.String(), fmt.Sprintf(`role "roles/browser" of %q on project "lab-project": created`, testPrincipal))
+	if !strings.Contains(g.out.String(), `token "build-01": created, setup code `) {
 		t.Errorf("output:\n%s", g.out.String())
 	}
 	if p := g.policies[testProject]; len(p.Bindings) != 1 || !slices.Equal(p.Bindings[0].Members, []string{testPrincipal}) {
@@ -668,6 +670,29 @@ func TestMachineRefusals(t *testing.T) {
 			t.Errorf("requests %v, tokens %v, files %v", g.requests, db.Tokens, entries)
 		}
 	})
+	for caURL, want := range map[string]string{
+		"https://pki.example.com/gcp-wif/gcp-wif": "not /NAME of an issuing CA",
+		"https://pki.example.com/other":           "does not have",
+		"https://pki.example.com":                 `does not name the issuing CA "gcp-wif"`,
+		"https://pki.example.com:99999/gcp-wif":   "has the port",
+	} {
+		t.Run("--ca-url "+caURL, func(t *testing.T) {
+			root, caDir := newTestCA(t)
+			setTokenType(t, root)
+			g := newFakeGoogle(t)
+			out := t.TempDir()
+			err := runGoogleMachine([]string{"--ca-dir", caDir, "--project", "lab-project", "--role", "roles/browser",
+				"--ca-url", caURL, "--output-dir", out, "build-01"})
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("error %v, want %q", err, want)
+			}
+			db, _ := tokens.LoadTokens(caDir)
+			entries, _ := os.ReadDir(out)
+			if len(g.requests) > 0 || len(db.Tokens) > 0 || len(entries) > 0 {
+				t.Errorf("requests %v, tokens %v, files %v", g.requests, db.Tokens, entries)
+			}
+		})
+	}
 	t.Run("output directory missing", func(t *testing.T) {
 		root, caDir := newTestCA(t)
 		setTokenType(t, root)
@@ -736,7 +761,7 @@ func TestMachineRefusals(t *testing.T) {
 		}
 		err := runGoogleMachine([]string{"--ca-dir", caDir, "--project", "lab-project", "--role", "roles/browser",
 			"--output-dir", t.TempDir(), "build-01"})
-		if err == nil || !strings.Contains(err.Error(), "token 'build-01' exists") {
+		if err == nil || !strings.Contains(err.Error(), `token "build-01" exists`) {
 			t.Errorf("error %v", err)
 		}
 		if len(g.requests) > 0 {
@@ -765,8 +790,8 @@ func TestMachineRefusals(t *testing.T) {
 		if err := runGoogleMachine(args); err != nil {
 			t.Fatal(err)
 		}
-		wantLines(t, g.out.String(), "service account "+testEmail+": unchanged",
-			"role roles/browser of serviceAccount:"+testEmail+" on project lab-project: created")
+		wantLines(t, g.out.String(), fmt.Sprintf("service account %q: unchanged", testEmail),
+			fmt.Sprintf(`role "roles/browser" of %q on project "lab-project": created`, "serviceAccount:"+testEmail))
 	})
 	t.Run("members left alone", func(t *testing.T) {
 		root, caDir := newTestCA(t)
@@ -778,7 +803,7 @@ func TestMachineRefusals(t *testing.T) {
 			"--output-dir", t.TempDir(), "build-01"}); err != nil {
 			t.Fatal(err)
 		}
-		wantLines(t, g.out.String(), "role roles/browser of "+testPrincipal+" on project lab-project: unchanged")
+		wantLines(t, g.out.String(), fmt.Sprintf(`role "roles/browser" of %q on project "lab-project": unchanged`, testPrincipal))
 		if c := g.changes(0); len(c) > 0 {
 			t.Errorf("changes %v", c)
 		}

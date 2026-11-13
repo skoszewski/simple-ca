@@ -100,7 +100,7 @@ func convertKeys(args []string, encrypt bool) error {
 			}
 			if converted {
 				done = append(done, filepath.Base(path))
-				fmt.Printf("%sed %s\n", strings.ToUpper(verb[:1])+verb[1:], path)
+				fmt.Printf("%sed %q\n", strings.ToUpper(verb[:1])+verb[1:], path)
 			}
 		}
 		if len(done) > 0 {

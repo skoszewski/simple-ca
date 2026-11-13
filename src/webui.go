@@ -27,6 +27,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"maps"
@@ -381,7 +382,7 @@ func webuiDecode(w http.ResponseWriter, r *http.Request, v any, fields ...string
 	}
 	for _, field := range slices.Sorted(maps.Keys(given)) {
 		if !slices.Contains(fields, field) {
-			webuiFail(w, http.StatusBadRequest, "'"+field+"' is not a field of this request")
+			webuiFail(w, http.StatusBadRequest, fmt.Sprintf("%q is not a field of this request", field))
 			return false
 		}
 	}
@@ -436,7 +437,8 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	// A token is renewed, revoked or removed only by a token that may grant its scopes.
 	if t, ok := db.Tokens[req.Name]; ok && r.URL.Path != "/api/tokens" && !s.grants(t.EffectiveScopes()) {
-		webuiFail(w, http.StatusForbidden, "your token cannot manage '"+req.Name+"': it has a scope your token does not have")
+		webuiFail(w, http.StatusForbidden,
+			fmt.Sprintf("your token cannot manage %q: it has a scope your token does not have", req.Name))
 		return
 	}
 	// A token created or renewed with a setup code gets the code in place of its JWT.
@@ -473,8 +475,8 @@ func (s *webuiServer) tokenAPI(w http.ResponseWriter, r *http.Request) {
 			webuiFail(w, http.StatusBadRequest, "types: a token with the scope sign needs at least one certificate type")
 			return
 		case !s.grants(scopes):
-			webuiFail(w, http.StatusForbidden, "your token can only grant the scopes sign, "+
-				strings.Join(s.userScopes, ", "))
+			webuiFail(w, http.StatusForbidden,
+				"your token can only grant the scopes "+quoteList(append([]string{"sign"}, s.userScopes...)))
 			return
 		}
 		if req.Localhost {

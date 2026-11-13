@@ -203,7 +203,7 @@ func TestTokens(t *testing.T) {
 	wait := simpleca.TokensLockWait
 	simpleca.TokensLockWait = 200 * time.Millisecond
 	t.Cleanup(func() { simpleca.TokensLockWait = wait })
-	if err := revokeToken(caDir, "deploy"); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("locked by process %d", os.Getpid())) {
+	if err := revokeToken(caDir, "deploy"); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("locked by process \"%d\"", os.Getpid())) {
 		t.Fatalf("revokeToken while locked: %v, want a lock error naming this process", err)
 	}
 	unlock()
@@ -385,8 +385,12 @@ func TestAPISign(t *testing.T) {
 		}
 	}
 	if _, resp := post("/issuing-ca/api/sign", serverOnly, "application/json", request(alice, "user")); resp["error"] !=
-		"the token does not allow the type 'user'; choose a type it allows, server, or the default, its first type" {
+		`the token does not allow the type "user"; choose a type it allows, "server", or the default, its first type` {
 		t.Errorf("type not allowed: %v, want the types the token allows", resp)
+	}
+	if _, resp := post("/issuing-ca/api/sign", serverOnly, "application/json", request(alice, "user\nforged \x1b[31m")); resp["error"] !=
+		`the token does not allow the type "user\nforged \x1b[31m"; choose a type it allows, "server", or the default, its first type` {
+		t.Errorf("type not allowed, with a line end and an escape: %v, want the type escaped", resp)
 	}
 	if entries, err := cert.ReadIndex(issuingDir); err != nil || len(entries) != 2 {
 		t.Fatalf("index.txt %+v, %v, want the two certificates issued", entries, err)

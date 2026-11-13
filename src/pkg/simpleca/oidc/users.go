@@ -79,26 +79,26 @@ func loadOIDCUsers(rootDir string) (*oidcUsers, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(users); err != nil {
-		return nil, fmt.Errorf("could not read %s: %w", users.path, err)
+		return nil, fmt.Errorf("could not read %q: %w", users.path, err)
 	}
 	var names []string
 	for i, p := range users.Profiles {
 		switch {
 		case !simpleca.KebabCaseRE.MatchString(p.Name):
-			return nil, fmt.Errorf("profiles[%d] of %s: name '%s' is not a kebab-case name, such as ca-admin", i, users.path, p.Name)
+			return nil, fmt.Errorf("profiles[%d] of %q: name %q is not a kebab-case name, such as ca-admin", i, users.path, p.Name)
 		case slices.Contains(names, p.Name):
-			return nil, fmt.Errorf("profiles[%d] of %s: the profile '%s' is given twice", i, users.path, p.Name)
+			return nil, fmt.Errorf("profiles[%d] of %q: the profile %q is given twice", i, users.path, p.Name)
 		case p.Token.KeepExpired != "":
-			return nil, fmt.Errorf("profile %s of %s: keep_expired belongs to the tokens section of simple-ca.json", p.Name, users.path)
+			return nil, fmt.Errorf("profile %s of %q: keep_expired belongs to the tokens section of simple-ca.json", p.Name, users.path)
 		}
 		names = append(names, p.Name)
 	}
 	for i, r := range users.Rules {
 		switch {
 		case len(r.Users) == 0 && len(r.Groups) == 0:
-			return nil, fmt.Errorf("rules[%d] of %s: a rule needs users or groups", i, users.path)
+			return nil, fmt.Errorf("rules[%d] of %q: a rule needs users or groups", i, users.path)
 		case !slices.Contains(names, r.Profile):
-			return nil, fmt.Errorf("rules[%d] of %s: unknown profile '%s'", i, users.path, r.Profile)
+			return nil, fmt.Errorf("rules[%d] of %q: unknown profile %q", i, users.path, r.Profile)
 		}
 	}
 	return users, nil

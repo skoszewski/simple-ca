@@ -38,7 +38,8 @@ func runCACreate(args []string) error {
 			"signed by the root CA. An encrypted root CA key needs its passphrase.")
 	days := fs.Int("days", 3650, "validity period in `days`; an issuing CA is valid as long as its root CA by default")
 	issuingCA := fs.String("issuing-ca", "", "create an issuing CA with this directory `name`")
-	baseURL := fs.String("ca-url", "", "base `URL` for AIA and CRL distribution point extensions")
+	baseURL := fs.String("ca-url", "", "`URL` of serve for the AIA and CRL distribution point extensions, scheme and host\n"+
+		"only, such as http://pki.example.com")
 	fs.StringVar(baseURL, "ca-publish-base-url", "", "former name of --ca-url")
 	caDir := fs.String("ca-dir", "", "`directory` of the root CA")
 	keyType := fs.String("key-type", "rsa", "`type` of the CA key: rsa (RSA 4096, RS256 tokens) or ec (ECDSA P-256, ES256 tokens)")
@@ -81,7 +82,7 @@ func runCACreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("openssl ca configuration written to %s\n", path)
+	fmt.Printf("openssl ca configuration written to %q\n", path)
 	return nil
 }
 

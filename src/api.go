@@ -99,10 +99,10 @@ func purgeToken(caDir, name string) error {
 	}
 	t, ok := db.Tokens[name]
 	if !ok {
-		return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokens.TokensFile))
+		return fmt.Errorf("token %q not found in %q", name, filepath.Join(caDir, tokens.TokensFile))
 	}
 	if time.Now().Before(t.Expires) {
-		return fmt.Errorf("token '%s' is still accepted; revoke it first", name)
+		return fmt.Errorf("token %q is still accepted; revoke it first", name)
 	}
 	delete(db.Tokens, name)
 	return db.Save(caDir)
@@ -126,7 +126,7 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 	}
 	caKeyPath := filepath.Join(caDir, "ca_key.pem")
 	if !simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) || !simpleca.FileExists(caKeyPath) {
-		return "", fmt.Errorf("CA certificate and key not found in %s, which is not a CA directory", caDir)
+		return "", fmt.Errorf("CA certificate and key not found in %q, which is not a CA directory", caDir)
 	}
 	caKey, err := simpleca.LoadKey(caKeyPath)
 	if err != nil {
@@ -143,17 +143,17 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 	}
 	old, ok := db.Tokens[name]
 	if !ok {
-		return "", fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokens.TokensFile))
+		return "", fmt.Errorf("token %q not found in %q", name, filepath.Join(caDir, tokens.TokensFile))
 	}
 	if old.Pending() && time.Now().Before(old.Expires) {
-		return "", fmt.Errorf("token '%s' waits for its setup code; revoke it first to renew it", name)
+		return "", fmt.Errorf("token %q waits for its setup code; revoke it first to renew it", name)
 	}
 	switch {
 	case valid != 0:
 	case old.Pending():
 		// The expiry of a pending token is that of its code; the validity of the token is kept apart.
 		if valid, err = old.Setup.Validity(); err != nil {
-			return "", fmt.Errorf("token '%s': %w", name, err)
+			return "", fmt.Errorf("token %q: %w", name, err)
 		}
 	case !old.Revoked():
 		valid = old.Expires.Sub(old.Issued)
@@ -167,7 +167,7 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 		valid = time.Hour
 		if cfg.Tokens.Valid != "" {
 			if valid, err = simpleca.ParseDuration(cfg.Tokens.Valid); err != nil {
-				return "", fmt.Errorf("tokens.valid of %s: %w", cfg.Path, err)
+				return "", fmt.Errorf("tokens.valid of %q: %w", cfg.Path, err)
 			}
 		}
 	}
@@ -193,7 +193,7 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 // listTokens writes the tokens of the CA in caDir to w, one per line, sorted by name.
 func listTokens(w io.Writer, caDir string) error {
 	if !simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) {
-		return fmt.Errorf("CA certificate not found in %s, which is not a CA directory", caDir)
+		return fmt.Errorf("CA certificate not found in %q, which is not a CA directory", caDir)
 	}
 	db, err := tokens.LoadTokens(caDir)
 	if err != nil {
@@ -226,10 +226,11 @@ func listTokens(w io.Writer, caDir string) error {
 		if t.HasScope("sign") {
 			certs = fmt.Sprint(len(t.Certs))
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", name, expires, strings.Join(t.EffectiveScopes(), ","),
-			cmp.Or(strings.Join(t.Types, ","), "-"), cmp.Or(strings.Join(t.Domains, ","), "-"),
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", simpleca.Printable(name), expires,
+			simpleca.Printable(strings.Join(t.EffectiveScopes(), ",")),
+			simpleca.Printable(cmp.Or(strings.Join(t.Types, ","), "-")), simpleca.Printable(cmp.Or(strings.Join(t.Domains, ","), "-")),
 			cmp.Or(strings.Join(showPrefixes(t.IPs), ","), "-"), cmp.Or(strings.Join(showPrefixes(t.Clients), ","), "any"),
-			federates, certs, user)
+			simpleca.Printable(federates), certs, simpleca.Printable(user))
 	}
 	return tw.Flush()
 }
@@ -306,10 +307,10 @@ func revokeToken(caDir, name string) error {
 	}
 	t, ok := db.Tokens[name]
 	if !ok {
-		return fmt.Errorf("token '%s' not found in %s", name, filepath.Join(caDir, tokens.TokensFile))
+		return fmt.Errorf("token %q not found in %q", name, filepath.Join(caDir, tokens.TokensFile))
 	}
 	if t.Revoked() {
-		return fmt.Errorf("token '%s' is revoked already", name)
+		return fmt.Errorf("token %q is revoked already", name)
 	}
 	t.ID, t.Setup, t.Expires = "", nil, time.Now().UTC().Truncate(time.Second)
 	return db.Save(caDir)
@@ -347,7 +348,7 @@ func exchangeSetupCode(rootDir, code string, client netip.Addr) (caID, name, jwt
 				}
 				valid, err := t.Setup.Validity()
 				if err != nil {
-					return "", "", "", fmt.Errorf("token '%s': %w", name, err)
+					return "", "", "", fmt.Errorf("token %q: %w", name, err)
 				}
 				caKey, err := simpleca.LoadKey(filepath.Join(dir, "ca_key.pem"))
 				if err != nil {
@@ -724,7 +725,7 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, tok *tokens.APITo
 		for _, e := range emails {
 			_, domain, _ := strings.Cut(e, "@")
 			if !cert.EmailRE.MatchString(e) || !domainAllowed(domain) {
-				return apiErr(http.StatusForbidden, "the token does not allow '%s'", e)
+				return apiErr(http.StatusForbidden, "the token does not allow %q", e)
 			}
 		}
 		return nil
@@ -752,7 +753,7 @@ func checkCSRNames(csr *x509.CertificateRequest, names string, tok *tokens.APITo
 	}
 	for _, h := range hosts {
 		if !simpleca.IsHostname(strings.TrimPrefix(h, "*.")) || !domainAllowed(h) {
-			return apiErr(http.StatusForbidden, "the token does not allow '%s'", h)
+			return apiErr(http.StatusForbidden, "the token does not allow %q", h)
 		}
 	}
 	for _, addr := range addrs {
@@ -882,8 +883,8 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	}
 	if !tokens.Allows(tok.Types, certType) {
 		return nil, nil, "", apiErr(http.StatusForbidden,
-			"the token does not allow the type '%s'; choose a type it allows, %s, or the default, its first type",
-			certType, strings.Join(tok.Types, ", "))
+			"the token does not allow the type %q; choose a type it allows, %s, or the default, its first type",
+			certType, quoteList(tok.Types))
 	}
 	cfg, err := simpleca.LoadRootConfig(caDir)
 	if err != nil {
@@ -895,7 +896,7 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	}
 	def, ok := types[certType]
 	if !ok {
-		return nil, nil, "", apiErr(http.StatusBadRequest, "unknown type '%s'", certType)
+		return nil, nil, "", apiErr(http.StatusBadRequest, "unknown type %q", certType)
 	}
 	csr, err := cert.ParseCSR(csrData)
 	if err != nil {
@@ -942,7 +943,7 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	if typeKU, typeEKU, typeOIDs, _ := cert.ParseUsages(def.KeyUsage, def.ExtKeyUsage); ku != typeKU ||
 		len(eku) != len(typeEKU) || len(oids) != len(typeOIDs) {
 		return nil, nil, "", apiErr(http.StatusForbidden,
-			"the token does not allow key usages or extended key usages beyond those of the type '%s'", certType)
+			"the token does not allow key usages or extended key usages beyond those of the type %q", certType)
 	}
 	if err := cert.CheckValidity(caCert, time.Now(), days); err != nil {
 		return nil, nil, "", apiErr(http.StatusBadRequest, "days: %v", err)

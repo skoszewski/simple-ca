@@ -23,6 +23,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -50,7 +51,7 @@ func (s *webuiServer) auditAPI(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			webuiFail(w, http.StatusBadRequest, "limit: '"+v+"' is not a positive number")
+			webuiFail(w, http.StatusBadRequest, fmt.Sprintf("limit: %q is not a positive number", v))
 			return
 		}
 		limit = n

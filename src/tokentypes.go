@@ -41,7 +41,7 @@ import (
 // without an issuer is not found.
 func serveTokenIssuer(w http.ResponseWriter, r *http.Request, rootDir, caID string, discovery bool) {
 	dir := filepath.Join(rootDir, caID)
-	if caID != "" && (!simpleca.KebabCaseRE.MatchString(caID) || !simpleca.FileExists(filepath.Join(dir, "ca_cert.pem"))) {
+	if caID != "" && !simpleca.IssuingCAExists(rootDir, caID) {
 		http.NotFound(w, r)
 		return
 	}

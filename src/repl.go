@@ -103,7 +103,7 @@ func isCADir(dir string) bool {
 // findCA returns the root CA directory and the issuing CA name of the initialized CA in dir.
 func findCA(dir string) (string, string, error) {
 	if !isCADir(dir) {
-		return "", "", fmt.Errorf("%s is not a CA directory: it has no ca_cert.pem, ca_key.pem and index.txt", dir)
+		return "", "", fmt.Errorf("%q is not a CA directory: it has no ca_cert.pem, ca_key.pem and index.txt", dir)
 	}
 	return simpleca.LocateCA(dir)
 }
@@ -120,7 +120,7 @@ func prompt() string {
 	if sessionRoot == "" {
 		return "simple-ca> "
 	}
-	return "simple-ca:" + cmp.Or(sessionCA, "root") + "> "
+	return "simple-ca:" + simpleca.Printable(cmp.Or(sessionCA, "root")) + "> "
 }
 
 // runInteractive reads the commands from the terminal with line editing, history and completion,
@@ -277,7 +277,7 @@ func lineArgs(line string) ([]string, error) {
 	var args []string
 	for _, e := range elements[:n] {
 		if e.Name != "" {
-			return nil, fmt.Errorf("%s=%s comes after the command it is an option of", e.Name, e.Value)
+			return nil, fmt.Errorf("%q comes after the command it is an option of", e.Name+"="+e.Value)
 		}
 		args = append(args, e.Value)
 	}
@@ -292,7 +292,7 @@ func lineArgs(line string) ([]string, error) {
 		case e.Name != "":
 			args = append(args, "--"+e.Name+"="+e.Value)
 		case strings.HasPrefix(e.Value, "-"):
-			return nil, fmt.Errorf("'%s': the options of a session are NAME=VALUE, such as days=30", e.Value)
+			return nil, fmt.Errorf("%q: the options of a session are NAME=VALUE, such as days=30", e.Value)
 		default:
 			words = append(words, e.Value)
 		}
@@ -352,7 +352,7 @@ func complete(t *term.Terminal, line string, pos int) (string, int, bool) {
 			}
 		}
 		if word == partial {
-			fmt.Fprintf(t, "%s\n", strings.Join(candidates, "  "))
+			fmt.Fprintf(t, "%s\n", simpleca.Printable(strings.Join(candidates, "  ")))
 			return "", 0, false
 		}
 	}
@@ -382,7 +382,7 @@ func runContextList(args []string) error {
 		if id == sessionCA {
 			mark = "*"
 		}
-		fmt.Printf("%s %-16s %s\n", mark, cmp.Or(id, "root"), filepath.Join(sessionRoot, id))
+		fmt.Printf("%s %-16s %s\n", mark, cmp.Or(id, "root"), simpleca.Printable(filepath.Join(sessionRoot, id)))
 	}
 	return nil
 }
@@ -408,16 +408,16 @@ func runContextUse(args []string) error {
 	case isCADir(rest[0]):
 		return placeCA(rest[0])
 	case sessionRoot != "":
-		return fmt.Errorf("'%s' is neither an issuing CA of %s nor a CA directory", rest[0], sessionRoot)
+		return fmt.Errorf("%q is neither an issuing CA of %q nor a CA directory", rest[0], sessionRoot)
 	}
-	return fmt.Errorf("'%s' is not a CA directory", rest[0])
+	return fmt.Errorf("%q is not a CA directory", rest[0])
 }
 
 // optionKey returns the key of simple-ca.json of the option name, or why it is refused.
 func optionKey(name string) (string, error) {
 	switch {
 	case !simpleca.KebabCaseRE.MatchString(name):
-		return "", fmt.Errorf("option name '%s' is not a kebab-case name without dashes, such as valid or otc-valid", name)
+		return "", fmt.Errorf("option name %q is not a kebab-case name without dashes, such as valid or otc-valid", name)
 	case name == "ca-dir":
 		return "", errors.New("ca-dir is the CA of the context itself; switch it with context use")
 	}
@@ -465,7 +465,7 @@ func contextArgs(fs *flag.FlagSet, args []string, words bool) ([][2]string, []st
 	case len(pairs)+len(rest) == 0:
 		fmt.Fprintf(fs.Output(), "%s: wrong number of arguments\n", fs.Name())
 	case len(rest) > 0 && !words:
-		fmt.Fprintf(fs.Output(), "%s: '%s' is not NAME=VALUE\n", fs.Name(), rest[0])
+		fmt.Fprintf(fs.Output(), "%s: %q is not NAME=VALUE\n", fs.Name(), rest[0])
 	default:
 		return pairs, rest, nil
 	}
@@ -532,7 +532,7 @@ func runContextDelete(args []string) error {
 				return err
 			}
 			if _, ok := values[key]; !ok {
-				return fmt.Errorf("the context of %s has no option '%s'", ca, name)
+				return fmt.Errorf("the context of %q has no option %q", ca, name)
 			}
 			delete(values, key)
 		}
@@ -543,7 +543,7 @@ func runContextDelete(args []string) error {
 			}
 			i := slices.Index(values[key], p[1])
 			if i < 0 {
-				return fmt.Errorf("the option '%s' of the context of %s has no value '%s'", p[0], ca, p[1])
+				return fmt.Errorf("the option %q of the context of %q has no value %q", p[0], ca, p[1])
 			}
 			if values[key] = slices.Delete(values[key], i, i+1); len(values[key]) == 0 {
 				delete(values, key)
@@ -568,6 +568,7 @@ func runContextShow(args []string) error {
 	values := cfg.ContextValues(sessionCA)
 	for _, key := range slices.Sorted(maps.Keys(values)) {
 		for _, v := range values[key] {
+			v = simpleca.Printable(v)
 			// A value a word does not hold is quoted, with ' when it holds ", joining parts of both
 			// kinds when it holds both quotes.
 			switch {
@@ -579,7 +580,7 @@ func runContextShow(args []string) error {
 			default:
 				v = `"` + strings.ReplaceAll(v, `"`, `"'"'"`) + `"`
 			}
-			fmt.Printf("%s=%s\n", strings.ReplaceAll(key, "_", "-"), v)
+			fmt.Printf("%s=%s\n", simpleca.Printable(strings.ReplaceAll(key, "_", "-")), v)
 		}
 	}
 	return nil

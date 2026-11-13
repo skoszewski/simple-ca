@@ -37,6 +37,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 // Client sends the requests of the package.
@@ -98,10 +100,10 @@ func ReadConfig(path string) (Settings, string, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&s); err != nil {
-		return s, "", fmt.Errorf("could not read %s: %w", file, err)
+		return s, "", fmt.Errorf("could not read %q: %w", file, err)
 	}
 	if s.Token != "" && s.TokenFile != "" {
-		return s, "", fmt.Errorf("%s: give token or token_file, not both", file)
+		return s, "", fmt.Errorf("%q: give token or token_file, not both", file)
 	}
 	if s.TokenFile != "" && !filepath.IsAbs(s.TokenFile) {
 		s.TokenFile = filepath.Join(filepath.Dir(file), s.TokenFile)
@@ -127,9 +129,20 @@ func ReplaceFile(path, data string) error {
 	return os.Rename(tmp.Name(), path)
 }
 
+// StatusError is an answer that is not 200 OK: its target, its status and its message.
+type StatusError struct {
+	Target  string
+	Code    int
+	Message string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("%q: %d %q", e.Target, e.Code, e.Message)
+}
+
 // Post sends body of contentType to target, with the bearer token when it is not empty, and
-// decodes the JSON answer into result; an answer that is not 200 OK is returned as an error with
-// its status and its message, of the field error_description or error, or the text of the answer.
+// decodes the JSON answer into result; an answer that is not 200 OK is a *StatusError with its
+// message, of the field error_description or error, or the text of the answer.
 func Post(target, contentType, bearer string, body []byte, result any) error {
 	req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
@@ -162,49 +175,66 @@ func Post(target, contentType, bearer string, body []byte, result any) error {
 				message = e.ErrorDescription
 			}
 		}
-		return fmt.Errorf("%s: %d %s", target, resp.StatusCode, message)
+		return &StatusError{Target: target, Code: resp.StatusCode, Message: message}
 	}
 	if err := json.Unmarshal(answer, result); err != nil {
-		return fmt.Errorf("%s: %w", target, err)
+		return fmt.Errorf("%q: %w", target, err)
 	}
 	return nil
+}
+
+// PostCA posts as Post does to path of the CA at the CA URL caURL, such as /api/sign; an answer
+// 404 of an issuing CA is the error that the server has no such issuing CA.
+func PostCA(caURL, path, bearer string, body []byte, result any) error {
+	srv, ca, err := weburl.CA(caURL)
+	if err != nil {
+		return err
+	}
+	target := srv + path
+	if ca != "" {
+		target = srv + "/" + ca + path
+	}
+	err = Post(target, "application/json", bearer, body, result)
+	if e, ok := errors.AsType[*StatusError](err); ok && e.Code == http.StatusNotFound && ca != "" {
+		return fmt.Errorf("%q has no issuing CA %s", srv, ca)
+	}
+	return err
 }
 
 // Exchange exchanges the setup code at /api/token-setup of the server of the CA at caURL, and
 // returns the token.
 func Exchange(caURL, code string) (string, error) {
-	u, err := url.Parse(caURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("%s is not a URL such as https://pki.example.com", caURL)
+	srv, _, err := weburl.CA(caURL)
+	if err != nil {
+		return "", err
 	}
 	body, err := json.Marshal(map[string]string{"code": code})
 	if err != nil {
 		return "", err
 	}
 	var result struct{ Token string }
-	target := u.Scheme + "://" + u.Host + "/api/token-setup"
+	target := srv + "/api/token-setup"
 	if err := Post(target, "application/json", "", body, &result); err != nil {
 		return "", err
 	}
 	if result.Token == "" {
-		return "", fmt.Errorf("%s: the answer holds no token", target)
+		return "", fmt.Errorf("%q: the answer holds no token", target)
 	}
 	return result.Token, nil
 }
 
 // FederationToken returns a new JWT of the token type of the api token, from
-// /api/federation-token of the CA at caURL, and when it expires.
+// /api/federation-token of the CA at the CA URL caURL, and when it expires.
 func FederationToken(caURL, token string) (string, time.Time, error) {
-	target := strings.TrimSuffix(strings.TrimSuffix(caURL, "/"), "/api/federation-token") + "/api/federation-token"
 	var result struct {
 		Token   string
 		Expires time.Time
 	}
-	if err := Post(target, "application/json", token, []byte("{}"), &result); err != nil {
+	if err := PostCA(caURL, "/api/federation-token", token, []byte("{}"), &result); err != nil {
 		return "", time.Time{}, err
 	}
 	if result.Token == "" {
-		return "", time.Time{}, fmt.Errorf("%s: the answer holds no token", target)
+		return "", time.Time{}, fmt.Errorf("%q: the answer holds no token", caURL)
 	}
 	return result.Token, result.Expires, nil
 }
@@ -252,7 +282,7 @@ func ServiceAccountToken(email, scope, federated string) (string, error) {
 		return "", err
 	}
 	if result.AccessToken == "" {
-		return "", fmt.Errorf("%s: the answer holds no accessToken", target)
+		return "", fmt.Errorf("%q: the answer holds no accessToken", target)
 	}
 	return result.AccessToken, nil
 }
@@ -275,7 +305,7 @@ func EntraToken(tenant, clientID, scope, jwt string) (string, error) {
 		return "", err
 	}
 	if result.AccessToken == "" {
-		return "", fmt.Errorf("%s: the answer holds no access_token", target)
+		return "", fmt.Errorf("%q: the answer holds no access_token", target)
 	}
 	return result.AccessToken, nil
 }

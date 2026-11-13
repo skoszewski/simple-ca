@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/src/pkg/client"
+	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
 
 // accessToken is the bearer token of the calls to Google, and quotaProject the project of
@@ -80,9 +81,9 @@ func googleCredentials(given string) error {
 	b, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist) && os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "":
-		return fmt.Errorf("the file %s of GOOGLE_APPLICATION_CREDENTIALS does not exist", path)
+		return fmt.Errorf("the file %q of GOOGLE_APPLICATION_CREDENTIALS does not exist", path)
 	case errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("no Google credentials: give --access-token or GOOGLE_OAUTH_ACCESS_TOKEN, or write %s "+
+		return fmt.Errorf("no Google credentials: give --access-token or GOOGLE_OAUTH_ACCESS_TOKEN, or write %q "+
 			"with gcloud auth application-default login", path)
 	}
 	if err != nil {
@@ -100,7 +101,7 @@ func googleCredentials(given string) error {
 		QuotaProjectID string `json:"quota_project_id"`
 	}
 	if err := json.Unmarshal(b, &cred); err != nil {
-		return fmt.Errorf("could not read %s: %w", path, err)
+		return fmt.Errorf("could not read %q: %w", path, err)
 	}
 	quotaProject = cred.QuotaProjectID
 
@@ -112,17 +113,20 @@ func googleCredentials(given string) error {
 			"client_secret": {cred.ClientSecret}, "refresh_token": {cred.RefreshToken}}
 	case "service_account":
 		target = cmp.Or(cred.TokenURI, oauthTokenURL)
+		if _, err := weburl.Endpoint(target, false); err != nil {
+			return fmt.Errorf("%q: token_uri: %w", path, err)
+		}
 		block, _ := pem.Decode([]byte(cred.PrivateKey))
 		if block == nil {
-			return fmt.Errorf("%s: no PEM block in private_key", path)
+			return fmt.Errorf("%q: no PEM block in private_key", path)
 		}
 		parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 		if err != nil {
-			return fmt.Errorf("%s: private_key: %w", path, err)
+			return fmt.Errorf("%q: private_key: %w", path, err)
 		}
 		key, ok := parsed.(*rsa.PrivateKey)
 		if !ok {
-			return fmt.Errorf("%s: private_key is not an RSA key", path)
+			return fmt.Errorf("%q: private_key is not an RSA key", path)
 		}
 		header, err := json.Marshal(struct {
 			Alg string `json:"alg"`
@@ -147,7 +151,7 @@ func googleCredentials(given string) error {
 		form = url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"},
 			"assertion": {signed + "." + base64.RawURLEncoding.EncodeToString(sig)}}
 	default:
-		return fmt.Errorf("%s: the credential type '%s' is not supported: it must be authorized_user or "+
+		return fmt.Errorf("%q: the credential type %q is not supported: it must be authorized_user or "+
 			"service_account, else give --access-token", path, cred.Type)
 	}
 	var result struct {
@@ -157,7 +161,7 @@ func googleCredentials(given string) error {
 		return err
 	}
 	if result.AccessToken == "" {
-		return fmt.Errorf("%s: the answer holds no access_token", target)
+		return fmt.Errorf("%q: the answer holds no access_token", target)
 	}
 	accessToken = result.AccessToken
 	return nil

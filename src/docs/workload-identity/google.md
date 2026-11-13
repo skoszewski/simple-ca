@@ -68,8 +68,10 @@ simple-ca-wif google setup --ca-dir "$CA_DIR" --project "$PROJECT_ID" --pool "$P
   --issuer "$ISSUER"
 ```
 
-- `--issuer` is `federation.issuer` of the root CA, and replaces the one `simple-ca.json` has.
-  Without it, the issuer is `federation.issuer` of `simple-ca.json`, else its
+- `--issuer` is `federation.issuer` of the root CA, and replaces the one `simple-ca.json` has. It
+  is an `https` URL of scheme and host with an optional port only, such as
+  `https://pki.example.com`; the issuer of the issuing CA `NAME` is that URL followed by `/NAME`,
+  so a URL with a path is an error, before anything changes. Without it, the issuer is `federation.issuer` of `simple-ca.json`, else its
   `ca_publish_base_url`; the command fails without both.
 - `--provider` names the provider, by default `simple-ca`.
 - `--type` names the token type, by default `gcp-wif`. Its other settings are kept.
@@ -112,7 +114,8 @@ simple-ca-wif google machine --ca-dir "$CA_DIR" --project "$PROJECT_ID" \
   directory.
 
 The command also writes `federation.json` of step 6, whose `ca_url` is that of `--ca-url`, by
-default the issuer of the CA:
+default the issuer of the CA. `--ca-url` is the URL of `serve` the machine reaches, followed by
+`/NAME` of the issuing CA of `--ca-dir`; another path, or `NAME` of another CA, is an error:
 
 ```json
 {
@@ -297,7 +300,8 @@ directory:
 }
 ```
 
-- `ca_url` is the URL of the issuing CA at `serve`, as the machine reaches it.
+- `ca_url` is the URL of the issuing CA at `serve`, as the machine reaches it: the URL of `serve`,
+  scheme and host with an optional port, followed by `/NAME` of the issuing CA.
 - `token_file` is the file of the token of step 4, here beside `federation.json`.
 - `provider` is `//iam.googleapis.com/` and the resource name of step 2. It starts with `//`,
   unlike the audience of step 3.
