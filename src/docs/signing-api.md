@@ -522,5 +522,4 @@ an OIDC sign-in, or to the index page when it was opened otherwise.
 
 With the [OIDC sign-in](oidc.md), the form has a "Sign in with LABEL" button. The CSR and the
 type are kept while the browser is at the provider, and the token of the sign-in fills the token
-field once it is back; it signs at the CA of its profile alone. With the OIDC sign-in, the form also
-links to [the page of the certificate of an OIDC user](oidc.md#user-certificates).
+field once it is back; it signs at the CA of its profile alone.

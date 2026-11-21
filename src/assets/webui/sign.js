@@ -23,7 +23,6 @@ if (select) {
   }
   select.replaceWith(picker({ name: "type", labelledBy: "type-label",
     choices: [...select.options].map((option) => [option.value, option.textContent]), value: select.value }));
-  oidcSettings().then((settings) => document.getElementById("oidc-cert-link").classList.toggle("invisible", !settings));
   oidcButton(document.getElementById("oidc-sign-in"), () => sessionStorage.setItem(formKey, JSON.stringify({
     csr: document.getElementById("csr").value, type: document.querySelector('input[name="type"]').value })), say);
 }

@@ -40,7 +40,6 @@ import (
 
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
-	"github.com/skoszewski/simple-ca/src/pkg/simpleca/oidc"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/tokens"
 )
 
@@ -299,11 +298,6 @@ type pageLink struct {
 // token refused is answered as the pages answer it.
 func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool) {
 	links := []pageLink{{"Set up a token", "/token-setup"}, {"Describe a token", "/token-describe"}}
-	if cfg, err := simpleca.LoadConfig(rootDir); err == nil {
-		if _, on, err := oidc.Resolved(cfg.OIDC, cfg.Path); err == nil && on {
-			links = append(links, pageLink{"Get my certificate", "/oidc-certificate"})
-		}
-	}
 	if downloadsDir != "" {
 		links = append(links, pageLink{"Downloads", downloadsPath})
 	}

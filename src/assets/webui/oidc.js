@@ -1,6 +1,9 @@
 // The OIDC sign-in of the pages of serve: the authorization code flow with PKCE.
 const oidcFlowKey = "simple-ca-oidc-flow";
 const oidcResultKey = "simple-ca-oidc-result";
+// The OIDC user whose profile gives a user certificate, kept for the tab by the sign-in on the
+// index page; it shows the link and the page of the certificate, which /api/oidc-cert checks.
+const oidcCertificateKey = "simple-ca-oidc-certificate";
 
 // oidcSettings returns the OIDC sign-in of serve, or null when it is off.
 async function oidcSettings() {
@@ -125,6 +128,11 @@ async function oidcCallback() {
     document.getElementById("oidc-question").classList.replace("flex", "hidden");
     if (!exchanged.ok) {
       fail(answer.error || exchanged.statusText);
+      return;
+    }
+    // A profile of a certificate alone gives no token, and signs in on the index page alone.
+    if (!answer.token && new URL(flow.back, location.origin).pathname !== "/") {
+      fail("Your profile gives a user certificate and no token; get the certificate from the index page.");
       return;
     }
     sessionStorage.setItem(oidcResultKey, JSON.stringify(answer));

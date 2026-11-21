@@ -24,10 +24,11 @@ matters. The names `help`, `docs`, `tokens`, `certificates`, `audit`, `downloads
 be issuing CA names, because the pages use those paths.
 
 The index page draws the links of its header from `/api/links`. A request without a token gets
-those of the public pages: "Set up a token", "Describe a token", "Get my certificate" with the
-OIDC sign-in, and "Downloads" and "Apt" when they are served. A request with a valid token of
-the root CA or an issuing CA as its bearer token, used from a client the token allows, also gets
-"Tokens", "Certificates" and "Audit log" with `--webui`, and the name of the token. A refused
+those of the public pages: "Set up a token", "Describe a token", and "Downloads" and "Apt" when
+they are served. A request with a valid token of the root CA or an issuing CA as its bearer
+token, used from a client the token allows, also gets "Tokens", "Certificates" and "Audit log"
+with `--webui`, and the name of the token. After an OIDC sign-in on the index page whose profile
+gives a user certificate, the page adds "Get my certificate" in the browser. A refused
 token is answered as the pages answer it, and counts as a
 [refused credential](signing-api.md#refused-credentials). With `--webui`, the index page has a
 Login button where it shows who is signed in. It opens the login dialog of the

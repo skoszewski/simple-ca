@@ -69,7 +69,10 @@ async function issue(idToken, kept, type = "") {
   }
 }
 
-if ($("cert-form")) {
+// The page serves the OIDC user the sign-in on the index page has found a certificate for alone.
+if ($("cert-form") && sessionStorage.getItem(oidcCertificateKey)) {
+  $("cert-signin").classList.add("hidden");
+  $("cert-form").classList.remove("hidden");
   for (const radio of document.querySelectorAll('input[name="mode"]')) {
     radio.addEventListener("change", mode);
   }

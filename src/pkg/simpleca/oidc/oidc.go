@@ -468,10 +468,13 @@ func Check(rootDir string, cfg *simpleca.Config) error {
 				return fmt.Errorf("profile %s of %q: %w", p.Name, users.path, err)
 			}
 		}
-		if p.Certificate != nil {
+		switch {
+		case p.givesCertificate():
 			if _, err := p.certificate(rootDir, cfg, users.userEKUs()); err != nil {
 				return fmt.Errorf("profile %s of %q: certificate: %w", p.Name, users.path, err)
 			}
+		case p.Certificate != nil:
+			slog.Warn("oidc.profile", "profile", p.Name, "message", "the certificate has no ca; the profile gives no certificate")
 		}
 	}
 	return nil
@@ -487,20 +490,21 @@ type certSettings struct {
 	emailDomains []string
 }
 
-// certificate returns the settings of the certificate of the profile, with the days.cert default
-// of cfg; each of its types has the user name rules and extended key usages that meet rule.
+// certificate returns the settings of the certificate of the profile, which gives one, with the
+// days.cert default of cfg; each of its types has the user name rules and extended key usages that
+// meet rule.
 func (p *oidcProfile) certificate(rootDir string, cfg *simpleca.Config, rule *ekuRule) (*certSettings, error) {
-	if p.CA != "" && !slices.Contains(simpleca.CAIDs(rootDir), p.CA) {
-		return nil, fmt.Errorf("%q is not an issuing CA of %q", p.CA, rootDir)
-	}
 	pc := p.Certificate
+	if *pc.CA != "" && !slices.Contains(simpleca.CAIDs(rootDir), *pc.CA) {
+		return nil, fmt.Errorf("ca %q is not an issuing CA of %q", *pc.CA, rootDir)
+	}
 	switch {
 	case len(pc.Types) == 0:
 		return nil, errors.New("types needs a certificate type")
 	case pc.Days < 0:
 		return nil, errors.New("days must be a positive integer")
 	}
-	s := &certSettings{caDir: filepath.Join(rootDir, p.CA), types: pc.Types, days: cmp.Or(pc.Days, cfg.Days.Cert, 365)}
+	s := &certSettings{caDir: filepath.Join(rootDir, *pc.CA), types: pc.Types, days: cmp.Or(pc.Days, cfg.Days.Cert, 365)}
 	types, err := cert.Types(cfg)
 	if err != nil {
 		return nil, err
@@ -697,8 +701,9 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, name, profile := s.user, s.name, s.profile
+	// A profile of a certificate alone signs the user in without a token, and leaves the ID token unused.
 	if !profile.givesToken() {
-		fail(StatusError(http.StatusForbidden, "the profile %s of %q gives no token", profile.Name, user))
+		Reply(w, http.StatusOK, map[string]any{"user": user, "certificate": true})
 		return
 	}
 	tok, caKey, err := profile.prepare(c.rootDir, s.cfg, name)
@@ -743,7 +748,8 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 	}
 	simpleca.Audit(dir, "token.oidc", "name", name, "user", user, "issuer", oc.Issuer, "client_id", s.token.clientID,
 		"profile", profile.Name, "action", action, "via", "oidc", "actor", user, "client", client.String())
-	Reply(w, http.StatusOK, map[string]any{"ca": profile.CA, "name": name, "token": jwt, "scopes": given.EffectiveScopes()})
+	Reply(w, http.StatusOK, map[string]any{"ca": profile.CA, "name": name, "token": jwt, "scopes": given.EffectiveScopes(),
+		"user": user, "certificate": profile.givesCertificate()})
 }
 
 // APICert answers POST /api/oidc-cert: it issues the certificate of the profile of the user of
@@ -794,7 +800,7 @@ func (c *Client) APICert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, profile, claims := s.user, s.profile, s.token.claims
-	if profile.Certificate == nil {
+	if !profile.givesCertificate() {
 		fail(StatusError(http.StatusForbidden, "the profile %s of %q gives no certificate", profile.Name, user))
 		return
 	}
@@ -909,7 +915,7 @@ func (c *Client) APICert(w http.ResponseWriter, r *http.Request) {
 	if !bytes.Equal(caCert.RawSubject, caCert.RawIssuer) {
 		chain += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw}))
 	}
-	answer := map[string]any{"ca": profile.CA, "name": s.name, "type": certType, "serial": cert.SerialHex(crt.SerialNumber),
+	answer := map[string]any{"ca": *profile.Certificate.CA, "name": s.name, "type": certType, "serial": cert.SerialHex(crt.SerialNumber),
 		"certificate": certPEM, "chain": chain}
 	if req.Generate {
 		password := rand.Text()

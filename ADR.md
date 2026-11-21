@@ -432,7 +432,16 @@ issued to a person signed in at the provider, from any machine, not to a host.
 
 The profile that gives a token also gives the certificate, chosen by the same rules and roles, so
 `oidc-users.json` has one way to give access. `token` and `certificate` are sections of the
-profile, and a profile with neither keeps its earlier meaning, a token of the defaults.
+profile, and a profile with neither keeps its earlier meaning, a token of the defaults. The
+certificate names its own CA, `certificate.ca`, apart from the `ca` of the token: the CA that
+hands out the tokens of servers is not the one that signs the certificates of people, and a
+profile gives a certificate only when a CA is named for it.
+
+"Get my certificate" is linked only after an OIDC sign-in on the index page whose profile gives a
+certificate, since `serve` knows the profile of a user only from an ID token. A profile of a
+certificate alone gives no token, so its sign-in answers with the user and nothing to keep; the
+browser tab keeps the user to show the link and the page. That is no access: every certificate is
+issued for a fresh ID token, which `/api/oidc-cert` checks against the profile.
 
 `request-cert` signs in as a public client of its own, `cli_client_id`, not as the client of the
 pages. The two need different registrations: the pages a single-page application redirect URI

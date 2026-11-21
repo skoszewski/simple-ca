@@ -145,9 +145,9 @@ func (r *ekuRule) matches(oids []string) bool {
 	return false
 }
 
-// oidcProfile is a profile of users: its name, its CA, empty for the root CA, the settings of
-// its token and of its certificate. A profile gives a token when it has Token or has no
-// Certificate, and a certificate when it has Certificate.
+// oidcProfile is a profile of users: its name, the CA of its token, empty for the root CA, the
+// settings of its token and of its certificate. A profile gives a certificate when its
+// Certificate names a CA, and a token when it has Token or gives no certificate.
 type oidcProfile struct {
 	Name        string              `json:"name"`
 	CA          string              `json:"ca"`
@@ -155,13 +155,18 @@ type oidcProfile struct {
 	Certificate *profileCertificate `json:"certificate"`
 }
 
-// givesToken reports whether the profile gives its users a token.
-func (p *oidcProfile) givesToken() bool { return p.Token != nil || p.Certificate == nil }
+// givesCertificate reports whether the profile gives its users a certificate.
+func (p *oidcProfile) givesCertificate() bool { return p.Certificate != nil && p.Certificate.CA != nil }
 
-// profileCertificate is the user certificate of a profile: the certificate types it offers, each
-// of the user name rules with extended key usages that meet user_ekus, its validity in days,
-// days.cert of simple-ca.json without it, and the domains of its email address, any without them.
+// givesToken reports whether the profile gives its users a token.
+func (p *oidcProfile) givesToken() bool { return p.Token != nil || !p.givesCertificate() }
+
+// profileCertificate is the user certificate of a profile: the CA that signs it, empty for the
+// root CA and none for no certificate, the certificate types it offers, each of the user name
+// rules with extended key usages that meet user_ekus, its validity in days, days.cert of
+// simple-ca.json without it, and the domains of its email address, any without them.
 type profileCertificate struct {
+	CA           *string  `json:"ca"`
 	Types        []string `json:"types"`
 	Days         int      `json:"days,omitempty"`
 	EmailDomains []string `json:"email_domains,omitempty"`

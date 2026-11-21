@@ -14,7 +14,11 @@
           <h1 class="text-xl font-semibold">Get my certificate</h1>
           <p class="mt-1 text-sm text-head-muted">{{.Title}}, served by simple-ca</p>
         </div>
-        <form id="cert-form" class="space-y-5 px-6 py-5">
+        <div id="cert-signin" class="space-y-4 px-6 py-5">
+          <p class="text-sm">Sign in on the <a class="text-link hover:underline" href="/">index page</a> with an
+            account whose profile gives a user certificate; the index page then links to this page.</p>
+        </div>
+        <form id="cert-form" class="hidden space-y-5 px-6 py-5">
           <p id="cert-off" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink">The OIDC
             sign-in is off on this server.</p>
           <p class="text-sm">Sign in to get a certificate for yourself. Its subject is your name and email address, as your

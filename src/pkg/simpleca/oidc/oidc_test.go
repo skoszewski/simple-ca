@@ -188,8 +188,8 @@ func TestOIDCCheck(t *testing.T) {
     {"name": "ca-admin", "token": {"valid": "8h", "scopes": ["tokens", "certs"]}},
     {"name": "web-signer", "ca": "clients", "token": {"scopes": ["sign"], "domains": ["example.com"]}},
     {"name": "viewer", "ca": "clients", "token": {"scopes": ["certs"], "networks": ["10.0.0.0/8"]}},
-    {"name": "staff", "ca": "clients", "certificate": {"types": ["person", "user"], "days": 30, "email_domains": ["example.com"]}},
-    {"name": "both", "token": {"scopes": ["certs"]}, "certificate": {"types": ["user"]}}
+    {"name": "staff", "certificate": {"ca": "clients", "types": ["person", "user"], "days": 30, "email_domains": ["example.com"]}},
+    {"name": "both", "token": {"scopes": ["certs"]}, "certificate": {"ca": "", "types": ["user"]}}
   ],
   "rules": [
     {"users": ["alice@example.com", "henry@example.com"], "profile": "ca-admin"},
@@ -221,27 +221,28 @@ func TestOIDCCheck(t *testing.T) {
 		}
 	}
 	for name, users := range map[string]string{
-		"an unknown CA":       `{"profiles": [{"name": "a", "ca": "nowhere", "token": {"scopes": ["certs"]}}]}`,
-		"a profile name":      `{"profiles": [{"name": "CA Admin", "token": {"scopes": ["certs"]}}]}`,
-		"a profile twice":     `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}, {"name": "a", "token": {"scopes": ["certs"]}}]}`,
-		"keep_expired":        `{"profiles": [{"name": "a", "token": {"scopes": ["certs"], "keep_expired": "1h"}}]}`,
-		"sign without names":  `{"profiles": [{"name": "a", "token": {"scopes": ["sign"]}}]}`,
-		"an unknown profile":  `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}], "rules": [{"users": ["x"], "profile": "b"}]}`,
-		"a rule without whom": `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}], "rules": [{"profile": "a"}]}`,
-		"an unknown key":      `{"profiles": [], "groups": []}`,
-		"the server type":     `{"profiles": [{"name": "a", "certificate": {"types": ["server"]}}]}`,
-		"serverAuth":          `{"profiles": [{"name": "a", "certificate": {"types": ["dual"]}}]}`,
-		"the server names":    `{"profiles": [{"name": "a", "certificate": {"types": ["device"]}}]}`,
-		"no EKUs":             `{"profiles": [{"name": "a", "certificate": {"types": ["bare"]}}]}`,
-		"an EKU not allowed":  `{"profiles": [{"name": "a", "certificate": {"types": ["company"]}}]}`,
-		"an unknown type":     `{"profiles": [{"name": "a", "certificate": {"types": ["other"]}}]}`,
-		"no types":            `{"profiles": [{"name": "a", "certificate": {"types": []}}]}`,
-		"negative days":       `{"profiles": [{"name": "a", "certificate": {"types": ["user"], "days": -1}}]}`,
-		"an email domain":     `{"profiles": [{"name": "a", "certificate": {"types": ["user"], "email_domains": ["not a domain"]}}]}`,
-		"a type key":          `{"profiles": [{"name": "a", "certificate": {"type": "user"}}]}`,
-		"a hosts key":         `{"profiles": [{"name": "a", "certificate": {"types": ["user"], "hosts": ["10.0.0.1"]}}]}`,
-		"a domains key":       `{"profiles": [{"name": "a", "certificate": {"types": ["user"], "domains": ["example.com"]}}]}`,
-		"a broken rule":       `{"user_ekus": {"require": ["clientAuth"], "allow": ["clientAuth"]}, "profiles": []}`,
+		"an unknown CA":             `{"profiles": [{"name": "a", "ca": "nowhere", "token": {"scopes": ["certs"]}}]}`,
+		"a profile name":            `{"profiles": [{"name": "CA Admin", "token": {"scopes": ["certs"]}}]}`,
+		"a profile twice":           `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}, {"name": "a", "token": {"scopes": ["certs"]}}]}`,
+		"keep_expired":              `{"profiles": [{"name": "a", "token": {"scopes": ["certs"], "keep_expired": "1h"}}]}`,
+		"sign without names":        `{"profiles": [{"name": "a", "token": {"scopes": ["sign"]}}]}`,
+		"an unknown profile":        `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}], "rules": [{"users": ["x"], "profile": "b"}]}`,
+		"a rule without whom":       `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}], "rules": [{"profile": "a"}]}`,
+		"an unknown key":            `{"profiles": [], "groups": []}`,
+		"the server type":           `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["server"]}}]}`,
+		"serverAuth":                `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["dual"]}}]}`,
+		"the server names":          `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["device"]}}]}`,
+		"no EKUs":                   `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["bare"]}}]}`,
+		"an EKU not allowed":        `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["company"]}}]}`,
+		"an unknown type":           `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["other"]}}]}`,
+		"no types":                  `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": []}}]}`,
+		"negative days":             `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["user"], "days": -1}}]}`,
+		"an email domain":           `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["user"], "email_domains": ["not a domain"]}}]}`,
+		"a type key":                `{"profiles": [{"name": "a", "certificate": {"type": "user"}}]}`,
+		"a hosts key":               `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["user"], "hosts": ["10.0.0.1"]}}]}`,
+		"a domains key":             `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["user"], "domains": ["example.com"]}}]}`,
+		"an unknown certificate ca": `{"profiles": [{"name": "a", "certificate": {"ca": "nowhere", "types": ["user"]}}]}`,
+		"a broken rule":             `{"user_ekus": {"require": ["clientAuth"], "allow": ["clientAuth"]}, "profiles": []}`,
 	} {
 		write(UsersFile, users)
 		if err := Check(rootDir, cfg); err == nil {
@@ -249,9 +250,15 @@ func TestOIDCCheck(t *testing.T) {
 		}
 	}
 
+	// A certificate without ca gives no certificate, and is not checked.
+	write(UsersFile, `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}, "certificate": {"types": ["server"]}}]}`)
+	if err := Check(rootDir, cfg); err != nil {
+		t.Errorf("checkOIDC with a certificate without ca: %v", err)
+	}
+
 	// user_ekus admits a type with an EKU it names.
 	write(UsersFile, `{"user_ekus": {"allow": ["clientAuth", "1.3.6.1.4.1.99999.20"]},
-  "profiles": [{"name": "a", "certificate": {"types": ["company"]}}]}`)
+  "profiles": [{"name": "a", "certificate": {"ca": "", "types": ["company"]}}]}`)
 	if err := Check(rootDir, cfg); err != nil {
 		t.Errorf("checkOIDC with a type of an EKU of user_ekus: %v", err)
 	}

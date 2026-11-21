@@ -169,8 +169,8 @@ refused, and a setting not described here is an error.
 A profile gives a token, a certificate, or both:
 
 - `name` - a **kebab-case** name, such as `ca-admin`; a role of the same value gives the profile.
-- `ca` - the issuing CA of the tokens and the certificates, empty or left out for the root CA. Its
-  key must be in its directory.
+- `ca` - the issuing CA of the token, empty or left out for the root CA. Its key must be in its
+  directory. The certificate names its CA itself, with `certificate.ca`.
 - `token` - the settings of the token, those of the `tokens` section of `simple-ca.json`:
   `valid`, `scopes`, `types`, `domains`, `ips`, `hosts` and `networks`, and `localhost`, as
   `token create --localhost` gives it. A setting left out takes its value from the `tokens`
@@ -179,8 +179,9 @@ A profile gives a token, a certificate, or both:
   [workload identity federation](workload-identity.md): with the scope `federate`, its token gets
   no JWTs, and grants the scope `federate` to the tokens its user creates on the token page.
 - `certificate` - the settings of the user certificate, described in
-  [User certificates](#user-certificates). A profile with `certificate` and without `token` gives
-  no token; one without either gives a token of the defaults of the `tokens` section.
+  [User certificates](#user-certificates). A profile gives a certificate when `certificate` names
+  its `ca`. A profile that gives a certificate and has no `token` gives no token; one that gives
+  no certificate and has no `token` gives a token of the defaults of the `tokens` section.
 
 A rule gives its `profile` to the users of `users`, compared with the user claim, and to the
 members of `groups`, compared with the groups claim.
@@ -233,8 +234,8 @@ setup codes of the [signing API](signing-api.md), not by the OIDC sign-in.
   "profiles": [
     {
       "name": "staff",
-      "ca": "people",
       "certificate": {
+        "ca": "people",
         "types": ["person", "user"],
         "days": 30,
         "email_domains": ["example.com"]
@@ -252,6 +253,9 @@ setup codes of the [signing API](signing-api.md), not by the OIDC sign-in.
 
 The `certificate` section of a profile:
 
+- `ca` - required: the CA that signs the certificates, an issuing CA, or `""` for the root CA,
+  apart from the `ca` of the token. Without it, the profile gives no certificate, and `serve`
+  logs so at startup;
 - `types` - the certificate types the profile offers, one or more types of `simple-ca.json`,
   built-in or of its `types` section. Each has the user name rules, at least one extended key
   usage, and extended key usages that meet `user_ekus`;
@@ -289,7 +293,9 @@ the user has, and is logged with the OIDC user, the client ID and the client.
 
 There are three ways to get it.
 
-- **The page `/oidc-certificate`**, linked from the index page and the signing forms: the user
+- **The page `/oidc-certificate`**, linked from the header of the index page, with `--webui`, once
+  the user has signed in there with OIDC and the profile gives a certificate; without that
+  sign-in in the browser tab, the page asks for it. The user
   chooses to have the key generated, of the type of the CA key, `ec` or `rsa`, or uploads or
   pastes a CSR, and signs in with the client of the pages. A generated key is returned in a
   PKCS#12 file, with a random password shown once, and `serve` keeps no copy of it. The page also
@@ -349,7 +355,11 @@ with.
 
 `POST /api/oidc-token` takes a JSON body of at most 64 KiB, `{"id_token": "eyJ..."}`, and
 answers as [/api/token-setup](signing-api.md#setup-code-exchange) does:
-`{"ca": "servers", "name": "alice-example-com", "token": "eyJ...", "scopes": ["sign"]}`.
+`{"ca": "servers", "name": "alice-example-com", "token": "eyJ...", "scopes": ["sign"], "user":
+"alice@example.com", "certificate": false}`, `certificate` telling whether the profile also gives a
+certificate. A profile that gives a certificate and no token answers
+`{"user": "alice@example.com", "certificate": true}`, makes nothing and leaves the ID token unused;
+the pages accept that answer on the index page alone.
 
 When the user has an active token there, the answer is `409 Conflict` naming it, and nothing is
 made:
@@ -378,8 +388,8 @@ Any other error is `{"error": "..."}` with the status:
   `reuse` together;
 - `401 Unauthorized` - an ID token `serve` does not accept, one used before, or one of the client
   of `request-cert`;
-- `403 Forbidden` - a user without a user claim or a profile, a profile that gives no token, a
-  user claim that makes no kebab-case token name, or a client the token of the profile is not
+- `403 Forbidden` - a user without a user claim or a profile, a user claim that makes no
+  kebab-case token name, or a client the token of the profile is not
   accepted from;
 - `404 Not Found` - the sign-in is off;
 - `409 Conflict` without `active` - the name of the token belongs to another token;

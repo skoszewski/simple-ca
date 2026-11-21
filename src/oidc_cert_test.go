@@ -136,16 +136,18 @@ func TestOIDCCert(t *testing.T) {
   "types": {"person": {"names": "user", "key_usage": ["digitalSignature"], "ext_key_usage": ["clientAuth", "emailProtection"]}}}`)
 	write(oidc.UsersFile, `{
   "profiles": [
-    {"name": "staff", "ca": "clients", "certificate": {"types": ["user"], "days": 30, "email_domains": ["example.com"]}},
+    {"name": "staff", "certificate": {"ca": "clients", "types": ["user"], "days": 30, "email_domains": ["example.com"]}},
     {"name": "admin", "token": {"scopes": ["certs"]}},
-    {"name": "both", "token": {"scopes": ["certs"]}, "certificate": {"types": ["user"]}},
-    {"name": "choice", "certificate": {"types": ["person", "user"]}}
+    {"name": "both", "token": {"scopes": ["certs"]}, "certificate": {"ca": "clients", "types": ["user"]}},
+    {"name": "choice", "certificate": {"ca": "", "types": ["person", "user"]}},
+    {"name": "nocert", "token": {"scopes": ["certs"]}, "certificate": {"types": ["user"]}}
   ],
   "rules": [
     {"users": ["bob", "erin"], "profile": "staff"},
     {"users": ["alice"], "profile": "admin"},
     {"users": ["henry"], "profile": "both"},
-    {"users": ["dave"], "profile": "choice"}
+    {"users": ["dave"], "profile": "choice"},
+    {"users": ["nina"], "profile": "nocert"}
   ]
 }`)
 	cfg, err := simpleca.LoadConfig(rootDir)
@@ -258,16 +260,34 @@ func TestOIDCCert(t *testing.T) {
 		t.Errorf("an ID token after a refused request: %d, want 200", status)
 	}
 
-	// A profile with a certificate alone gives no token, and one with both gives both.
-	if status, _ := post("/api/oidc-token", map[string]any{"id_token": idToken("bob", nil)}); status != http.StatusForbidden {
-		t.Errorf("a token of a profile with a certificate alone: %d, want 403", status)
+	// A profile with a certificate alone signs in without a token and leaves the ID token unused.
+	bobSignIn := idToken("bob", nil)
+	status, answer = post("/api/oidc-token", map[string]any{"id_token": bobSignIn})
+	if status != http.StatusOK || answer["token"] != nil || answer["certificate"] != true || answer["user"] != "bob" {
+		t.Errorf("sign-in of a profile with a certificate alone: %d %v, want 200 with certificate and no token", status, answer)
 	}
-	if status, answer := post("/api/oidc-token", map[string]any{"id_token": idToken("henry", nil)}); status != http.StatusOK {
-		t.Errorf("a token of a profile with both: %d %v, want 200", status, answer)
+	if status, answer := post("/api/oidc-cert", map[string]any{"id_token": bobSignIn, "csr": csr}); status != http.StatusOK {
+		t.Errorf("a certificate after the sign-in of a profile with a certificate alone: %d %v, want 200", status, answer)
+	}
+
+	// A profile with both gives the token of its ca and the certificate of certificate.ca.
+	status, answer = post("/api/oidc-token", map[string]any{"id_token": idToken("henry", nil)})
+	if status != http.StatusOK || answer["ca"] != "" || answer["token"] == nil || answer["certificate"] != true {
+		t.Errorf("a token of a profile with both: %d %v, want a token of the root CA and certificate", status, answer)
 	}
 	status, answer = post("/api/oidc-cert", map[string]any{"id_token": idToken("henry", nil), "csr": csr})
-	if status != http.StatusOK || answer["ca"] != "" || parse(answer).NotAfter.Sub(parse(answer).NotBefore) != 365*24*time.Hour {
-		t.Errorf("a certificate of a profile with both: %d %v, want one of the root CA for 365 days", status, answer)
+	if status != http.StatusOK || answer["ca"] != "clients" || parse(answer).Issuer.CommonName != "Clients CA" ||
+		parse(answer).NotAfter.Sub(parse(answer).NotBefore) != 365*24*time.Hour {
+		t.Errorf("a certificate of a profile with both: %d %v, want one of the CA clients for 365 days", status, answer)
+	}
+
+	// A certificate without ca gives no certificate, and the profile a token.
+	status, answer = post("/api/oidc-token", map[string]any{"id_token": idToken("nina", nil)})
+	if status != http.StatusOK || answer["token"] == nil || answer["certificate"] != false {
+		t.Errorf("a token of a profile whose certificate has no ca: %d %v, want a token without certificate", status, answer)
+	}
+	if status, _ := post("/api/oidc-cert", map[string]any{"id_token": idToken("nina", nil), "csr": csr}); status != http.StatusForbidden {
+		t.Errorf("a certificate of a profile whose certificate has no ca: %d, want 403", status)
 	}
 
 	// A profile of several types asks for one, and the same ID token then gets the type chosen.
@@ -296,6 +316,17 @@ func TestOIDCCert(t *testing.T) {
 	resp.Body.Close()
 	if _, ok := settings["cli_client_id"]; ok {
 		t.Errorf("GET /api/oidc without cli_client_id: %v, want no client of request-cert", settings)
+	}
+
+	// The links of the index page name no certificate page; the sign-in adds it in the browser.
+	resp, err = http.Get(server.URL + "/api/links")
+	if err != nil {
+		t.Fatal(err)
+	}
+	links, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if bytes.Contains(links, []byte("/oidc-certificate")) {
+		t.Errorf("GET /api/links: %s, want no link to /oidc-certificate", links)
 	}
 
 	// The page of the certificate.

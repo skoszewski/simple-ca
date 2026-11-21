@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.21.3
+
+fix: the user certificate of an OIDC profile names its own CA, and only its users see
+"Get my certificate".
+
+- The `certificate` section of a profile of `oidc-users.json` takes `ca`, the CA that signs the
+  certificates, an issuing CA or `""` for the root CA. Without it, the profile gives no
+  certificate, which `serve` logs at startup. The `ca` of the profile names the CA of its token
+  alone.
+- "Get my certificate" is no longer linked for everyone: the index page shows it after an OIDC
+  sign-in whose profile gives a certificate, and Sign out removes it. The signing forms no longer
+  link to it, and `/api/links` does not list it.
+- `/oidc-certificate` shows its form only after that sign-in in the browser tab, and asks for it
+  otherwise; `/api/oidc-cert` refuses a profile that gives no certificate.
+- `/api/oidc-token` adds `user` and `certificate`, whether the profile gives a certificate, to its
+  answer. A profile of a certificate alone answers with the user and no token, in place of
+  `403 Forbidden`, and leaves the ID token unused.
+- The examples of `examples/oidc/` name the CA of the certificate in `certificate`.
+
 ## 1.21.2
 
 fix: the key type of the page /oidc-certificate is chosen with the dropdown of the other pages.

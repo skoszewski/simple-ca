@@ -30,8 +30,8 @@
     },
     {
       "name": "staff",
-      "ca": "servers",
       "certificate": {
+        "ca": "servers",
         "types": ["user"],
         "days": 30,
         "email_domains": ["example.com"]
