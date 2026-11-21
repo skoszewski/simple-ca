@@ -64,7 +64,7 @@ const tokenSetupValid = 15 * time.Minute
 // purgeTokens removes from tokens-db.json of caDir, when it exists, the tokens that expired, or
 // were revoked, at least kept ago, every expired token for a kept of zero, and returns their count.
 func purgeTokens(caDir string, kept time.Duration) (int, error) {
-	if !simpleca.FileExists(filepath.Join(caDir, tokens.TokensFile)) {
+	if !tokens.Exists(caDir) {
 		return 0, nil
 	}
 	unlock, err := tokens.LockTokens(caDir)
@@ -99,7 +99,7 @@ func purgeToken(caDir, name string) error {
 	}
 	t, ok := db.Tokens[name]
 	if !ok {
-		return fmt.Errorf("token %q not found in %q", name, filepath.Join(caDir, tokens.TokensFile))
+		return fmt.Errorf("token %q not found in %s", name, tokens.Store(caDir))
 	}
 	if time.Now().Before(t.Expires) {
 		return fmt.Errorf("token %q is still accepted; revoke it first", name)
@@ -143,7 +143,7 @@ func reissueToken(caDir, name string, valid, setupValid time.Duration, setupClie
 	}
 	old, ok := db.Tokens[name]
 	if !ok {
-		return "", fmt.Errorf("token %q not found in %q", name, filepath.Join(caDir, tokens.TokensFile))
+		return "", fmt.Errorf("token %q not found in %s", name, tokens.Store(caDir))
 	}
 	if old.Pending() && time.Now().Before(old.Expires) {
 		return "", fmt.Errorf("token %q waits for its setup code; revoke it first to renew it", name)
@@ -313,7 +313,7 @@ func revokeToken(caDir, name string) error {
 	}
 	t, ok := db.Tokens[name]
 	if !ok {
-		return fmt.Errorf("token %q not found in %q", name, filepath.Join(caDir, tokens.TokensFile))
+		return fmt.Errorf("token %q not found in %s", name, tokens.Store(caDir))
 	}
 	if t.Revoked() {
 		return fmt.Errorf("token %q is revoked already", name)
@@ -988,7 +988,7 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 // with the type it names for the bearer token of the request, as signWithToken, for the client
 // clientAddr finds with the trusted proxies, and returns the certificate with its chain.
 func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
-	if !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")) || !simpleca.FileExists(filepath.Join(caDir, tokens.TokensFile)) {
+	if !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")) || !tokens.Exists(caDir) {
 		http.NotFound(w, r)
 		return
 	}
@@ -1062,7 +1062,7 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 // new JWT of the token type of the token, unstored, valid for the validity of the type and never
 // after the token expires. The body is empty or {}: the token alone decides what the JWT holds.
 func apiFederationToken(w http.ResponseWriter, r *http.Request, caDir string) {
-	if !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")) || !simpleca.FileExists(filepath.Join(caDir, tokens.TokensFile)) {
+	if !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")) || !tokens.Exists(caDir) {
 		http.NotFound(w, r)
 		return
 	}
@@ -1192,7 +1192,7 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 	switch {
 	case !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")):
 		page.Unavailable = "No key of this CA on this server"
-	case !simpleca.FileExists(filepath.Join(caDir, tokens.TokensFile)):
+	case !tokens.Exists(caDir):
 		page.Unavailable = "This CA has no tokens yet"
 	}
 

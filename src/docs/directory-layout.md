@@ -7,6 +7,7 @@ CA_DIR/
   simple-ca.json           settings (optional)
   theme.json               colours of the pages of the root CA (optional)
   oidc-users.json          token profiles of the OIDC sign-in and their rules (optional)
+  oidc-users.json.migrated oidc-users.json after database migrate oidc_users
   audit.log                audit log of the root CA and its issuing CAs (audit.file)
   ca_cert.pem              root CA certificate
   ca_key.pem               root CA private key
@@ -19,6 +20,7 @@ CA_DIR/
   acme.json                ACME accounts and orders of the root CA (serve)
   tokens-db.json           tokens of the root CA (token create)
   tokens-db.json.lock      lock of tokens-db.json while it is changed
+  tokens-db.json.migrated  tokens-db.json after database migrate tokens_db
   {name}_cert.pem          certificate issued by the root CA
   {name}_key.pem           key of a certificate issued by the root CA
   {name}.pfx               PKCS#12 bundle (cert pfx)
@@ -34,6 +36,7 @@ CA_DIR/
     acme.json              ACME accounts and orders of the issuing CA (serve)
     tokens-db.json         tokens of the issuing CA (token create)
     tokens-db.json.lock    lock of tokens-db.json while it is changed
+    tokens-db.json.migrated tokens-db.json after database migrate tokens_db
     {name}_cert.pem        certificate issued by the issuing CA
     {name}_key.pem         key of a certificate issued by the issuing CA
     {name}.pfx             PKCS#12 bundle (cert pfx)

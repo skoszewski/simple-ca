@@ -45,6 +45,9 @@ simple-ca key decrypt  [--ca-dir DIR] [--all]
 simple-ca audit list   [--ca-dir DIR] [--event EVENT] [--ca NAME] [--actor ACTOR]
                        [--since TIME] [--until TIME]
 
+simple-ca database setup   [--ca-dir DIR]
+simple-ca database migrate [--ca-dir DIR] tokens_db|oidc_users
+
 simple-ca serve        [--ca-dir DIR] [--address ADDRESS] [--port PORT]
                        [--tls-cert FILE --tls-key FILE] [--docs] [--webui]
                        [--trusted-proxy ADDRESS ...] [--request-log]
@@ -52,11 +55,12 @@ simple-ca --version
 simple-ca
 ```
 
-The commands are in groups, `ca`, `cert`, `crl`, `token`, `key` and `audit`; `serve` is a command of
-its own. The commands that change a CA write its [audit log](audit.md), which `audit list` reads.
-`simple-ca -h` lists the groups, `simple-ca GROUP -h` the commands of a group, and
-`simple-ca GROUP COMMAND -h` the options of a command. Options come before the arguments, and take
-one dash or two: `-days 30` and `--days 30` are the same.
+The commands are in groups, `ca`, `cert`, `crl`, `token`, `key`, `audit` and `database`; `serve`
+is a command of its own. The commands that change a CA write its [audit log](audit.md), which
+`audit list` reads, and `database` moves the tokens and the OIDC profiles to
+[PostgreSQL](database.md). `simple-ca -h` lists the groups, `simple-ca GROUP -h` the commands of a
+group, and `simple-ca GROUP COMMAND -h` the options of a command. Options come before the
+arguments, and take one dash or two: `-days 30` and `--days 30` are the same.
 
 The CA directory is `--ca-dir`, else `SIMPLE_CA_DIR`, else the working directory; in a
 [session](#sessions-and-scripts), it is the CA of the active context. It must exist,

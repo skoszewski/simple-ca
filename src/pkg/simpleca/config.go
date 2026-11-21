@@ -29,6 +29,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/skoszewski/simple-ca/src/pkg/weburl"
 )
@@ -91,6 +93,19 @@ type FederationConfig struct {
 	Issuer string                     `json:"issuer,omitempty"`
 	Types  map[string]TokenTypeConfig `json:"types,omitempty"`
 }
+
+// DatabaseConfig names the PostgreSQL tables that replace JSON files of the root CA directory and
+// its issuing CAs: the schema holding them, public when empty; TokensDB, the tokens of
+// tokens-db.json; and OIDCUsers, the document of oidc-users.json. An empty table keeps its file.
+type DatabaseConfig struct {
+	Schema    string `json:"schema,omitempty"`
+	TokensDB  string `json:"tokens_db,omitempty"`
+	OIDCUsers string `json:"oidc_users,omitempty"`
+}
+
+// SQLNameRE matches a schema or table name of the database section: a PostgreSQL identifier that
+// needs no quoting.
+var SQLNameRE = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // TokensConfig holds the defaults of token create, each replaced by the option of the same name:
 // the validity, a duration such as 8h, the scopes, the certificate types, the domains, the IP
@@ -206,6 +221,7 @@ type Config struct {
 	Tokens           TokensConfig          `json:"tokens,omitzero"`
 	OIDC             OIDCConfig            `json:"oidc,omitzero"`
 	Audit            AuditConfig           `json:"audit,omitzero"`
+	Database         DatabaseConfig        `json:"database,omitzero"`
 	Context          ContextConfig         `json:"context,omitzero"`
 }
 
@@ -234,6 +250,19 @@ func LoadConfig(caDir string) (*Config, error) {
 		if _, err := weburl.Server(cfg.Federation.Issuer, true); err != nil {
 			return nil, fmt.Errorf("federation.issuer of %q: %w", cfg.Path, err)
 		}
+	}
+	db := cfg.Database
+	for _, n := range [][2]string{{"schema", db.Schema}, {"tokens_db", db.TokensDB}, {"oidc_users", db.OIDCUsers}} {
+		if n[1] != "" && !SQLNameRE.MatchString(n[1]) {
+			return nil, fmt.Errorf("database.%s of %q: %q is not a name of lower-case letters, digits and _, "+
+				"such as tokens", n[0], cfg.Path, n[1])
+		}
+	}
+	switch {
+	case strings.HasPrefix(db.Schema, "pg_"):
+		return nil, fmt.Errorf("database.schema of %q: %q starts with pg_, which PostgreSQL reserves", cfg.Path, db.Schema)
+	case db.Schema != "" && db.TokensDB == "" && db.OIDCUsers == "":
+		return nil, fmt.Errorf("database.schema of %q: no table is given with tokens_db or oidc_users", cfg.Path)
 	}
 	return cfg, nil
 }

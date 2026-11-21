@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.22.0
+
+feat: the tokens and the OIDC profiles can be kept in PostgreSQL tables named by the database
+section of simple-ca.json, which database setup creates and database migrate fills from their
+JSON files.
+
+- The new `database` section of `simple-ca.json` names the `schema`, `public` by default, and
+  the tables `tokens_db`, of the tokens of the root CA and its issuing CAs, and `oidc_users`, of
+  the document of `oidc-users.json`. A table not named keeps its file.
+- The connection is given by the `SIMPLE_CA_DB_*` variables, each the `psql` variable of the same
+  name with `PG` in place of `SIMPLE_CA_DB_`, such as `SIMPLE_CA_DB_HOST`; the `PG*` variables
+  and `~/.pgpass` are not read.
+- `database setup` creates the schema and the tables that do not exist.
+- `database migrate tokens_db` and `database migrate oidc_users` move the files to their tables,
+  refused when a table already holds them, and rename each file to `NAME.migrated`; the
+  migration is recorded in the audit log as `database.migrate`.
+- A `tokens-db.json` or `oidc-users.json` left beside its table is named as not migrated, and is
+  not read as an empty table.
+
 ## 1.21.5
 
 fix: serve starts with an oidc-users.json it cannot use, reports it in the log and reads it as

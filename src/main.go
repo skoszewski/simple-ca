@@ -88,6 +88,10 @@ var commands = func() []cli.Command {
 		{Name: "audit", Summary: "Read the audit log of a root CA and its issuing CAs.", Sub: []cli.Command{
 			{Name: "list", Summary: "Print the records of the audit log, filtered.", Run: runAuditList},
 		}},
+		{Name: "database", Summary: "Keep the tokens and the OIDC profiles in PostgreSQL in place of JSON files.", Sub: []cli.Command{
+			{Name: "setup", Summary: "Create the schema and the tables simple-ca.json names.", Run: runDatabaseSetup},
+			{Name: "migrate", Summary: "Move tokens-db.json or oidc-users.json to its table.", Run: runDatabaseMigrate},
+		}},
 		{Name: "serve", Summary: "Serve the CA certificates, CRLs, ACME, the signing API and the web pages over HTTP.", Run: runServe},
 	})
 }()

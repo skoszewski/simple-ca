@@ -69,6 +69,8 @@ command of its own;
   `federate`.
 - [Audit log](src/docs/audit.md) - what changed a CA and who changed it, in `audit.log`, the
   systemd journal and container logs.
+- [Database](src/docs/database.md) - the tokens and the OIDC profiles in PostgreSQL tables in
+  place of `tokens-db.json` and `oidc-users.json`, with `database setup` and `database migrate`.
 - [Signing API clients](src/docs/examples.md) - the clients in `examples/`,
   `src/cmd/request-cert/`, `src/cmd/token-setup/` and `src/cmd/request-token/`, in Python,
   Node.js, Go and the shell.

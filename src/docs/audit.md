@@ -56,6 +56,7 @@ form. A record never holds a token, a setup code, an ID token, a key or a passwo
 | `token.purge` | `name`, or `count` for a removal of all expired and revoked tokens |
 | `token.setup` | `name`, the token a setup code was exchanged for |
 | `token.oidc` | `name`, `user`, `issuer`, `profile`, `action`: `made`, `replaced` or `reused` |
+| `database.migrate` | `object`, `tokens_db` or `oidc_users`, and `count`, the tokens or the profiles moved (see [Database](database.md)) |
 | `auth.refused` | `route`, `reason`: a token, setup code or ID token refused with `401`, or a request without one |
 | `auth.held` | `wait`: the client is held back, see [Refused credentials](signing-api.md#refused-credentials) |
 

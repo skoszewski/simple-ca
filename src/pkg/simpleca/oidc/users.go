@@ -24,6 +24,8 @@ package oidc
 
 import (
 	"bytes"
+	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,8 +34,10 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/src/pkg/simpleca/database"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/tokens"
 )
 
@@ -189,12 +193,51 @@ type oidcRule struct {
 	Profile string   `json:"profile"`
 }
 
+// MigrateUsers moves oidc-users.json of rootDir, valid with the settings of cfg, to the table of
+// database.oidc_users, refused when the table already holds it, renames the file to
+// oidc-users.json.migrated, and returns the count of its profiles.
+func MigrateUsers(rootDir string, cfg *simpleca.Config) (int, error) {
+	db := cfg.Database
+	path := filepath.Join(rootDir, UsersFile)
+	switch {
+	case db.OIDCUsers == "":
+		return 0, fmt.Errorf("database.oidc_users of %q names no table", cfg.Path)
+	case !simpleca.FileExists(path):
+		return 0, fmt.Errorf("%q does not exist", path)
+	}
+	fileCfg := *cfg
+	fileCfg.Database.OIDCUsers = ""
+	users, err := readOIDCUsers(rootDir, &fileCfg)
+	if err != nil {
+		return 0, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	ctx := context.Background()
+	p, err := database.Pool(ctx)
+	if err != nil {
+		return 0, err
+	}
+	table := database.Table(db, db.OIDCUsers)
+	tag, err := p.Exec(ctx, "INSERT INTO "+table+" (id, document) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING",
+		database.OIDCUsersID, b)
+	if err != nil {
+		return 0, err
+	}
+	if tag.RowsAffected() == 0 {
+		return 0, fmt.Errorf("%s already holds %s; nothing is migrated", table, UsersFile)
+	}
+	return len(users.Profiles), os.Rename(path, path+".migrated")
+}
+
 // loadOIDCUsers returns oidc-users.json of rootDir with the settings of cfg, empty when it does not
 // exist or is not valid; an invalid file is reported in the log.
 func loadOIDCUsers(rootDir string, cfg *simpleca.Config) *oidcUsers {
 	users, err := readOIDCUsers(rootDir, cfg)
 	if err != nil {
-		slog.Error("oidc.users", "error", err.Error(), "message", "the file is read as missing")
+		slog.Error("oidc.users", "error", err.Error(), "message", "read as missing; no user gets a profile")
 		return &oidcUsers{path: filepath.Join(rootDir, UsersFile)}
 	}
 	return users
@@ -204,12 +247,35 @@ func loadOIDCUsers(rootDir string, cfg *simpleca.Config) *oidcUsers {
 // settings of cfg; empty when the file does not exist.
 func readOIDCUsers(rootDir string, cfg *simpleca.Config) (*oidcUsers, error) {
 	users := &oidcUsers{path: filepath.Join(rootDir, UsersFile)}
-	b, err := os.ReadFile(users.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return users, nil
-	}
-	if err != nil {
-		return nil, err
+	var b []byte
+	var err error
+	if db := cfg.Database; db.OIDCUsers != "" {
+		// The document is the row OIDCUsersID of the table, named in errors as schema.table.
+		if simpleca.FileExists(users.path) {
+			return nil, fmt.Errorf("%q is not migrated to the database; run simple-ca database migrate oidc_users", users.path)
+		}
+		users.path = cmp.Or(db.Schema, "public") + "." + db.OIDCUsers
+		ctx := context.Background()
+		p, err := database.Pool(ctx)
+		if err != nil {
+			return nil, err
+		}
+		err = p.QueryRow(ctx, "SELECT document FROM "+database.Table(db, db.OIDCUsers)+" WHERE id = $1",
+			database.OIDCUsersID).Scan(&b)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return users, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("could not read %q: %w", users.path, err)
+		}
+	} else {
+		b, err = os.ReadFile(users.path)
+		if errors.Is(err, os.ErrNotExist) {
+			return users, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()

@@ -311,7 +311,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			if len(cfg.ACME.Domains) > 0 && simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.ACME = origin + ca.Path + "acme/directory"
 			}
-			if simpleca.FileExists(filepath.Join(dir, tokens.TokensFile)) && simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
+			if tokens.Exists(dir) && simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {
 				ca.API = origin + ca.Path + "api/sign"
 			}
 			if simpleca.FileExists(filepath.Join(dir, "ca_key.pem")) {

@@ -59,6 +59,27 @@ func TestLoadConfigRefusesUnknownSettings(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDatabase(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `{"database": {"schema": "pki_lab", "tokens_db": "tokens", "oidc_users": "oidc_users"}}`)
+	if cfg, err := LoadConfig(dir); err != nil || cfg.Database != (DatabaseConfig{"pki_lab", "tokens", "oidc_users"}) {
+		t.Errorf("LoadConfig of a database section: %+v, %v", cfg, err)
+	}
+	for name, settings := range map[string]string{
+		"a quoted table":         `{"database": {"tokens_db": "Tokens"}}`,
+		"a schema-qualified one": `{"database": {"tokens_db": "pki.tokens"}}`,
+		"a long name":            `{"database": {"oidc_users": "` + strings.Repeat("a", 64) + `"}}`,
+		"a bad schema":           `{"database": {"schema": "1st", "tokens_db": "tokens"}}`,
+		"a pg_ schema":           `{"database": {"schema": "pg_lab", "tokens_db": "tokens"}}`,
+		"a schema alone":         `{"database": {"schema": "pki_lab"}}`,
+	} {
+		writeConfig(t, dir, settings)
+		if _, err := LoadConfig(dir); err == nil || !strings.Contains(err.Error(), "database.") {
+			t.Errorf("LoadConfig with %s: %v, want an error naming the key", name, err)
+		}
+	}
+}
+
 func TestConfigSave(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, `{"ca_publish_base_url": "http://pki.example.com", "types": {`+

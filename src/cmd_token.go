@@ -310,7 +310,7 @@ func runTokenDescribe(args []string) error {
 			return err
 		}
 		if name, tok = rest[0], db.Tokens[rest[0]]; tok == nil {
-			return fmt.Errorf("token %q not found in %q", name, filepath.Join(dir, tokens.TokensFile))
+			return fmt.Errorf("token %q not found in %s", name, tokens.Store(dir))
 		}
 	} else {
 		var b []byte
@@ -345,7 +345,7 @@ func runTokenDescribe(args []string) error {
 		} else if entry := db.Tokens[name]; entry != nil && entry.ID != "" && entry.ID == c.ID {
 			tok, limits = entry, true
 		} else {
-			refused = "refused: the token was renewed, revoked or removed in " + filepath.Join(dir, tokens.TokensFile)
+			refused = "refused: the token was renewed, revoked or removed in " + tokens.Store(dir)
 		}
 	}
 	attributes := describeToken(name, tok, limits)

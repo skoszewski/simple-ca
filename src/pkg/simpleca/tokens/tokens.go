@@ -26,6 +26,7 @@ package tokens
 
 import (
 	"cmp"
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/sha256"
@@ -42,6 +43,7 @@ import (
 
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/src/pkg/simpleca/database"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/jose"
 )
 
@@ -224,8 +226,90 @@ func (c *JWTClaims) Token() *APIToken {
 		Expires: time.Unix(c.ExpiresAt, 0)}
 }
 
-// LoadTokens reads tokens-db.json of caDir, or returns an empty database when it does not exist.
+// tokensTable returns the quoted table of the tokens of caDir and the ID of its CA, or an empty
+// table when database.tokens_db of its root CA names none, or caDir holds no CA; an error when the
+// table is named and tokens-db.json is still there.
+func tokensTable(caDir string) (table, ca string, err error) {
+	rootDir, ca, err := simpleca.LocateCA(caDir)
+	if err != nil {
+		return "", "", nil
+	}
+	cfg, err := simpleca.LoadConfig(rootDir)
+	if err != nil {
+		return "", "", err
+	}
+	if cfg.Database.TokensDB == "" {
+		return "", "", nil
+	}
+	if simpleca.FileExists(filepath.Join(caDir, TokensFile)) {
+		return "", "", fmt.Errorf("%q is not migrated to the database; run simple-ca database migrate tokens_db",
+			filepath.Join(caDir, TokensFile))
+	}
+	return database.Table(cfg.Database, cfg.Database.TokensDB), ca, nil
+}
+
+// Store names where the tokens of caDir are kept: tokens-db.json, or the table of database.tokens_db.
+func Store(caDir string) string {
+	if table, _, err := tokensTable(caDir); err == nil && table != "" {
+		return "the table " + table
+	}
+	return fmt.Sprintf("%q", filepath.Join(caDir, TokensFile))
+}
+
+// Exists reports whether caDir has tokens: its tokens-db.json, or a row of the table of
+// database.tokens_db.
+func Exists(caDir string) bool {
+	table, ca, err := tokensTable(caDir)
+	if err != nil || table == "" {
+		return simpleca.FileExists(filepath.Join(caDir, TokensFile))
+	}
+	ctx := context.Background()
+	p, err := database.Pool(ctx)
+	if err != nil {
+		return false
+	}
+	var found bool
+	return p.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM "+table+" WHERE ca = $1)", ca).Scan(&found) == nil && found
+}
+
+// LoadTokens reads the tokens of caDir from tokens-db.json, or from the table of
+// database.tokens_db, an empty database when there are none.
 func LoadTokens(caDir string) (*TokensDB, error) {
+	db := &TokensDB{Tokens: map[string]*APIToken{}}
+	table, ca, err := tokensTable(caDir)
+	if err != nil {
+		return nil, err
+	}
+	if table != "" {
+		ctx := context.Background()
+		p, err := database.Pool(ctx)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := p.Query(ctx, "SELECT name, token FROM "+table+" WHERE ca = $1", ca)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			var b []byte
+			if err := rows.Scan(&name, &b); err != nil {
+				return nil, err
+			}
+			var t APIToken
+			if err := json.Unmarshal(b, &t); err != nil {
+				return nil, fmt.Errorf("could not read the token %q of %s: %w", name, table, err)
+			}
+			db.Tokens[name] = &t
+		}
+		return db, rows.Err()
+	}
+	return loadTokensFile(caDir)
+}
+
+// loadTokensFile reads tokens-db.json of caDir, an empty database when it does not exist.
+func loadTokensFile(caDir string) (*TokensDB, error) {
 	db := &TokensDB{Tokens: map[string]*APIToken{}}
 	b, err := os.ReadFile(filepath.Join(caDir, TokensFile))
 	if errors.Is(err, os.ErrNotExist) {
@@ -243,8 +327,114 @@ func LoadTokens(caDir string) (*TokensDB, error) {
 	return db, nil
 }
 
-// Save writes the database to tokens-db.json of caDir, a new file of the private mode.
+// Migrated is the count of the tokens a migration moved of the CA of an ID, empty for the root CA.
+type Migrated struct {
+	CA    string
+	Count int
+}
+
+// Migrate moves the tokens-db.json files of the root CA in rootDir and its issuing CAs to the table
+// of database.tokens_db of cfg, in one transaction refused when the table already holds tokens of
+// one of those CAs, renames each file to tokens-db.json.migrated, and returns the counts.
+func Migrate(rootDir string, cfg *simpleca.Config) ([]Migrated, error) {
+	if cfg.Database.TokensDB == "" {
+		return nil, fmt.Errorf("database.tokens_db of %q names no table", cfg.Path)
+	}
+	table := database.Table(cfg.Database, cfg.Database.TokensDB)
+	var dirs []string
+	var counts []Migrated
+	files := map[string]*TokensDB{}
+	for _, id := range simpleca.CAIDs(rootDir) {
+		dir := filepath.Join(rootDir, id)
+		if !simpleca.FileExists(filepath.Join(dir, TokensFile)) {
+			continue
+		}
+		unlock, err := simpleca.LockFile(filepath.Join(dir, TokensFile))
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
+		db, err := loadTokensFile(dir)
+		if err != nil {
+			return nil, err
+		}
+		dirs, files[id] = append(dirs, dir), db
+		counts = append(counts, Migrated{CA: id, Count: len(db.Tokens)})
+	}
+	if len(dirs) == 0 {
+		return nil, fmt.Errorf("no %s in %q or its issuing CAs", TokensFile, rootDir)
+	}
+	ctx := context.Background()
+	p, err := database.Pool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := p.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	for _, m := range counts {
+		var found bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM "+table+" WHERE ca = $1)", m.CA).Scan(&found); err != nil {
+			return nil, err
+		}
+		if found {
+			return nil, fmt.Errorf("%s already holds tokens of the CA %q; nothing is migrated", table, m.CA)
+		}
+		for name, t := range files[m.CA].Tokens {
+			b, err := json.Marshal(t)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO "+table+" (ca, name, token) VALUES ($1, $2, $3)", m.CA, name, b); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	for _, dir := range dirs {
+		if err := os.Rename(filepath.Join(dir, TokensFile), filepath.Join(dir, TokensFile+".migrated")); err != nil {
+			return nil, err
+		}
+	}
+	return counts, nil
+}
+
+// Save writes the tokens of caDir to tokens-db.json, a new file of the private mode, or replaces
+// those of its CA in the table of database.tokens_db in one transaction.
 func (db *TokensDB) Save(caDir string) error {
+	table, ca, err := tokensTable(caDir)
+	if err != nil {
+		return err
+	}
+	if table != "" {
+		ctx := context.Background()
+		p, err := database.Pool(ctx)
+		if err != nil {
+			return err
+		}
+		tx, err := p.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if _, err := tx.Exec(ctx, "DELETE FROM "+table+" WHERE ca = $1", ca); err != nil {
+			return err
+		}
+		for name, t := range db.Tokens {
+			b, err := json.Marshal(t)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "INSERT INTO "+table+" (ca, name, token) VALUES ($1, $2, $3)", ca, name, b); err != nil {
+				return err
+			}
+		}
+		return tx.Commit(ctx)
+	}
 	b, err := json.MarshalIndent(db, "", "  ")
 	if err != nil {
 		return err
@@ -257,9 +447,46 @@ func (db *TokensDB) Save(caDir string) error {
 	return os.Rename(tmp, filepath.Join(caDir, TokensFile))
 }
 
-// LockTokens locks tokens-db.json of caDir, as simpleca.LockFile does.
+// LockTokens locks the tokens of caDir: tokens-db.json, as simpleca.LockFile does, or its CA in
+// the table of database.tokens_db, with an advisory lock held on a connection of its own, waiting
+// as long.
 func LockTokens(caDir string) (func(), error) {
-	return simpleca.LockFile(filepath.Join(caDir, TokensFile))
+	table, ca, err := tokensTable(caDir)
+	if err != nil {
+		return nil, err
+	}
+	if table == "" {
+		return simpleca.LockFile(filepath.Join(caDir, TokensFile))
+	}
+	ctx := context.Background()
+	p, err := database.Pool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := p.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key := database.LockKey(table, ca)
+	deadline := time.Now().Add(simpleca.TokensLockWait)
+	for {
+		var locked bool
+		if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&locked); err != nil {
+			conn.Release()
+			return nil, err
+		}
+		if locked {
+			return func() {
+				conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", key)
+				conn.Release()
+			}, nil
+		}
+		if time.Now().After(deadline) {
+			conn.Release()
+			return nil, fmt.Errorf("the tokens of CA %q in %s are locked by another process", ca, table)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // MakeToken adds the token name to tokens-db.json of the CA in caDir and returns its JWT, as

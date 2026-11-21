@@ -573,3 +573,28 @@ embeds, the systemd units and the Debian package sources, and nothing else, so n
 picks their files: Apple's `container` CLI fails on an ignore file that re-includes files, and
 both engines build from the same directory. A module in a subdirectory has the path
 `github.com/skoszewski/simple-ca/src`.
+
+## The tokens and the OIDC profiles can live in PostgreSQL tables named in simple-ca.json
+
+A table replaces a JSON file only when the `database` section of the root CA's `simple-ca.json`
+names it, so an installation without a database keeps its files and a CA moves one object at a
+time. The table names carry no prefix: the database is usually named `simple_ca`, and `schema`
+keeps installations that share one database apart, so the SQL names its tables with the schema
+and never depends on `search_path`.
+
+A token is a row of its CA, its name and the token as `jsonb`, the document `tokens-db.json`
+holds for it, and the OIDC profiles are one row holding the document of `oidc-users.json`. The
+code that reads, checks and changes them stays the same for both stores, and a column of each
+field would have to follow every change of `APIToken`. Saving the tokens of a CA replaces its
+rows in one transaction, as writing the file replaces it.
+
+The lock of the tokens of a CA is a session advisory lock on a key of the table and the CA, held
+on a connection of its own, in place of `tokens-db.json.lock`; it waits as long as the file lock,
+and a process that ends releases it with its connection. A file left beside a named table fails
+the commands on those tokens, rather than being read as an empty table, so tokens are not lost
+before `database migrate` moves them.
+
+The connection is read from `SIMPLE_CA_DB_*` alone, each named as the `psql` variable without
+`PG`. They are given to pgx as a connection string, which overrides the environment and the
+service file, and the `PG*` variables of the process are removed before it is parsed, so a `PGHOST`
+or `~/.pgpass` meant for another program never directs simple-ca to another database.
