@@ -408,17 +408,27 @@ carry their value in the ID token, unlike Entra ID groups, which are object IDs 
 token past 200. The rules come first, so a named user or a group can be given a profile other
 than that of the user's roles.
 
-## An OIDC user gets a certificate named by the ID token, and request-cert is a client of its own
+## A user signed in with OIDC gets their own certificate with a token of the scope self-cert
 
 A `sign` token with the type `user` signs any email address of its domains, so it cannot tie a
-certificate to the person who holds it. `/api/oidc-cert` names the certificate itself, from the
-claims of the ID token that `serve` verified: the CN from `name_claim` and the email address from
-`email_claim`. A CSR gives its public key alone, and its subject, SANs and extensions are not read,
-so no part of the request can name another person. An `email_verified` of `false` is refused,
-since some providers let a user set an email address they do not own, and `email_domains` of the
-profile limits the addresses a provider may vouch for. Each sign-in issues a certificate and
-none is revoked, as with the signing API: a user may hold one per device, and the validity of the
-profile bounds them.
+certificate to the person who holds it. The certificate of a person is therefore issued to the
+person signed in: the OIDC sign-in records in the token it makes the profile, the email address
+and the name from the ID token that `serve` verified, and `/api/self-cert` issues, for that token
+alone, a certificate whose CN is that name and whose email address is that address. A CSR gives
+its public key alone, and its subject, SANs and extensions are not read, so no part of the
+request can name another person. An `email_verified` of `false` records no address, since some
+providers let a user set an email address they do not own, and `email_domains` of the profile
+limits the addresses a provider may vouch for. Each request issues a certificate and none is
+revoked, as with the signing API: a user may hold one per device, and the validity of the profile
+bounds them.
+
+The right to the certificate is the scope `self-cert`, which the OIDC sign-in alone grants, to the
+tokens of a profile that gives a certificate. `token create`, the token page and `token.scopes` of
+a profile cannot grant it, and the scope `*` does not stand for it, so an administrator's token
+that opens every page gets no certificate in another person's name, and the right of a person to
+their certificate is never handed on with a token. The profile is read again at each request, so
+a profile that stops giving a certificate stops the tokens made with it, and revoking the token
+stops it too.
 
 The OIDC sign-in issues certificates of people, never of servers, which get theirs, and renew
 them, with tokens. A profile lists its types, and a type is admitted by its extended key usages,
@@ -427,35 +437,35 @@ not by its name: the administrator defines user certificate types of their own i
 `require`, `allow`, `and`, `or` and `not`. `allow` closes the set, so a usage that no rule names,
 a server usage or one of a private OID, keeps a type out; a prohibition is `not` of `require`, so
 the rule has no key that only repeats another. A type also needs the user name rules, since the
-subject is made from the claims. The certificate has no client limits, as a token has: it is
-issued to a person signed in at the provider, from any machine, not to a host.
+subject is made from the claims.
 
 The profile that gives a token also gives the certificate, chosen by the same rules and roles, so
 `oidc-users.json` has one way to give access. `token` and `certificate` are sections of the
 profile, and a profile with neither keeps its earlier meaning, a token of the defaults. The
 certificate names its own CA, `certificate.ca`, apart from the `ca` of the token: the CA that
 hands out the tokens of servers is not the one that signs the certificates of people, and a
-profile gives a certificate only when a CA is named for it.
+profile gives a certificate only when a CA is named for it. A profile of a certificate alone gives
+a token of `self-cert` alone, so its user signs in like any other and opens no page.
 
-"Get my certificate" is linked only after an OIDC sign-in on the index page whose profile gives a
-certificate, since `serve` knows the profile of a user only from an ID token. A profile of a
-certificate alone gives no token, so its sign-in answers with the user and nothing to keep; the
-browser tab keeps the user to show the link and the page. That is no access: every certificate is
-issued for a fresh ID token, which `/api/oidc-cert` checks against the profile.
+`request-cert --oidc` and `--oidc-device` take the same way, for a machine where the certificate
+is used, such as a server, or where `serve` runs without its pages: they sign the user in,
+exchange the ID token at `/api/oidc-token` for a token, and request the certificate at
+`/api/self-cert` with it. They sign in as a public client of their own, `cli_client_id`, not as
+the client of the pages. The two need different registrations: the pages a single-page
+application redirect URI with CORS, `request-cert` a loopback redirect URI of any port (RFC 8252)
+and the device authorization grant, which Entra ID allows only for a public client of the desktop
+platform. A client of its own keeps those grants off the client of the pages, and lets the
+provider give its roles and assignments apart: a role on one client gives nothing through the
+other, since the segment `CLIENT_ID` of a claim path is the client the ID token was issued for.
+Its token is one of its own, `NAME-cli`, of the scope `self-cert` alone and valid for 10 minutes,
+replaced at its next sign-in: a user has one token per CA, so taking the token of the profile
+would replace the token of the user's browser, and `request-cert` needs no scope but the
+certificate.
 
-`request-cert` signs in as a public client of its own, `cli_client_id`, not as the client of the
-pages. The two need different registrations: the pages a single-page application redirect URI
-with CORS, `request-cert` a loopback redirect URI of any port (RFC 8252) and the device
-authorization grant, which Entra ID allows only for a public client of the desktop platform. A
-client of its own keeps those grants off the client of the pages, and lets the provider give its
-roles and assignments apart: a role on one client gives nothing through the other, since the
-segment `CLIENT_ID` of a claim path is the client the ID token was issued for. An ID token of the
-client of `request-cert` gives a certificate and never a token.
-
-The device authorization grant sends no nonce, and its ID token may hold none, so an ID token of a
-certificate is known by its nonce, or by its SHA-256 without one, for the time it is valid; either
-way it gives one certificate. An ID token of a token still needs its nonce, which the pages always
-send.
+The device authorization grant sends no nonce, and its ID token may hold none, so an ID token of
+`cli_client_id` is known by its nonce, or by its SHA-256 without one, for the time it is valid;
+either way it gives one token. An ID token of the pages still needs its nonce, which the pages
+always send.
 
 A key the page has `serve` make goes into the PKCS#12 file of the answer and nowhere else; `serve`
 keeps no copy, unlike `cert create`, whose keys are kept to make PKCS#12 files later. A person

@@ -242,6 +242,7 @@ func TestOIDCCheck(t *testing.T) {
 		"a hosts key":               `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["user"], "hosts": ["10.0.0.1"]}}]}`,
 		"a domains key":             `{"profiles": [{"name": "a", "certificate": {"ca": "", "types": ["user"], "domains": ["example.com"]}}]}`,
 		"an unknown certificate ca": `{"profiles": [{"name": "a", "certificate": {"ca": "nowhere", "types": ["user"]}}]}`,
+		"self-cert in token":        `{"profiles": [{"name": "a", "token": {"scopes": ["certs", "self-cert"]}}]}`,
 		"a broken rule":             `{"user_ekus": {"require": ["clientAuth"], "allow": ["clientAuth"]}, "profiles": []}`,
 	} {
 		write(UsersFile, users)

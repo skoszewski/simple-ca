@@ -200,7 +200,7 @@ name. A role left out keeps its built-in colour, and a setting not described her
 
 | Page | Colours |
 |---|---|
-| the index page, `/token-setup`, `/oidc-callback`, `/oidc-certificate` | those of the root CA |
+| the index page, `/token-setup`, `/oidc-callback`, `/self-cert` | those of the root CA |
 | `/sign`, `/NAME/sign` | those of the CA of the form |
 | the token and certificate pages | those of the CA chosen in their selector, changing with it |
 | the audit page | those of the root CA, or of its own CA for an issuing CA token |

@@ -23,7 +23,8 @@ only once, so copy it then.
 | `certs` | the [certificate page](usage.md#certificate-page) of `serve --webui` |
 | `audit` | the [audit page](audit.md#the-audit-page) of `serve --webui` |
 | `federate` | [`/api/federation-token`](#federation-tokens), the JWTs of a token type for workload identity federation |
-| `*` | all of them, given alone |
+| `self-cert` | [`/api/self-cert`](oidc.md#user-certificates), the user certificate of the OIDC user the token was made for; given by the OIDC sign-in alone |
+| `*` | all of them but `self-cert`, given alone |
 
 A root CA token opens the pages for every CA; an issuing CA token opens only its own CA.
 
@@ -482,7 +483,7 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" "$CA_URL/api/federation-token
 `serve` counts the tokens, setup codes and OIDC ID tokens it refuses with
 `401 Unauthorized` for each client, an IPv6 client by its /64 prefix, and the requests that
 should carry one and carry none. This applies to the signing API, the signing forms,
-`/api/token-setup`, `/token-setup`, `/token-describe`, `/api/oidc-token`, `/api/oidc-cert` and the
+`/api/token-setup`, `/token-setup`, `/token-describe`, `/api/oidc-token`, `/api/self-cert` and the
 API of the token, certificate and audit pages. The first 5 refusals in a row are free; from the 6th:
 
 - the client is held back for 1 second, a time that doubles with each further refusal, up to

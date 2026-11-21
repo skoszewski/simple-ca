@@ -46,13 +46,15 @@ import (
 // to give, and the body of the certificate request.
 type fakeOIDC struct {
 	*httptest.Server
-	mu       sync.Mutex
-	settings map[string]any
-	auth     url.Values
-	nonce    string
-	grants   []string
-	pending  []string
-	request  map[string]any
+	mu        sync.Mutex
+	settings  map[string]any
+	auth      url.Values
+	nonce     string
+	grants    []string
+	pending   []string
+	exchanged string
+	bearer    string
+	request   map[string]any
 }
 
 // idToken returns an unsigned JWT of claims, which request-cert reads without verifying it.
@@ -105,7 +107,18 @@ func newFakeOIDC(t *testing.T) *fakeOIDC {
 				}
 				json.NewEncoder(w).Encode(map[string]string{"id_token": idToken(map[string]any{"email": "erin@example.com"})})
 			}
-		case "/api/oidc-cert":
+		case "/api/oidc-token":
+			var body map[string]string
+			json.NewDecoder(r.Body).Decode(&body)
+			f.exchanged = body["id_token"]
+			json.NewEncoder(w).Encode(map[string]any{"ca": "", "name": "alice-cli", "token": "tok-cli", "scopes": []string{"self-cert"}})
+		case "/api/self-cert":
+			f.bearer = r.Header.Get("Authorization")
+			if f.bearer != "Bearer tok-cli" {
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid token"})
+				return
+			}
 			f.request = nil
 			json.NewDecoder(r.Body).Decode(&f.request)
 			if f.request["type"] == nil {
@@ -145,7 +158,8 @@ func newFakeOIDC(t *testing.T) *fakeOIDC {
 	return f
 }
 
-// checkRequest checks that the certificate request holds the ID token and a CSR of a key alone.
+// checkRequest checks that the ID token was exchanged for the token, and that the certificate
+// request carries it as the bearer, with a CSR of a key alone.
 func checkRequest(t *testing.T, f *fakeOIDC) {
 	t.Helper()
 	block, _ := pem.Decode([]byte(f.request["csr"].(string)))
@@ -153,8 +167,10 @@ func checkRequest(t *testing.T, f *fakeOIDC) {
 		t.Fatalf("certificate request %v, want a CSR", f.request)
 	}
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
-	if err != nil || len(csr.Subject.Names) != 0 || len(csr.DNSNames) != 0 || f.request["id_token"] == "" {
-		t.Errorf("certificate request: %v, subject %v, DNS names %v", err, csr.Subject, csr.DNSNames)
+	if err != nil || len(csr.Subject.Names) != 0 || len(csr.DNSNames) != 0 || f.request["id_token"] != nil ||
+		f.exchanged == "" || f.bearer != "Bearer tok-cli" {
+		t.Errorf("certificate request: %v, subject %v, DNS names %v, ID token exchanged %t, bearer %q", err, csr.Subject,
+			csr.DNSNames, f.exchanged != "", f.bearer)
 	}
 }
 

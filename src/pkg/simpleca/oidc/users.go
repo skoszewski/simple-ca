@@ -33,6 +33,7 @@ import (
 
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
+	"github.com/skoszewski/simple-ca/src/pkg/simpleca/tokens"
 )
 
 // UsersFile is the file of the root CA directory holding an oidcUsers.
@@ -216,6 +217,8 @@ func loadOIDCUsers(rootDir string) (*oidcUsers, error) {
 			return nil, fmt.Errorf("profiles[%d] of %q: the profile %q is given twice", i, users.path, p.Name)
 		case p.Token != nil && p.Token.KeepExpired != "":
 			return nil, fmt.Errorf("profile %s of %q: keep_expired belongs to the tokens section of simple-ca.json", p.Name, users.path)
+		case p.Token != nil && slices.Contains(p.Token.Scopes, tokens.SelfCert):
+			return nil, fmt.Errorf("profile %s of %q: the scope self-cert is given by the certificate section, not by token", p.Name, users.path)
 		}
 		names = append(names, p.Name)
 	}

@@ -257,6 +257,12 @@ func describeToken(name string, t *tokens.APIToken, limits bool) [][2]string {
 		{"Scopes", list(t.EffectiveScopes(), "-")}}
 	if t.OIDC != nil {
 		attributes = append(attributes, [2]string{"OIDC user", t.OIDC.User}, [2]string{"OIDC issuer", t.OIDC.Issuer})
+		// A token with the scope self-cert names the profile and the subject of its certificates.
+		for _, a := range [][2]string{{"OIDC profile", t.OIDC.Profile}, {"OIDC email", t.OIDC.Email}, {"OIDC name", t.OIDC.Name}} {
+			if a[1] != "" {
+				attributes = append(attributes, a)
+			}
+		}
 	}
 	if !limits {
 		return attributes

@@ -503,3 +503,20 @@ func TestPrepareTokenFederate(t *testing.T) {
 		t.Errorf("the token type of the token saved: %+v", fed)
 	}
 }
+
+func TestSelfCertScope(t *testing.T) {
+	for _, c := range []struct {
+		scopes []string
+		want   bool
+	}{
+		{[]string{"*"}, false},
+		{nil, false},
+		{[]string{"certs"}, false},
+		{[]string{SelfCert}, true},
+		{[]string{"certs", SelfCert}, true},
+	} {
+		if got := (&APIToken{Scopes: c.scopes}).HasScope(SelfCert); got != c.want {
+			t.Errorf("HasScope(self-cert) of %v: %v, want %v", c.scopes, got, c.want)
+		}
+	}
+}

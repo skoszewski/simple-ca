@@ -261,3 +261,11 @@ func TestTokenJWKS(t *testing.T) {
 		t.Errorf("token jwks without a CA: %v", err)
 	}
 }
+
+func TestTokenCreateSelfCertRefused(t *testing.T) {
+	servers := filepath.Join(newHierarchy(t), "servers")
+	_, err := tokCapture(t, "token", "create", "--ca-dir", servers, "--scope", "self-cert", "mine")
+	if err == nil || !strings.Contains(err.Error(), "self-cert is given by the OIDC sign-in alone") {
+		t.Errorf("token create --scope self-cert: %v, want the scope refused", err)
+	}
+}

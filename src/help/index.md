@@ -74,7 +74,8 @@ never overwritten, and a refused request prints the status and the error, as lis
 [Errors](#errors), and exits with 1. `request-cert -h` lists the options.
 
 Where the server offers the OIDC sign-in for `request-cert`, a person gets a user certificate of
-themselves without a token: `--oidc` signs in in the browser, and `--oidc-device` with a code
+themselves without handling a token, as "Get my certificate" of the index page gives it:
+`--oidc` signs in in the browser, and `--oidc-device` with a code
 entered on any device, such as on a machine without a browser. It takes the URL of the server,
 and names the files after the local part of the email address, or `--name`; `--type` chooses
 the type when the profile of the person offers several:
@@ -84,8 +85,8 @@ request-cert --oidc http://pki.example.com:8080
 request-cert --oidc-device --type person --name laptop http://pki.example.com:8080
 ```
 
-The page `/oidc-certificate` does the same in the browser, and can also make the key and give it
-in a PKCS#12 file.
+"Get my certificate", the page `/self-cert`, does the same in the browser for a person signed in
+on the index page, and can also make the key and give it in a PKCS#12 file.
 
 ## With openssl, curl and jq
 

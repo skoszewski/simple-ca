@@ -87,8 +87,9 @@ request-cert --oidc-device [--type TYPE] [--name NAME] [--out-dir DIR] SERVE_URL
 With `--oidc` and `--oidc-device`, `SERVE_URL` is the URL of `serve`, `--type` names one of the
 types of the profile of the user, needed when it offers several, `--name` names the files written
 here, the local part of the email address by default, and `--token-file`, `--setup-code` and
-`--days` are refused; see
-[User certificates](oidc.md#user-certificates).
+`--days` are refused. The sign-in gives `request-cert` a token of the scope `self-cert` of its own,
+which requests the certificate at `/api/self-cert`, as "Get my certificate" of the index page
+does; see [User certificates](oidc.md#user-certificates).
 - `--version` prints the version, and `-h` the usage. Wrong arguments print the usage and exit
   with 2.
 

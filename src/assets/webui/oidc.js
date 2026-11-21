@@ -1,9 +1,6 @@
 // The OIDC sign-in of the pages of serve: the authorization code flow with PKCE.
 const oidcFlowKey = "simple-ca-oidc-flow";
 const oidcResultKey = "simple-ca-oidc-result";
-// The OIDC user whose profile gives a user certificate, kept for the tab by the sign-in on the
-// index page; it shows the link and the page of the certificate, which /api/oidc-cert checks.
-const oidcCertificateKey = "simple-ca-oidc-certificate";
 
 // oidcSettings returns the OIDC sign-in of serve, or null when it is off.
 async function oidcSettings() {
@@ -15,9 +12,8 @@ const oidcBase64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+
 const oidcRandom = () => oidcBase64url(crypto.getRandomValues(new Uint8Array(32)));
 
 // oidcButton shows button, which starts the sign-in, when it is on; save runs before leaving the
-// page, and failed shows an error. With the purpose "certificate", the sign-in returns the ID
-// token to the page instead of exchanging it for a token.
-async function oidcButton(button, save, failed, purpose = "token") {
+// page, and failed shows an error.
+async function oidcButton(button, save, failed) {
   const settings = await oidcSettings();
   if (!settings) {
     return;
@@ -36,7 +32,7 @@ async function oidcButton(button, save, failed, purpose = "token") {
     const state = oidcRandom();
     const nonce = oidcRandom();
     const challenge = oidcBase64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
-    sessionStorage.setItem(oidcFlowKey, JSON.stringify({ verifier, state, nonce, purpose, back: location.pathname + location.search }));
+    sessionStorage.setItem(oidcFlowKey, JSON.stringify({ verifier, state, nonce, back: location.pathname + location.search }));
     const url = new URL(settings.authorization_endpoint);
     for (const [key, value] of Object.entries({ response_type: "code", client_id: settings.client_id,
       redirect_uri: location.origin + settings.redirect_path, scope: settings.scopes.join(" "), state, nonce,
@@ -47,16 +43,15 @@ async function oidcButton(button, save, failed, purpose = "token") {
   });
 }
 
-// oidcTaken returns, once, the /api/oidc-token answer left by the callback page, or the ID token,
-// {id_token}, of a sign-in for a certificate, or null.
+// oidcTaken returns, once, the /api/oidc-token answer left by the callback page, or null.
 function oidcTaken() {
   const result = sessionStorage.getItem(oidcResultKey);
   sessionStorage.removeItem(oidcResultKey);
   return result ? JSON.parse(result) : null;
 }
 
-// oidcCallback redeems the code, exchanges the ID token for the token, or keeps it for the page
-// of a certificate, and returns to the page the sign-in started on.
+// oidcCallback redeems the code, exchanges the ID token for the token, and returns to the page the
+// sign-in started on.
 async function oidcCallback() {
   const message = document.getElementById("oidc-message");
   const back = document.getElementById("oidc-back");
@@ -105,12 +100,6 @@ async function oidcCallback() {
     fail("The ID token does not answer this sign-in; start it again.");
     return;
   }
-  // The page of a certificate sends the ID token itself, with its request.
-  if (flow.purpose === "certificate") {
-    sessionStorage.setItem(oidcResultKey, JSON.stringify({ id_token: tokens.id_token }));
-    location.replace(flow.back);
-    return;
-  }
   // An active token of the user is replaced or reused only on the user's choice.
   const exchange = async (choice) => {
     const exchanged = await fetch("/api/oidc-token", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -128,11 +117,6 @@ async function oidcCallback() {
     document.getElementById("oidc-question").classList.replace("flex", "hidden");
     if (!exchanged.ok) {
       fail(answer.error || exchanged.statusText);
-      return;
-    }
-    // A profile of a certificate alone gives no token, and signs in on the index page alone.
-    if (!answer.token && new URL(flow.back, location.origin).pathname !== "/") {
-      fail("Your profile gives a user certificate and no token; get the certificate from the index page.");
       return;
     }
     sessionStorage.setItem(oidcResultKey, JSON.stringify(answer));

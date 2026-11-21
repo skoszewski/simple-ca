@@ -165,6 +165,19 @@ Options:
 			return err
 		}
 		prefix = cmp.Or(*name, filePrefix(claims, settings.EmailClaim))
+		// The ID token gives the token of the scope self-cert of request-cert, which the certificate
+		// is requested with.
+		body, err := json.Marshal(map[string]string{"id_token": idToken})
+		if err != nil {
+			return err
+		}
+		var exchanged struct{ Token string }
+		if err := client.Post(srv+"/api/oidc-token", "application/json", "", body, &exchanged); err != nil {
+			return err
+		}
+		if token = exchanged.Token; token == "" {
+			return fmt.Errorf("%q gave no token for the sign-in", srv+"/api/oidc-token")
+		}
 	} else {
 		code := strings.TrimSpace(*setupCode)
 		token = os.Getenv("SIMPLE_CA_TOKEN")
@@ -248,7 +261,7 @@ Options:
 	csrPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr}))
 	var result struct{ Serial, Certificate, Chain string }
 	if signIn {
-		fields := map[string]any{"id_token": idToken, "csr": csrPEM}
+		fields := map[string]any{"csr": csrPEM}
 		if typeGiven {
 			fields["type"] = *certType
 		}
@@ -256,7 +269,7 @@ Options:
 		if err != nil {
 			return err
 		}
-		err = client.Post(srv+"/api/oidc-cert", "application/json", "", body, &result)
+		err = client.Post(srv+"/api/self-cert", "application/json", token, body, &result)
 		if e, ok := errors.AsType[*client.StatusError](err); ok && e.Code == http.StatusConflict {
 			return fmt.Errorf("%s with --type", e.Message)
 		}

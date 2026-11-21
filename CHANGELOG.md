@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.21.4
+
+fix: a user signed in with OIDC gets their own certificate with the token of the sign-in, of the
+scope self-cert, at /self-cert and /api/self-cert, and request-cert --oidc takes the same way.
+
+- The new scope `self-cert` gives the user certificate of the OIDC user a token was made for. The
+  OIDC sign-in gives it to the token of a profile whose `certificate` names a `ca`, beside the
+  scopes of `token`, and a profile of a certificate alone gives a token of `self-cert` alone.
+  `token create`, the token page and `token.scopes` of a profile refuse it, and `*` does not
+  stand for it.
+- The OIDC sign-in records the profile, the verified email address and the name of the user in
+  the token; `token describe` and the token page show them.
+- `POST /api/self-cert`, in place of `/api/oidc-cert`, issues the certificate for a bearer token
+  of `self-cert`, of the email address and the name the token records, and takes no ID token.
+  The certificate is listed with the token.
+- "Get my certificate", the page `/self-cert` in place of `/oidc-certificate`, uses the token of
+  the sign-in on the index page and has no sign-in of its own; `/api/links` lists it, with
+  `self_cert: true`, for a token of `self-cert`.
+- `request-cert --oidc` and `--oidc-device` exchange the ID token of `cli_client_id` at
+  `/api/oidc-token` for the token `NAME-cli` of the scope `self-cert` alone, valid for 10 minutes
+  and replaced at their next sign-in, and request the certificate at `/api/self-cert` with it.
+  An ID token of `cli_client_id` of a profile that gives no certificate is refused.
+
 ## 1.21.3
 
 fix: the user certificate of an OIDC profile names its own CA, and only its users see

@@ -72,6 +72,10 @@ var (
 	Fail func(w http.ResponseWriter, status int, message string)
 	// Attempt runs try for the client of r unless it is held back, and returns its error.
 	Attempt func(w http.ResponseWriter, r *http.Request, dir string, try func() error) error
+	// Bearer authenticates the bearer token of r, of the root CA in dir or one of its issuing CAs,
+	// with the scope, and returns its name, its CA and the token, or answers with the error and
+	// returns false.
+	Bearer func(w http.ResponseWriter, r *http.Request, dir, scope string) (name, ca string, tok *tokens.APIToken, ok bool)
 	// Page writes the redirect URI page of the sign-in of the root CA in rootDir, titled title.
 	Page func(w io.Writer, rootDir, title string) error
 )
@@ -405,9 +409,14 @@ func (u *oidcUsers) profileFor(user string, groups, roles []string) *oidcProfile
 	return nil
 }
 
+// cliTokenValid is the validity of the token of a sign-in of request-cert.
+const cliTokenValid = 10 * time.Minute
+
 // prepare returns the token name of the profile from tokens.PrepareToken, with the tokens
-// defaults of cfg, and the key of its CA.
-func (p *oidcProfile) prepare(rootDir string, cfg *simpleca.Config, name string) (*tokens.APIToken, crypto.Signer, error) {
+// defaults of cfg, and the key of its CA. A profile that gives a certificate adds the scope
+// self-cert, and one that gives no token has it alone; for request-cert, cli, the token has the
+// scope self-cert alone and is valid for cliTokenValid.
+func (p *oidcProfile) prepare(rootDir string, cfg *simpleca.Config, name string, cli bool) (*tokens.APIToken, crypto.Signer, error) {
 	if p.CA != "" && !slices.Contains(simpleca.CAIDs(rootDir), p.CA) {
 		return nil, nil, fmt.Errorf("%q is not an issuing CA of %q", p.CA, rootDir)
 	}
@@ -427,8 +436,11 @@ func (p *oidcProfile) prepare(rootDir string, cfg *simpleca.Config, name string)
 	if len(scopes) == 0 {
 		scopes = slices.Clone(defaults.Scopes)
 	}
+	if cli || !p.givesToken() {
+		scopes = nil
+	}
 	var types, domains, ips []string
-	if len(scopes) == 0 || tokens.Allows(scopes, "sign") {
+	if !cli && p.givesToken() && (len(scopes) == 0 || tokens.Allows(scopes, "sign")) {
 		types, domains, ips = slices.Clone(t.Types), slices.Clone(t.Domains), slices.Clone(t.IPs)
 		if len(types) == 0 {
 			types = slices.Clone(defaults.Types)
@@ -445,6 +457,19 @@ func (p *oidcProfile) prepare(rootDir string, cfg *simpleca.Config, name string)
 		if t.Localhost {
 			domains, ips = append(domains, "localhost"), append(ips, "127.0.0.1")
 		}
+	}
+	// The scope * stands for every scope but self-cert, which is added beside them.
+	if p.givesCertificate() {
+		switch {
+		case slices.Contains(scopes, "*"):
+			scopes = slices.DeleteFunc(slices.Clone(tokens.TokenScopes), func(s string) bool { return s == tokens.SelfCert })
+		case len(scopes) == 0 && p.givesToken() && !cli:
+			scopes = []string{"sign"}
+		}
+		scopes = append(scopes, tokens.SelfCert)
+	}
+	if cli {
+		valid = cliTokenValid
 	}
 	clients := append(slices.Clone(t.Hosts), t.Networks...)
 	if len(clients) == 0 {
@@ -463,10 +488,8 @@ func Check(rootDir string, cfg *simpleca.Config) error {
 		return err
 	}
 	for _, p := range users.Profiles {
-		if p.givesToken() {
-			if _, _, err := p.prepare(rootDir, cfg, p.Name); err != nil {
-				return fmt.Errorf("profile %s of %q: %w", p.Name, users.path, err)
-			}
+		if _, _, err := p.prepare(rootDir, cfg, p.Name, false); err != nil {
+			return fmt.Errorf("profile %s of %q: %w", p.Name, users.path, err)
 		}
 		switch {
 		case p.givesCertificate():
@@ -575,8 +598,8 @@ func (c *Client) APISettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // decodeBody decodes the JSON body of r, at most maxBody bytes and without unknown keys, into v,
-// or answers with an error and returns false.
-func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+// or answers with an error, malformed for a body that does not decode, and returns false.
+func decodeBody(w http.ResponseWriter, r *http.Request, v any, malformed string) bool {
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
 		Fail(w, http.StatusUnsupportedMediaType, "the body must be application/json")
 		return false
@@ -590,7 +613,7 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 		Fail(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the body is larger than %d bytes", maxBody))
 		return false
 	case err != nil:
-		Fail(w, http.StatusBadRequest, "the body is not a JSON object with the ID token")
+		Fail(w, http.StatusBadRequest, malformed)
 		return false
 	}
 	return true
@@ -616,7 +639,6 @@ type signedIn struct {
 	user    string
 	name    string
 	profile *oidcProfile
-	users   *oidcUsers
 	cfg     *simpleca.Config
 }
 
@@ -663,11 +685,13 @@ func (c *Client) signIn(w http.ResponseWriter, r *http.Request, oc simpleca.OIDC
 	if !simpleca.KebabCaseRE.MatchString(name) {
 		return nil, StatusError(http.StatusForbidden, "the user %q makes no token name", user)
 	}
-	return &signedIn{token: t, user: user, name: name, profile: profile, users: profiles, cfg: cfg}, nil
+	return &signedIn{token: t, user: user, name: name, profile: profile, cfg: cfg}, nil
 }
 
-// APIToken answers POST /api/oidc-token: it exchanges an ID token of the client of the pages for
-// the token of its user's profile.
+// APIToken answers POST /api/oidc-token: it exchanges an ID token for a token of its user's
+// profile. An ID token of the client of the pages gives the token of the profile; one of the
+// client of request-cert, of a profile that gives a certificate, gives the token NAME-cli of the
+// scope self-cert alone, valid for cliTokenValid, which replaces the one before it.
 func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 	oc, ok := c.configured(w)
 	if !ok {
@@ -678,7 +702,7 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 		Replace bool   `json:"replace"`
 		Reuse   bool   `json:"reuse"`
 	}
-	if !decodeBody(w, r, &req) {
+	if !decodeBody(w, r, &req, "the body is not a JSON object with the ID token") {
 		return
 	}
 	switch {
@@ -695,18 +719,32 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 	client := ClientAddr(r)
 	fail := failer(w, "could not make the token")
 
-	s, err := c.signIn(w, r, oc, strings.TrimSpace(req.IDToken), []string{oc.ClientID}, true)
+	clientIDs := []string{oc.ClientID}
+	if oc.CLIClientID != "" {
+		clientIDs = append(clientIDs, oc.CLIClientID)
+	}
+	s, err := c.signIn(w, r, oc, strings.TrimSpace(req.IDToken), clientIDs, false)
 	if err != nil {
 		fail(err)
 		return
 	}
 	user, name, profile := s.user, s.name, s.profile
-	// A profile of a certificate alone signs the user in without a token, and leaves the ID token unused.
-	if !profile.givesToken() {
-		Reply(w, http.StatusOK, map[string]any{"user": user, "certificate": true})
+	cli := s.token.clientID == oc.CLIClientID
+	switch {
+	case !cli && !strings.HasPrefix(s.token.useKey, "nonce:"):
+		fail(StatusError(http.StatusUnauthorized, "invalid ID token: no nonce"))
+		return
+	case cli && (req.Replace || req.Reuse):
+		fail(StatusError(http.StatusBadRequest, "the token of request-cert is replaced without replace or reuse"))
+		return
+	case cli && !profile.givesCertificate():
+		fail(StatusError(http.StatusForbidden, "the profile %s of %q gives no certificate", profile.Name, user))
 		return
 	}
-	tok, caKey, err := profile.prepare(c.rootDir, s.cfg, name)
+	if cli {
+		name += "-cli"
+	}
+	tok, caKey, err := profile.prepare(c.rootDir, s.cfg, name, cli)
 	if err != nil {
 		fail(fmt.Errorf("profile %s: %w", profile.Name, err))
 		return
@@ -717,6 +755,10 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 	}
 	sub, _ := s.token.claims["sub"].(string)
 	tok.OIDC = &tokens.TokenOIDC{Issuer: oc.Issuer, Subject: sub, User: user}
+	if profile.givesCertificate() {
+		tok.OIDC.Profile = profile.Name
+		tok.OIDC.Email, tok.OIDC.Name = certIdentity(oc, s.token)
+	}
 	dir := filepath.Join(c.rootDir, profile.CA)
 
 	// Without replace or reuse, an active token of the user is reported instead.
@@ -725,7 +767,7 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	if old, ok := db.Tokens[name]; ok && old.OwnedBy(tok.OIDC) && old.Active(time.Now()) && !req.Replace && !req.Reuse {
+	if old, ok := db.Tokens[name]; !cli && ok && old.OwnedBy(tok.OIDC) && old.Active(time.Now()) && !req.Replace && !req.Reuse {
 		Reply(w, http.StatusConflict, map[string]any{"error": "the token " + name + " of this user is active",
 			"active": map[string]any{"ca": profile.CA, "name": name, "issued": old.Issued, "expires": old.Expires}})
 		return
@@ -734,7 +776,7 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 		fail(StatusError(http.StatusUnauthorized, "invalid ID token: it has been used"))
 		return
 	}
-	jwt, given, err := oidcToken(dir, name, tok, caKey, req.Replace, req.Reuse)
+	jwt, given, err := oidcToken(dir, name, tok, caKey, req.Replace || cli, req.Reuse)
 	if err != nil {
 		fail(err)
 		return
@@ -743,37 +785,49 @@ func (c *Client) APIToken(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case given != tok:
 		action = "reused"
-	case req.Replace:
+	case req.Replace || cli:
 		action = "replaced"
 	}
 	simpleca.Audit(dir, "token.oidc", "name", name, "user", user, "issuer", oc.Issuer, "client_id", s.token.clientID,
 		"profile", profile.Name, "action", action, "via", "oidc", "actor", user, "client", client.String())
 	Reply(w, http.StatusOK, map[string]any{"ca": profile.CA, "name": name, "token": jwt, "scopes": given.EffectiveScopes(),
-		"user": user, "certificate": profile.givesCertificate()})
+		"user": user})
 }
 
-// APICert answers POST /api/oidc-cert: it issues the certificate of the profile of the user of
-// an ID token of the client of the pages or of request-cert, named by the claims of the ID token,
-// for the public key of a CSR, or for a new key it returns in a PKCS#12 bundle.
-func (c *Client) APICert(w http.ResponseWriter, r *http.Request) {
+// certIdentity returns the email address of the email claim of the ID token, empty when it is no
+// email address or is not verified, and the name of its name claim, of the user certificate.
+func certIdentity(oc simpleca.OIDCConfig, t *idToken) (email, name string) {
+	if emails := claimValues(t.claims, oc.EmailClaim, t.clientID); len(emails) > 0 {
+		email = strings.TrimSpace(emails[0])
+	}
+	if names := claimValues(t.claims, oc.NameClaim, t.clientID); len(names) > 0 {
+		name = strings.TrimSpace(names[0])
+	}
+	if !cert.EmailRE.MatchString(email) || t.claims["email_verified"] == false {
+		email = ""
+	}
+	return email, name
+}
+
+// APISelfCert answers POST /api/self-cert: for a bearer token of the scope self-cert, made by the
+// OIDC sign-in, it issues the user certificate of the profile the token was made with, named by
+// the email address and the name the sign-in recorded, for the public key of a CSR, or for a new
+// key it returns in a PKCS#12 bundle.
+func (c *Client) APISelfCert(w http.ResponseWriter, r *http.Request) {
 	oc, ok := c.configured(w)
 	if !ok {
 		return
 	}
 	var req struct {
-		IDToken  string `json:"id_token"`
 		CSR      string `json:"csr"`
 		Generate bool   `json:"generate"`
 		KeyType  string `json:"key_type"`
 		Type     string `json:"type"`
 	}
-	if !decodeBody(w, r, &req) {
+	if !decodeBody(w, r, &req, "the body is not a JSON object with csr, or generate") {
 		return
 	}
 	switch {
-	case strings.TrimSpace(req.IDToken) == "":
-		Fail(w, http.StatusBadRequest, "the body is not a JSON object with the ID token")
-		return
 	case req.CSR != "" && req.Generate:
 		Fail(w, http.StatusBadRequest, "csr and generate exclude each other")
 		return
@@ -787,47 +841,44 @@ func (c *Client) APICert(w http.ResponseWriter, r *http.Request) {
 		Fail(w, http.StatusBadRequest, fmt.Sprintf("key_type %q must be rsa or ec", req.KeyType))
 		return
 	}
+	tokName, tokCA, tok, ok := Bearer(w, r, c.rootDir, tokens.SelfCert)
+	if !ok {
+		return
+	}
 	client := ClientAddr(r)
 	fail := failer(w, "could not issue the certificate")
-
-	clientIDs := []string{oc.ClientID}
-	if oc.CLIClientID != "" {
-		clientIDs = append(clientIDs, oc.CLIClientID)
+	who := tok.OIDC
+	if who == nil || who.Issuer != oc.Issuer || who.Profile == "" {
+		fail(StatusError(http.StatusForbidden, "the token %s was not made by the OIDC sign-in of %q", tokName, oc.Issuer))
+		return
 	}
-	s, err := c.signIn(w, r, oc, strings.TrimSpace(req.IDToken), clientIDs, false)
+	user, email, name := who.User, who.Email, who.Name
+	cfg, err := simpleca.LoadConfig(c.rootDir)
 	if err != nil {
 		fail(err)
 		return
 	}
-	user, profile, claims := s.user, s.profile, s.token.claims
-	if !profile.givesCertificate() {
-		fail(StatusError(http.StatusForbidden, "the profile %s of %q gives no certificate", profile.Name, user))
+	users, err := loadOIDCUsers(c.rootDir)
+	if err != nil {
+		fail(err)
 		return
 	}
-	set, err := profile.certificate(c.rootDir, s.cfg, s.users.userEKUs())
+	i := slices.IndexFunc(users.Profiles, func(p oidcProfile) bool { return p.Name == who.Profile })
+	if i == -1 || !users.Profiles[i].givesCertificate() {
+		fail(StatusError(http.StatusForbidden, "the profile %s of %q gives no certificate", who.Profile, user))
+		return
+	}
+	profile := &users.Profiles[i]
+	set, err := profile.certificate(c.rootDir, cfg, users.userEKUs())
 	if err != nil {
 		fail(fmt.Errorf("profile %s: %w", profile.Name, err))
 		return
 	}
-
-	// The subject: the email address of the email claim, and the CN of the name claim.
-	var email, name string
-	if emails := claimValues(claims, oc.EmailClaim, s.token.clientID); len(emails) > 0 {
-		email = strings.TrimSpace(emails[0])
-	}
-	if names := claimValues(claims, oc.NameClaim, s.token.clientID); len(names) > 0 {
-		name = strings.TrimSpace(names[0])
-	}
 	_, domain, _ := strings.Cut(email, "@")
 	switch {
 	case email == "":
-		fail(StatusError(http.StatusForbidden, "the ID token of %q has no email claim %s", user, strings.Join(oc.EmailClaim, " or ")))
-		return
-	case !cert.EmailRE.MatchString(email):
-		fail(StatusError(http.StatusForbidden, "the email claim %q of %q is not an email address", email, user))
-		return
-	case claims["email_verified"] == false:
-		fail(StatusError(http.StatusForbidden, "the email address %q of %q is not verified", email, user))
+		fail(StatusError(http.StatusForbidden, "the sign-in of %q gave no verified email address of claim %s", user,
+			strings.Join(oc.EmailClaim, " or ")))
 		return
 	case len(set.emailDomains) > 0 && !cert.InDomains(strings.ToLower(domain), set.emailDomains):
 		fail(StatusError(http.StatusForbidden, "the email address %q of %q is not in the email_domains of the profile %s", email, user,
@@ -854,7 +905,7 @@ func (c *Client) APICert(w http.ResponseWriter, r *http.Request) {
 	}
 	subject, exts, _, err := cert.Names(subjectName, sans, certType, true)
 	if err != nil {
-		fail(StatusError(http.StatusForbidden, "the claims of %q make no subject: %v", user, err))
+		fail(StatusError(http.StatusForbidden, "the name and the email address of %q make no subject: %v", user, err))
 		return
 	}
 
@@ -883,11 +934,8 @@ func (c *Client) APICert(w http.ResponseWriter, r *http.Request) {
 		}
 		pub = csr.PublicKey
 	}
-	if !c.use(s.token) {
-		fail(StatusError(http.StatusUnauthorized, "invalid ID token: it has been used"))
-		return
-	}
 
+	base := strings.TrimSuffix(tokName, "-cli")
 	cert.IssueMu.Lock()
 	crt, fileName, err := func() (*x509.Certificate, string, error) {
 		defer cert.IssueMu.Unlock()
@@ -896,7 +944,7 @@ func (c *Client) APICert(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, "", err
 		}
-		fileName, err := cert.CertFile(s.name + "-" + cert.SerialHex(crt.SerialNumber))
+		fileName, err := cert.CertFile(base + "-" + cert.SerialHex(crt.SerialNumber))
 		if err != nil {
 			return nil, "", err
 		}
@@ -906,16 +954,38 @@ func (c *Client) APICert(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	cert.AuditIssued(set.caDir, crt, certType, "via", "oidc", "actor", user, "oidc_user", user,
-		"issuer", oc.Issuer, "client_id", s.token.clientID, "profile", profile.Name, "generated_key", req.Generate,
-		"client", client.String())
+	// The token keeps the serial of the certificate, as a token of the signing API does.
+	tokDir := filepath.Join(c.rootDir, tokCA)
+	if err := func() error {
+		unlock, err := tokens.LockTokens(tokDir)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+		db, err := tokens.LoadTokens(tokDir)
+		if err != nil {
+			return err
+		}
+		if t, ok := db.Tokens[tokName]; ok {
+			t.Certs = append(t.Certs, cert.SerialHex(crt.SerialNumber))
+		}
+		return db.Save(tokDir)
+	}(); err != nil {
+		slog.Error("serve.error", "error", err.Error())
+	}
+	via := "webui"
+	if strings.HasSuffix(tokName, "-cli") {
+		via = "request-cert"
+	}
+	cert.AuditIssued(set.caDir, crt, certType, "via", via, "actor", tokName, "oidc_user", user, "issuer", oc.Issuer,
+		"profile", profile.Name, "generated_key", req.Generate, "client", client.String())
 
 	certPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: crt.Raw}))
 	chain := certPEM
 	if !bytes.Equal(caCert.RawSubject, caCert.RawIssuer) {
 		chain += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw}))
 	}
-	answer := map[string]any{"ca": *profile.Certificate.CA, "name": s.name, "type": certType, "serial": cert.SerialHex(crt.SerialNumber),
+	answer := map[string]any{"ca": *profile.Certificate.CA, "name": base, "type": certType, "serial": cert.SerialHex(crt.SerialNumber),
 		"certificate": certPEM, "chain": chain}
 	if req.Generate {
 		password := rand.Text()
@@ -925,7 +995,7 @@ func (c *Client) APICert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		pfxName := strings.TrimSuffix(fileName, "_cert.pem") + ".pfx"
-		simpleca.Audit(set.caDir, "cert.pfx", "file", pfxName, "via", "oidc", "actor", user, "client", client.String())
+		simpleca.Audit(set.caDir, "cert.pfx", "file", pfxName, "via", via, "actor", tokName, "client", client.String())
 		answer["file"], answer["password"], answer["pfx"] = pfxName, password, bundle
 	}
 	Reply(w, http.StatusOK, answer)

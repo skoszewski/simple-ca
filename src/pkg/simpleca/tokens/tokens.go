@@ -50,9 +50,13 @@ const TokensFile = "tokens-db.json"
 
 // TokenScopes are the scopes a token may have: sign for the signing API and the signing form,
 // tokens for the token page of serve --webui, certs for its certificate page, audit for its audit
-// page, and federate for the JWTs of a token type at /api/federation-token; the scope * is all of
-// them.
-var TokenScopes = []string{"sign", "tokens", "certs", "audit", "federate"}
+// page, federate for the JWTs of a token type at /api/federation-token, and SelfCert; the scope *
+// is all of them but SelfCert.
+var TokenScopes = []string{"sign", "tokens", "certs", "audit", "federate", SelfCert}
+
+// SelfCert is the scope of the user certificate of the OIDC user a token was made for, at
+// /api/self-cert. The OIDC sign-in alone gives it, and the scope * does not stand for it.
+const SelfCert = "self-cert"
 
 // Allows reports whether values, the scopes or the certificate types of a token, hold value or *,
 // which stands for every value.
@@ -91,11 +95,16 @@ type APIToken struct {
 	Federate *TokenFederate `json:"federate,omitempty"`
 }
 
-// TokenOIDC is the OIDC user a token was made for: issuer, subject and user claim.
+// TokenOIDC is the OIDC user a token was made for: issuer, subject and user claim, and, of a
+// token with the scope self-cert, the profile, the verified email address and the name of the
+// user certificate.
 type TokenOIDC struct {
 	Issuer  string `json:"issuer"`
 	Subject string `json:"subject"`
 	User    string `json:"user"`
+	Profile string `json:"profile,omitempty"`
+	Email   string `json:"email,omitempty"`
+	Name    string `json:"name,omitempty"`
 }
 
 // TokenSetup is the one-time setup code a pending token waits for: the SHA-256 of the code, in
@@ -174,8 +183,11 @@ func (t *APIToken) EffectiveScopes() []string {
 	return t.Scopes
 }
 
-// HasScope reports whether the token has the scope, named or by the scope *.
+// HasScope reports whether the token has the scope, named or by the scope *; SelfCert only named.
 func (t *APIToken) HasScope(scope string) bool {
+	if scope == SelfCert {
+		return slices.Contains(t.Scopes, SelfCert)
+	}
 	return Allows(t.EffectiveScopes(), scope)
 }
 
@@ -267,6 +279,9 @@ func MakeToken(caDir, name string, valid time.Duration, scopes, certTypes, domai
 // the JWT of a token type the token gets, which belongs to that scope alone.
 func AddToken(caDir, name string, fed *TokenFederate, valid time.Duration, scopes, certTypes, domains, ips, clients []string,
 	setupValid time.Duration, setupClients []string) (string, error) {
+	if slices.Contains(scopes, SelfCert) {
+		return "", errors.New("the scope self-cert is given by the OIDC sign-in alone")
+	}
 	setup, code, err := NewTokenSetup(valid, setupValid, setupClients)
 	if err != nil {
 		return "", err

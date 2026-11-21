@@ -1,6 +1,7 @@
-// The certificate page of serve, after picker.js and oidc.js: the choice of the key, the OIDC
-// sign-in, which keeps the choice and the request, and the certificate it gives.
-const certFormKey = "simple-ca-oidc-cert-form";
+// The page of the user certificate of serve, after picker.js: for the token of the tab, made by the
+// OIDC sign-in with the scope self-cert, the choice of the key, the certificate it gives, and the
+// type of a profile of several types.
+const webuiTokenKey = "simple-ca-webui-token";
 const $ = (id) => document.getElementById(id);
 
 // fail shows the error text.
@@ -24,15 +25,20 @@ const offer = (bytes, name, type) => {
   URL.revokeObjectURL(link.href);
 };
 
-// issue sends the ID token with the kept choice, and the certificate type when one is chosen, to
-// /api/oidc-cert and shows the certificate; a profile of several types asks for the type first.
-async function issue(idToken, kept, type = "") {
-  const body = kept.mode === "csr" ? { id_token: idToken, csr: kept.csr }
-    : { id_token: idToken, generate: true, ...(kept.keyType ? { key_type: kept.keyType } : {}) };
+// issue sends the request of the form, with the certificate type when one is chosen, to
+// /api/self-cert with the token of the tab, and shows the certificate; a profile of several types
+// asks for the type first.
+async function issue(type = "") {
+  const body = mode() === "csr" ? { csr: $("csr").value } : { generate: true };
+  const keyType = document.querySelector('input[name="key-type"]').value;
+  if (mode() !== "csr" && keyType) {
+    body.key_type = keyType;
+  }
   if (type) {
     body.type = type;
   }
-  const response = await fetch("/api/oidc-cert", { method: "POST", headers: { "Content-Type": "application/json" },
+  const response = await fetch("/api/self-cert", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + sessionStorage.getItem(webuiTokenKey) },
     body: JSON.stringify(body) }).catch(() => null);
   const answer = response ? await response.json().catch(() => ({})) : {};
   if (response && response.status === 409 && answer.types) {
@@ -40,13 +46,14 @@ async function issue(idToken, kept, type = "") {
     $("type-choice").classList.remove("hidden");
     $("type-picker").replaceChildren(picker({ name: "cert-type", labelledBy: "type-label",
       choices: answer.types.map((t) => [t, t]), value: answer.types[0] }));
-    $("type-issue").onclick = () => issue(idToken, kept, document.querySelector('input[name="cert-type"]').value);
+    $("type-issue").onclick = () => issue(document.querySelector('input[name="cert-type"]').value);
     return;
   }
   if (!response || !response.ok) {
     $("type-choice").classList.add("hidden");
     $("cert-form").classList.remove("hidden");
-    fail(answer.error || (response ? response.statusText : "The server could not be reached."));
+    fail(response && response.status === 401 ? "Your sign-in has expired or was revoked; sign in again on the index page."
+      : answer.error || (response ? response.statusText : "The server could not be reached."));
     return;
   }
   $("cert-form").classList.add("hidden");
@@ -54,7 +61,7 @@ async function issue(idToken, kept, type = "") {
   $("cert-result").classList.remove("hidden");
   $("cert-summary").textContent = `Your certificate ${answer.serial} of the type ${answer.type}`
     + (answer.ca ? ` of the issuing CA ${answer.ca}` : "")
-    + " is issued. Signing in again issues another one; this one stays valid.";
+    + " is issued. Issuing another one keeps this one valid.";
   $("cert-pem").value = answer.chain;
   copying($("pem-copy"), $("cert-pem"));
   const base = answer.file ? answer.file.replace(/\.pfx$/, "") : answer.name + "-" + answer.serial;
@@ -69,10 +76,17 @@ async function issue(idToken, kept, type = "") {
   }
 }
 
-// The page serves the OIDC user the sign-in on the index page has found a certificate for alone.
-if ($("cert-form") && sessionStorage.getItem(oidcCertificateKey)) {
+// The page serves a token of the tab with the scope self-cert alone; /api/links tells.
+async function start() {
+  const token = sessionStorage.getItem(webuiTokenKey);
+  const response = token ? await fetch("/api/links", { headers: { Authorization: "Bearer " + token } }).catch(() => null) : null;
+  const answer = response && response.ok ? await response.json().catch(() => ({})) : {};
+  if (!answer.self_cert) {
+    return;
+  }
   $("cert-signin").classList.add("hidden");
   $("cert-form").classList.remove("hidden");
+  $("cert-user").textContent = `Signed in as ${answer.user}.`;
   for (const radio of document.querySelectorAll('input[name="mode"]')) {
     radio.addEventListener("change", mode);
   }
@@ -82,29 +96,20 @@ if ($("cert-form") && sessionStorage.getItem(oidcCertificateKey)) {
       $("csr").value = await file.text();
     }
   });
-  const taken = oidcTaken();
-  const kept = JSON.parse(sessionStorage.getItem(certFormKey) || "null");
-  sessionStorage.removeItem(certFormKey);
-  if (kept) {
-    document.querySelector(`input[name="mode"][value="${kept.mode === "csr" ? "csr" : "generate"}"]`).checked = true;
-    $("csr").value = kept.csr || "";
-    $("key-type").value = kept.keyType || "";
-  }
   const keyType = $("key-type");
   keyType.replaceWith(picker({ name: "key-type", labelledBy: "key-type-label",
     choices: [...keyType.options].map((option) => [option.value, option.textContent]), value: keyType.value }));
   mode();
-  if (taken && taken.id_token && kept) {
-    issue(taken.id_token, kept);
-  }
-  // A request is needed before the sign-in, which would spend the ID token on nothing.
-  $("oidc-sign-in").addEventListener("click", (event) => {
+  $("cert-issue").addEventListener("click", () => {
+    $("cert-error").classList.add("hidden");
     if (mode() === "csr" && !$("csr").value.includes("CERTIFICATE REQUEST")) {
-      event.stopImmediatePropagation();
       fail("Upload or paste the certificate signing request first.");
+      return;
     }
+    issue();
   });
-  oidcSettings().then((settings) => $("cert-off").classList.toggle("hidden", Boolean(settings)));
-  oidcButton($("oidc-sign-in"), () => sessionStorage.setItem(certFormKey, JSON.stringify({
-    mode: mode(), csr: $("csr").value, keyType: document.querySelector('input[name="key-type"]').value })), fail, "certificate");
+}
+
+if ($("cert-form")) {
+  start();
 }

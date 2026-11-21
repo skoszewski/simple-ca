@@ -5,7 +5,7 @@ title: OIDC sign-in
 `serve` can hand out tokens to the users of an OpenID Connect provider, next to
 [setup codes](signing-api.md#one-time-setup-codes): a user signs in at the provider, and `serve`
 makes the user's token from the profile `oidc-users.json` gives the user. A profile can also give
-the user a user certificate named after the user, from the page `/oidc-certificate` or from
+the user a user certificate named after the user, from the page `/self-cert` or from
 `request-cert`; see [User certificates](#user-certificates). Generic OIDC providers, Keycloak and
 Microsoft Entra ID are supported.
 
@@ -110,12 +110,12 @@ A claim is a dotted path into the ID token, such as `realm_access.roles`, and th
 
 `serve` accepts an ID token signed with RS256, ES256, ES384, ES512 or EdDSA by a key of the JWKS
 of the provider. Its `iss` must be the issuer. It is issued for its `azp`, or, without one, for
-the client ID its `aud` holds; that client must be `client_id` for a token, and `client_id` or
-`cli_client_id` for a certificate, and `aud` must hold it. It must have a subject, must not have
-expired, and its `iat` must be present and at most 2 minutes ahead of the clock of `serve`. An ID
-token for a token must have a `nonce`; one for a certificate may lack it, as an ID token of the
-device authorization grant does. An ID token gives one token or one certificate, and is refused
-after that; it is known by its `nonce`, or by its SHA-256 without one. The JWKS is fetched again
+the client ID its `aud` holds; that client must be `client_id`, or `cli_client_id`, and `aud`
+must hold it. It must have a subject, must not have expired, and its `iat` must be present and at
+most 2 minutes ahead of the clock of `serve`. An ID token of `client_id` must have a `nonce`; one
+of `cli_client_id` may lack it, as an ID token of the device authorization grant does. An ID token
+gives one token, and is refused after that; it is known by its `nonce`, or by its SHA-256 without
+one. The JWKS is fetched again
 for a key it does not have, at most once a minute.
 
 ## oidc-users.json
@@ -180,8 +180,9 @@ A profile gives a token, a certificate, or both:
   no JWTs, and grants the scope `federate` to the tokens its user creates on the token page.
 - `certificate` - the settings of the user certificate, described in
   [User certificates](#user-certificates). A profile gives a certificate when `certificate` names
-  its `ca`. A profile that gives a certificate and has no `token` gives no token; one that gives
-  no certificate and has no `token` gives a token of the defaults of the `tokens` section.
+  its `ca`, and then gives its token the scope `self-cert` too. A profile that gives a certificate
+  and has no `token` gives a token of the scope `self-cert` alone; one that gives no certificate
+  and has no `token` gives a token of the defaults of the `tokens` section.
 
 A rule gives its `profile` to the users of `users`, compared with the user claim, and to the
 members of `groups`, compared with the groups claim.
@@ -283,37 +284,51 @@ the built-in type `user` meets and `server` does not. The example admits types o
 or `emailProtection`, with `codeSigning` and the OID `1.3.6.1.4.1.99999.20` besides, and no
 `serverAuth`.
 
-A certificate is refused with `403 Forbidden` when the ID token has no email claim, or one that
-is not an email address, when its `email_verified` is `false`, when the email address is not in
-`email_domains`, and when the request names a type the profile does not offer. A profile of
-several types needs the type of the request; without it, the answer is `409 Conflict` with the
-types, and the ID token stays unused for the next request. The certificate is stored in the
-directory of the CA of the profile as `NAME-SERIAL_cert.pem`, with `NAME` the name the token of
-the user has, and is logged with the OIDC user, the client ID and the client.
+A profile that gives a certificate gives its tokens the scope `self-cert`, beside the scopes of
+`token`, and a profile of a certificate alone gives a token of `self-cert` alone, with the
+validity, hosts and networks of the `tokens` section of `simple-ca.json`. The OIDC sign-in alone
+grants `self-cert`: `token create` and the token page refuse it, `token.scopes` of a profile may
+not name it, and the scope `*` does not stand for it. The sign-in records in the token the
+profile, the email address of `email_claim`, when it is an email address and `email_verified` is
+not `false`, and the name of `name_claim`; `token describe` shows them. A token of `self-cert`
+gets user certificates of that email address and that name alone, at `/api/self-cert`, for as
+long as it is valid and its profile gives a certificate.
 
-There are three ways to get it.
+A certificate is refused with `403 Forbidden` when the token has no recorded email address, when
+the email address is not in `email_domains`, when the profile no longer gives a certificate, and
+when the request names a type the profile does not offer. A profile of several types needs the
+type of the request; without it, the answer is `409 Conflict` with the types. The certificate is
+stored in the directory of the CA of `certificate.ca` as `NAME-SERIAL_cert.pem`, with `NAME` the
+name of the user's token, recorded in the token as a certificate of the signing API is, and logged
+with the token, the OIDC user and the client.
 
-- **The page `/oidc-certificate`**, linked from the header of the index page, with `--webui`, once
-  the user has signed in there with OIDC and the profile gives a certificate; without that
-  sign-in in the browser tab, the page asks for it. The user
-  chooses to have the key generated, of the type of the CA key, `ec` or `rsa`, or uploads or
-  pastes a CSR, and signs in with the client of the pages. A generated key is returned in a
-  PKCS#12 file, with a random password shown once, and `serve` keeps no copy of it. The page also
-  shows the certificate with its chain. For a profile of several types, it asks for the type after
-  the sign-in.
-- **`request-cert --oidc SERVE_URL`**, which signs in with the client of `cli_client_id`: the
-  authorization code flow with PKCE, the browser sent back to `http://127.0.0.1:PORT` on a free
-  port of the machine. It opens the browser at the sign-in URL and prints the URL, or only prints
-  it with `--no-browser`, and waits 5 minutes for the browser to come back.
+There are three ways to get it, all with a token of `self-cert`.
+
+- **The page `/self-cert`**, "Get my certificate", which the index page links to, with `--webui`,
+  once the user has signed in there with OIDC and the token has `self-cert`. The page uses that
+  token, with no sign-in of its own, and asks for the sign-in on the index page without it. The
+  user chooses to have the key generated, of the type of the CA key, `ec` or `rsa`, or uploads or
+  pastes a CSR. A generated key is returned in a PKCS#12 file, with a random password shown once,
+  and `serve` keeps no copy of it. The page also shows the certificate with its chain, and asks
+  for the type for a profile of several types.
+- **`request-cert --oidc SERVE_URL`**, for a machine where the certificate is used, such as a
+  server, or where `serve` runs without `--webui`. It signs the user in with the client of
+  `cli_client_id`: the authorization code flow with PKCE, the browser sent back to
+  `http://127.0.0.1:PORT` on a free port of the machine. It opens the browser at the sign-in URL
+  and prints the URL, or only prints it with `--no-browser`, and waits 5 minutes for the browser
+  to come back.
 - **`request-cert --oidc-device SERVE_URL`**, the device authorization grant of the same client:
   it prints the verification URL and the code to enter there, on any device, and polls the
   provider until the user has signed in. The provider must name a
   `device_authorization_endpoint` in its discovery document.
 
-`SERVE_URL` is the URL of `serve`, such as `https://pki.example.com:8443`; the profile gives the
-CA. `request-cert` makes an EC P-256 key and writes `NAME_key.pem`, `NAME_cert.pem` and
+`request-cert` exchanges the ID token at `/api/oidc-token` for a token of its own, `NAME-cli`, of
+the scope `self-cert` alone, valid for 10 minutes and replaced at its next sign-in, so the token
+the browser holds is not touched. It then makes an EC P-256 key and requests the certificate at
+`/api/self-cert` with that token, and writes `NAME_key.pem`, `NAME_cert.pem` and
 `NAME_chain.pem` to `--out-dir`, `NAME` being `--name`, else the local part of the email address
-of the ID token. `--type` names the type, among those of the profile, and is needed when it
+of the ID token. `SERVE_URL` is the URL of `serve`, such as `https://pki.example.com:8443`; the
+profile gives the CA. `--type` names the type, among those of the profile, and is needed when it
 offers several. `--token-file`, `--setup-code`, `--days` and a CN are refused with these options.
 
 ```sh
@@ -355,11 +370,10 @@ with.
 
 `POST /api/oidc-token` takes a JSON body of at most 64 KiB, `{"id_token": "eyJ..."}`, and
 answers as [/api/token-setup](signing-api.md#setup-code-exchange) does:
-`{"ca": "servers", "name": "alice-example-com", "token": "eyJ...", "scopes": ["sign"], "user":
-"alice@example.com", "certificate": false}`, `certificate` telling whether the profile also gives a
-certificate. A profile that gives a certificate and no token answers
-`{"user": "alice@example.com", "certificate": true}`, makes nothing and leaves the ID token unused;
-the pages accept that answer on the index page alone.
+`{"ca": "servers", "name": "alice-example-com", "token": "eyJ...", "scopes": ["sign", "self-cert"],
+"user": "alice@example.com"}`. An ID token of `cli_client_id`, of a profile that gives a
+certificate, gives the token `alice-example-com-cli` of the scope `self-cert` alone, valid for 10
+minutes, which replaces the one before it without asking; it takes no `replace` or `reuse`.
 
 When the user has an active token there, the answer is `409 Conflict` naming it, and nothing is
 made:
@@ -386,11 +400,11 @@ Any other error is `{"error": "..."}` with the status:
 - `400 Bad Request` - a body that is not a JSON object with a non-empty `id_token` and no other
   keys than `id_token`, `replace` and `reuse`, `reuse` without `reuse_token`, or `replace` and
   `reuse` together;
-- `401 Unauthorized` - an ID token `serve` does not accept, one used before, or one of the client
-  of `request-cert`;
-- `403 Forbidden` - a user without a user claim or a profile, a user claim that makes no
-  kebab-case token name, or a client the token of the profile is not
-  accepted from;
+- `401 Unauthorized` - an ID token `serve` does not accept, one used before, or one of
+  `client_id` without a nonce;
+- `403 Forbidden` - a user without a user claim or a profile, an ID token of `cli_client_id` of a
+  profile that gives no certificate, a user claim that makes no kebab-case token name, or a
+  client the token of the profile is not accepted from;
 - `404 Not Found` - the sign-in is off;
 - `409 Conflict` without `active` - the name of the token belongs to another token;
 - `413 Request Entity Too Large` - a body larger than 64 KiB;
@@ -401,11 +415,11 @@ Any other error is `{"error": "..."}` with the status:
 
 Every token made is logged with the OIDC user and the client.
 
-`POST /api/oidc-cert` takes a JSON body of at most 64 KiB with the ID token and a CSR,
-`{"id_token": "eyJ...", "csr": "-----BEGIN CERTIFICATE REQUEST-----..."}`, or the ID token and
-`"generate": true`, with an optional `"key_type"`, `ec` or `rsa`, the type of the CA key without
+`POST /api/self-cert` takes a token of the scope `self-cert` as its bearer token, and a JSON body
+of at most 64 KiB with a CSR, `{"csr": "-----BEGIN CERTIFICATE REQUEST-----..."}`, or
+`{"generate": true}`, with an optional `"key_type"`, `ec` or `rsa`, the type of the CA key without
 it. `"type"` names one of the types of the profile, and is needed when it offers several. It
-answers with the certificate of the profile of the user:
+answers with the certificate of the user the token was made for:
 
 ```json
 {
@@ -422,10 +436,16 @@ answers with the certificate of the profile of the user:
 With `generate`, the answer adds `file`, the name of the PKCS#12 file, `password`, its password,
 and `pfx`, the file in base64. A profile of several types and a request without `type` give
 `409 Conflict` with `{"error": "...", "types": ["person", "user"]}`. Any other error is
-`{"error": "..."}` with the statuses of `/api/oidc-token`; `400 Bad Request` also covers a CSR
-that does not parse, `csr` and `generate` together or neither, and `key_type` without
-`generate`, and `403 Forbidden` a profile without `certificate` and the refusals of
-[User certificates](#user-certificates). A refused request leaves the ID token unused.
+`{"error": "..."}` with the status:
+
+- `400 Bad Request` - a body that is not one of these, such as one with `id_token`, a CSR that
+  does not parse, `csr` and `generate` together or neither, or `key_type` without `generate`;
+- `401 Unauthorized` - no token, or one `serve` does not accept, such as an expired or revoked
+  one;
+- `403 Forbidden` - a token without the scope `self-cert`, or used from a client it does not
+  allow, and the refusals of [User certificates](#user-certificates);
+- `404 Not Found` - the sign-in is off;
+- `413`, `415`, `429` and `500` as for `/api/oidc-token`.
 
 ## Generic provider
 

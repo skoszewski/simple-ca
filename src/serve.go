@@ -170,7 +170,7 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 // tokens and the certificates of the CAs, with the parts they share in webui-common.html;
 // token-setup.html, the setup code page; token-describe.html, the page describing a token;
 // downloads.html, the downloads page; apt.html, the apt page; oidc-callback.html, the page the OIDC provider sends the
-// browser back to; oidc-certificate.html, the page of the certificate of an OIDC user; and theme.html, the colours all of them share and the version line below each
+// browser back to; self-cert.html, the page of the user certificate of the OIDC user signed in; and theme.html, the colours all of them share and the version line below each
 // of them.
 //
 //go:embed templates/*.html
@@ -251,7 +251,7 @@ func issuingCADir(rootDir string, r *http.Request) (string, bool) {
 // signing API at /help/ and, with docs, the guides at /docs/. With webui, it serves the token
 // page at tokensPath and the certificate page at certsPath. The setup codes of the tokens are
 // exchanged for them at /api/token-setup and on the page /token-setup, and with oidc in
-// simple-ca.json, the ID tokens of the OIDC sign-in at /api/oidc-token and /api/oidc-cert. With downloadsDir, it
+// simple-ca.json, the ID tokens of the OIDC sign-in at /api/oidc-token, and their tokens of the scope self-cert at /api/self-cert. With downloadsDir, it
 // serves the downloads page at downloadsPath, and with packagesDir the apt repository at aptPath.
 func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	docsServed = docs && docsSite != nil
@@ -498,10 +498,10 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 	oidcClient := oidc.NewClient(rootDir)
 	mux.HandleFunc("GET /api/oidc", oidcClient.APISettings)
 	mux.HandleFunc("POST /api/oidc-token", oidcClient.APIToken)
-	mux.HandleFunc("POST /api/oidc-cert", oidcClient.APICert)
+	mux.HandleFunc("POST /api/self-cert", oidcClient.APISelfCert)
 	mux.HandleFunc("GET "+oidc.CallbackPath, oidcClient.CallbackPage)
-	// The page of the certificate of an OIDC user.
-	mux.HandleFunc("GET /oidc-certificate", func(w http.ResponseWriter, r *http.Request) {
+	// The page of the user certificate of the OIDC user signed in.
+	mux.HandleFunc("GET /self-cert", func(w http.ResponseWriter, r *http.Request) {
 		caCert, err := simpleca.LoadCert(filepath.Join(rootDir, "ca_cert.pem"))
 		if err != nil {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
@@ -510,7 +510,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		if err := pageTemplates.ExecuteTemplate(w, "oidc-certificate.html", struct {
+		if err := pageTemplates.ExecuteTemplate(w, "self-cert.html", struct {
 			Title, Script string
 			Theme         template.CSS
 		}{caCert.Subject.CommonName, tailwindPath, pageTheme(rootDir)}); err != nil {
@@ -631,6 +631,13 @@ func init() {
 	oidc.Fail = webuiFail
 	oidc.Attempt = func(w http.ResponseWriter, r *http.Request, dir string, try func() error) error {
 		return guard.attempt(w, r, dir, try)
+	}
+	oidc.Bearer = func(w http.ResponseWriter, r *http.Request, dir, scope string) (string, string, *tokens.APIToken, bool) {
+		s := &webuiServer{rootDir: dir, scope: scope}
+		if !s.authenticate(w, r) {
+			return "", "", nil, false
+		}
+		return s.user, s.userCA, s.userToken, true
 	}
 	oidc.Page = func(w io.Writer, rootDir, title string) error {
 		return pageTemplates.ExecuteTemplate(w, "oidc-callback.html", struct {

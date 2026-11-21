@@ -294,8 +294,9 @@ type pageLink struct {
 
 // apiLinks answers GET /api/links with the links of the index page: those of the public pages to a
 // request without a bearer token, and with a valid token of the root CA or an issuing CA, used from
-// a client it allows, also those of the pages of webui, with the name and the CA of the token. A
-// token refused is answered as the pages answer it.
+// a client it allows, also those of the pages of webui, with the name and the CA of the token, and
+// with the scope self-cert the page of its user certificate. A token refused is answered as the
+// pages answer it.
 func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool) {
 	links := []pageLink{{"Set up a token", "/token-setup"}, {"Describe a token", "/token-describe"}}
 	if downloadsDir != "" {
@@ -305,9 +306,10 @@ func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool
 		links = append(links, pageLink{"Apt", aptPath})
 	}
 	answer := struct {
-		User   string     `json:"user,omitempty"`
-		UserCA string     `json:"user_ca,omitempty"`
-		Links  []pageLink `json:"links"`
+		User     string     `json:"user,omitempty"`
+		UserCA   string     `json:"user_ca,omitempty"`
+		SelfCert bool       `json:"self_cert,omitempty"`
+		Links    []pageLink `json:"links"`
 	}{}
 	given, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if strings.TrimSpace(given) != "" {
@@ -316,6 +318,10 @@ func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool
 			return
 		}
 		answer.User, answer.UserCA = s.user, s.userCA
+		if s.userToken.HasScope(tokens.SelfCert) {
+			answer.SelfCert = true
+			links = append(links, pageLink{"Get my certificate", "/self-cert"})
+		}
 		if webui {
 			links = append(links, pageLink{"Tokens", tokensPath}, pageLink{"Certificates", certsPath},
 				pageLink{"Audit log", auditPagePath})
@@ -596,8 +602,11 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		if len(defaults.Types) == 0 {
 			defaults.Types = []string{"server"}
 		}
-		// The scopes the token of the request grants, and the default ones among them.
-		grantable := slices.DeleteFunc(append(slices.Clone(tokens.TokenScopes), "*"), func(scope string) bool { return !s.grants([]string{scope}) })
+		// The scopes the token of the request grants, and the default ones among them; self-cert is
+		// given by the OIDC sign-in alone.
+		grantable := slices.DeleteFunc(append(slices.Clone(tokens.TokenScopes), "*"), func(scope string) bool {
+			return scope == tokens.SelfCert || !s.grants([]string{scope})
+		})
 		defaults.Scopes = slices.DeleteFunc(slices.Clone(cfg.Tokens.Scopes), func(scope string) bool {
 			return !slices.Contains(grantable, scope)
 		})
