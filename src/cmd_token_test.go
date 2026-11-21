@@ -176,6 +176,20 @@ func TestTokenDescribeRenew(t *testing.T) {
 		!strings.Contains(err.Error(), "the token is not one signed by the CA in") {
 		t.Errorf("token describe with the root CA of a token of servers: %v", err)
 	}
+	// --ca-bundle finds the issuing CA among the CAs of ca_bundle.pem, and reads no entry.
+	bundle := filepath.Join(root, "ca_bundle.pem")
+	out, err = tokCapture(t, "token", "describe", "--ca-bundle", bundle, "--token-file", jwtFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains("token describe --ca-bundle", out, "web-deploy", "Signature:", "valid, of the CA CN=Servers CA")
+	if strings.Contains(out, "Domains:") {
+		t.Errorf("token describe --ca-bundle shows the limits:\n%s", out)
+	}
+	if _, err := tokCapture(t, "token", "describe", "--ca-bundle", filepath.Join(root, "ca_cert.pem"), "--token-file", jwtFile); err == nil ||
+		!strings.Contains(err.Error(), "the token is not one signed by a CA of") {
+		t.Errorf("token describe with a bundle without its CA: %v", err)
+	}
 	garbage := filepath.Join(t.TempDir(), "garbage")
 	if err := os.WriteFile(garbage, []byte("not a token"), 0o600); err != nil {
 		t.Fatal(err)
@@ -212,6 +226,9 @@ func TestTokenDescribeRenew(t *testing.T) {
 		{[]string{"describe", "--token-file", jwtFile, "--stdin"}, "give --token-file or --stdin, not both"},
 		{[]string{"describe", "--stdin", "web-deploy"}, "give NAME, or --token-file or --stdin, not both"},
 		{[]string{"describe"}, "give NAME, --token-file or --stdin"},
+		{[]string{"describe", "--ca-dir", servers, "--ca-bundle", jwtFile, "--stdin"}, "give --ca-dir or --ca-bundle, not both"},
+		{[]string{"describe", "--ca-bundle", jwtFile, "web-deploy"}, "NAME is read with --ca-dir"},
+		{[]string{"describe", "--ca-bundle", jwtFile, "--token-file", jwtFile}, "no PEM or DER certificate"},
 		{[]string{"describe", "--ca-dir", servers, "nosuch"}, `token "nosuch" not found in`},
 		{[]string{"describe", "--ca-dir", t.TempDir(), "web-deploy"}, "CA certificate not found in"},
 		{[]string{"describe", "--token-file", filepath.Join(t.TempDir(), "missing")}, "no such file"},

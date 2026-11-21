@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.22.2
+
+fix: token describe checks the signature of a token of --token-file or --stdin with the CAs of
+--ca-bundle, such as ca_bundle.pem, and names the CA that signed it.
+
+- `token describe --ca-bundle FILE` checks the signature of the token of `--token-file` or
+  `--stdin` against each CA certificate of `FILE` and names the CA that signed it, without the
+  CA directory; `--ca-dir` of that CA still shows its limits and whether it was renewed, revoked
+  or removed.
+
 ## 1.22.1
 
 fix: the release builds again, with cmd_database.go formatted as gofmt formats it.

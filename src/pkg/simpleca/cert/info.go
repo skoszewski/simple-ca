@@ -224,32 +224,9 @@ func WriteCertFields(w io.Writer, cert *x509.Certificate, now time.Time) {
 
 // ShowCert writes the fields of every certificate in the PEM or DER file at path to w.
 func ShowCert(w io.Writer, path string) error {
-	b, err := os.ReadFile(path)
+	certs, err := ReadCerts(path)
 	if err != nil {
 		return err
-	}
-	var certs []*x509.Certificate
-	for rest := b; ; {
-		var block *pem.Block
-		block, rest = pem.Decode(rest)
-		if block == nil {
-			break
-		}
-		if block.Type != "CERTIFICATE" {
-			continue
-		}
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return fmt.Errorf("could not read %q: %w", path, err)
-		}
-		certs = append(certs, cert)
-	}
-	if len(certs) == 0 {
-		cert, err := x509.ParseCertificate(b)
-		if err != nil {
-			return fmt.Errorf("no PEM or DER certificate in %q", path)
-		}
-		certs = append(certs, cert)
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -267,6 +244,38 @@ func ShowCert(w io.Writer, path string) error {
 		fmt.Fprintf(tw, "Private key:\t%s\n", KeyStatus(strings.TrimSuffix(path, "_cert.pem")+"_key.pem"))
 	}
 	return tw.Flush()
+}
+
+// ReadCerts returns the certificates of the PEM file at path, or of the DER file holding one.
+func ReadCerts(path string) ([]*x509.Certificate, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var certs []*x509.Certificate
+	for rest := b; ; {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("could not read %q: %w", path, err)
+		}
+		certs = append(certs, cert)
+	}
+	if len(certs) == 0 {
+		cert, err := x509.ParseCertificate(b)
+		if err != nil {
+			return nil, fmt.Errorf("no PEM or DER certificate in %q", path)
+		}
+		certs = append(certs, cert)
+	}
+	return certs, nil
 }
 
 // ShowInfo writes the certificate, the certificate counts and the CRL of the CA in caDir to w,

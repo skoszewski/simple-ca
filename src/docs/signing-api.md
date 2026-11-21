@@ -118,12 +118,16 @@ with `sign` the serial numbers of the certificates issued with it.
 token itself, as its holder has it. Its JWT holds only its name, its scopes and its times, which
 are shown, with a note that the signature is not checked. With `--ca-dir` as well, the signature
 is checked against that CA, and the rest is read from its `tokens-db.json`; a token renewed,
-revoked or removed there is shown as refused.
+revoked or removed there is shown as refused. With `--ca-bundle FILE` instead, such as the
+`ca_bundle.pem` of `serve`, the signature is checked against each CA of the file, and the CA that
+signed it is named; the rest needs `--ca-dir` of that CA. `--ca-bundle` goes with `--token-file`
+and `--stdin` alone.
 
 ```sh
 simple-ca token describe --ca-dir /etc/simple-ca/servers deploy
 simple-ca token describe --stdin < deploy.token
 simple-ca token describe --ca-dir /etc/simple-ca/servers --token-file deploy.token
+simple-ca token describe --ca-bundle ca_bundle.pem --token-file deploy.token
 ```
 
 ```text

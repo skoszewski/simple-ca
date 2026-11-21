@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cli"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/tokens"
 )
@@ -278,8 +279,10 @@ func runTokenList(args []string) error {
 func runTokenDescribe(args []string) error {
 	fs := cli.NewFlagSet("token describe", "[NAME]",
 		"Prints the attributes of the token NAME of the CA in --ca-dir, or of the token in the file of\n"+
-			"--token-file, or on the standard input with --stdin.")
+			"--token-file, or on the standard input with --stdin, whose signature is checked with the\n"+
+			"CA of --ca-dir or with the CAs of --ca-bundle.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
+	caBundle := fs.String("ca-bundle", "", "`file` of CA certificates, such as ca_bundle.pem, checking the signature of the token of --token-file or --stdin")
 	tokenFile := fs.String("token-file", "", "`file` holding the token")
 	stdin := fs.Bool("stdin", false, "read the token from the standard input")
 	rest, given, err := cli.ParseArgs(fs, args, 0, 1)
@@ -287,6 +290,10 @@ func runTokenDescribe(args []string) error {
 		return err
 	}
 	switch {
+	case *caBundle != "" && given["ca-dir"]:
+		return errors.New("give --ca-dir or --ca-bundle, not both")
+	case *caBundle != "" && len(rest) == 1:
+		return errors.New("--ca-bundle checks the token of --token-file or --stdin; NAME is read with --ca-dir")
 	case *tokenFile != "" && *stdin:
 		return errors.New("give --token-file or --stdin, not both")
 	case len(rest) == 1 && (*tokenFile != "" || *stdin):
@@ -322,24 +329,45 @@ func runTokenDescribe(args []string) error {
 		if err != nil {
 			return err
 		}
-		// The signature is checked, and the entry read, with the CA of --ca-dir alone.
+		// The signature is checked with the CA of --ca-dir, whose entry is read, or with the CAs of
+		// --ca-bundle, which hold no entries.
+		jwt := strings.TrimSpace(string(b))
 		var caCert *x509.Certificate
+		var c *tokens.JWTClaims
 		dir := cli.ResolveCADir(*caDir)
-		if given["ca-dir"] {
+		switch {
+		case *caBundle != "":
+			cas, err := cert.ReadCerts(*caBundle)
+			if err != nil {
+				return err
+			}
+			for _, ca := range cas {
+				if claims, err := verifyJWT(ca, jwt); err == nil {
+					c, caCert = claims, ca
+					break
+				}
+			}
+			if c == nil {
+				return fmt.Errorf("the token is not one signed by a CA of %q", *caBundle)
+			}
+		case given["ca-dir"]:
 			if caCert, err = simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem")); err != nil {
 				return err
 			}
-		}
-		c, err := verifyJWT(caCert, strings.TrimSpace(string(b)))
-		switch {
-		case err != nil && caCert != nil:
-			return fmt.Errorf("the token is not one signed by the CA in %q", dir)
-		case err != nil:
-			return errors.New("the token is not a JWT of simple-ca token create")
+			if c, err = verifyJWT(caCert, jwt); err != nil {
+				return fmt.Errorf("the token is not one signed by the CA in %q", dir)
+			}
+		default:
+			if c, err = verifyJWT(nil, jwt); err != nil {
+				return errors.New("the token is not a JWT of simple-ca token create")
+			}
 		}
 		name, tok, limits = c.Subject, c.Token(), false
 		if caCert == nil {
-			notes = append(notes, [2]string{"Signature", "not checked; --ca-dir of its CA checks it and shows its limits"})
+			notes = append(notes, [2]string{"Signature", "not checked; --ca-dir of its CA or --ca-bundle checks it"})
+		} else if *caBundle != "" {
+			notes = append(notes, [2]string{"Signature", "valid, of the CA " + caCert.Subject.String() +
+				"; --ca-dir of that CA shows its limits and whether it was renewed, revoked or removed"})
 		} else if db, err := tokens.LoadTokens(dir); err != nil {
 			return err
 		} else if entry := db.Tokens[name]; entry != nil && entry.ID != "" && entry.ID == c.ID {

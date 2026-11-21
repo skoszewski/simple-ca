@@ -30,7 +30,7 @@ simple-ca token create [--ca-dir DIR] [--valid DURATION] [--scope SCOPE ...]
                        [--otc [--otc-valid DURATION] [--otc-network PREFIXES ...]] NAME
 simple-ca token list   [--ca-dir DIR]
 simple-ca token describe [--ca-dir DIR] NAME
-simple-ca token describe [--ca-dir DIR] --token-file FILE | --stdin
+simple-ca token describe [--ca-dir DIR | --ca-bundle FILE] --token-file FILE | --stdin
 simple-ca token renew  [--ca-dir DIR] [--valid DURATION]
                        [--otc [--otc-valid DURATION] [--otc-network PREFIXES ...]] NAME
 simple-ca token revoke [--ca-dir DIR] NAME
