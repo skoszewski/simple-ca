@@ -27,8 +27,8 @@
                 password shown once. The server keeps no copy of the key.</span>
             </label>
             <div id="generate-fields" class="space-y-1 pl-6">
-              <label for="key-type" class="block text-sm font-medium">Key type</label>
-              <select id="key-type" class="rounded-lg border border-field-line bg-field px-3 py-2 text-sm">
+              <label id="key-type-label" for="key-type" class="block text-sm font-medium">Key type</label>
+              <select id="key-type" name="key-type" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 text-sm">
                 <option value="">The type of the CA key</option>
                 <option value="ec">EC P-256</option>
                 <option value="rsa">RSA 4096</option>

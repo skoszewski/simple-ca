@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.21.2
+
+fix: the key type of the page /oidc-certificate is chosen with the dropdown of the other pages.
+
+- The key type of `/oidc-certificate` is the dropdown the signing forms and the token and
+  certificate pages use, instead of the dropdown of the browser.
+
 ## 1.21.1
 
 fix: ./build.mjs names the reason of a refused command line and of a failed command, and prints

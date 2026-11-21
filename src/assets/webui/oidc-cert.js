@@ -87,6 +87,9 @@ if ($("cert-form")) {
     $("csr").value = kept.csr || "";
     $("key-type").value = kept.keyType || "";
   }
+  const keyType = $("key-type");
+  keyType.replaceWith(picker({ name: "key-type", labelledBy: "key-type-label",
+    choices: [...keyType.options].map((option) => [option.value, option.textContent]), value: keyType.value }));
   mode();
   if (taken && taken.id_token && kept) {
     issue(taken.id_token, kept);
@@ -100,5 +103,5 @@ if ($("cert-form")) {
   });
   oidcSettings().then((settings) => $("cert-off").classList.toggle("hidden", Boolean(settings)));
   oidcButton($("oidc-sign-in"), () => sessionStorage.setItem(certFormKey, JSON.stringify({
-    mode: mode(), csr: $("csr").value, keyType: $("key-type").value })), fail, "certificate");
+    mode: mode(), csr: $("csr").value, keyType: document.querySelector('input[name="key-type"]').value })), fail, "certificate");
 }
