@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.22.1
+
+fix: the release builds again, with cmd_database.go formatted as gofmt formats it.
+
+- The release workflow passes its formatting check, which `cmd_database.go` of 1.22.0 failed, so
+  1.22.0 has no release archives or packages; 1.22.1 is that release.
+
 ## 1.22.0
 
 feat: the tokens and the OIDC profiles can be kept in PostgreSQL tables named by the database
