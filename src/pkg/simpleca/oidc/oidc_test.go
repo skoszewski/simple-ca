@@ -246,8 +246,11 @@ func TestOIDCCheck(t *testing.T) {
 		"a broken rule":             `{"user_ekus": {"require": ["clientAuth"], "allow": ["clientAuth"]}, "profiles": []}`,
 	} {
 		write(UsersFile, users)
-		if err := Check(rootDir, cfg); err == nil {
-			t.Errorf("checkOIDC with %s in %s succeeded, want an error", name, UsersFile)
+		if _, err := readOIDCUsers(rootDir, cfg); err == nil {
+			t.Errorf("readOIDCUsers with %s in %s succeeded, want an error", name, UsersFile)
+		}
+		if err := Check(rootDir, cfg); err != nil || len(loadOIDCUsers(rootDir, cfg).Profiles) != 0 {
+			t.Errorf("checkOIDC with %s in %s: %v, want no error and no profiles", name, UsersFile, err)
 		}
 	}
 

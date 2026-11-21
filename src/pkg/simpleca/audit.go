@@ -79,6 +79,9 @@ var auditOptions = &slog.HandlerOptions{ReplaceAttr: func(groups []string, a slo
 	return a
 }}
 
+// AuditRootCA is the ca of a record of the root CA.
+const AuditRootCA = "/"
+
 // Audit records the event of the CA in caDir, with the key and value pairs of args, in the audit
 // log of its root CA and in LogStream; a record that cannot be written is reported on stderr.
 func Audit(caDir, event string, args ...any) {
@@ -88,7 +91,7 @@ func Audit(caDir, event string, args ...any) {
 		return
 	}
 	record := slog.NewRecord(time.Now(), slog.LevelInfo, event, 0)
-	record.Add(append([]any{"ca", ca}, args...)...)
+	record.Add(append([]any{"ca", cmp.Or(ca, AuditRootCA)}, args...)...)
 	line, pairs, err := FormatRecord(record)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "audit: %v\n", err)
@@ -187,7 +190,9 @@ func ReadAudit(rootDir string) ([]AuditEntry, error) {
 			case "event":
 				e.Event = p[1]
 			case "ca":
-				e.CA = p[1]
+				if p[1] != AuditRootCA {
+					e.CA = p[1]
+				}
 			}
 		}
 		entries = append(entries, e)

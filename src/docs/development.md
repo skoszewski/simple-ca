@@ -82,7 +82,20 @@ export SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pas
 ./release.mjs --no-tag
 ./build.mjs dist --all --dpkg
 ./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE" --passphrase-file "$SIMPLE_CA_GPG_PASSPHRASE_FILE"
+./build.mjs sums
 ./build.mjs docker --registry "$REGISTRY" --push --full
+```
+
+`./build.mjs publish` runs `dist --dpkg`, `apt`, `sums` and `docker` in turn, with their options:
+`--all` of `dist`, `--key` and `--passphrase-file` of `apt`, which also come from
+`SIMPLE_CA_GPG_KEY_FILE` and `SIMPLE_CA_GPG_PASSPHRASE_FILE`, `--registry`, `--push`, `--full`
+and the platforms of `docker`, and `--glob`, the glob of `sums`. `apt` signs the packages of
+`dist/` into the `APT` directory of `--full`, `apt/` by default, and `sums` writes the sum files
+of its `DL` directory, `dist/` by default. It builds with `docker` alone:
+
+```sh
+./release.mjs --no-tag
+./build.mjs publish --all --registry "$REGISTRY" --push --full
 ```
 
 ### Public release of simple-ca
@@ -107,9 +120,7 @@ export SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pas
 
 ./release.mjs --push all
 # wait until the release workflow has published the release on GitHub
-./build.mjs dist --all --dpkg
-./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE" --passphrase-file "$SIMPLE_CA_GPG_PASSPHRASE_FILE"
-./build.mjs docker --registry "$REGISTRY" --push --full
+./build.mjs publish --all --registry "$REGISTRY" --push --full
 ```
 
 ## Programs
@@ -187,16 +198,18 @@ commands for building it by hand.
 DOWNLOADS_DIR=dist
 GLOB='*.tar.gz'
 
+./build.mjs sums                           # a .sha256 file for each file of dist/
 ./build.mjs sums "$DOWNLOADS_DIR"          # a .sha256 file for each file of the directory
 ./build.mjs sums "$DOWNLOADS_DIR" "$GLOB"  # a .sha256 file for each file matching the glob
 ```
 
-`./build.mjs sums` writes, for each file of the directory whose name matches the glob, every file
-by default, the sum file that [serve --downloads](serve.md#downloads) checks: the name of the file
-with `.sha256` appended, beside it, with the line `sha256sum` writes for it. Subdirectories,
-files whose names start with `.` and `.sha256` files are skipped, and a sum file that already
-holds the line is left as it is; the sum files written are printed. The glob is quoted, so that
-the shell does not expand it, and is matched with Node's `path.matchesGlob`.
+`./build.mjs sums` writes, for each file of the directory, `dist/` by default, whose name matches
+the glob, every file by default, the sum file that [serve --downloads](serve.md#downloads)
+checks: the name of the file with `.sha256` appended, beside it, with the line `sha256sum` writes
+for it. Subdirectories, files whose names start with `.` and `.sha256` files are skipped, and a
+sum file that already holds the line is left as it is; the sum files written are printed. The
+glob is quoted, so that the shell does not expand it, and is matched with Node's
+`path.matchesGlob`.
 
 ## Debian packages
 

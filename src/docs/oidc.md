@@ -201,12 +201,14 @@ of that name in that CA that was not made for the same user is not replaced, and
 refused with `409 Conflict`. The token is accepted only from the clients of its `hosts` and
 `networks`, and the sign-in from another client is refused with `403 Forbidden`.
 
-`serve` refuses to start with an `oidc` section or an `oidc-users.json` it cannot use. This
-covers an unknown provider, a missing client ID, an unknown CA, a profile name that is not
-kebab-case or is given twice, a rule without users and groups or naming an unknown profile, a
-token that `token create` would refuse, a certificate without `types`, of an unknown type or a type
-that `user_ekus` or the user name rules keep out, negative days, or an email domain that is not a
-domain name, and a `user_ekus` rule that is not valid. Both files are read on each sign-in, so a
+`serve` refuses to start with an `oidc` section it cannot use: an unknown provider or a missing
+client ID. An `oidc-users.json` it cannot use is reported as an `oidc.users` error in the log, at
+the start and at each sign-in, and is read as missing, so no user gets a profile. This covers an
+unknown CA, a profile name that is not kebab-case or is given twice, a rule without users and
+groups or naming an unknown profile, a token that `token create` would refuse, a certificate
+without `types`, of an unknown type or a type that `user_ekus` or the user name rules keep out,
+negative days, or an email domain that is not a domain name, a `user_ekus` rule that is not valid,
+and JSON that is not valid or has an unknown key. Both files are read on each sign-in, so a
 change applies without a restart.
 
 `examples/oidc/` holds a `simple-ca.json` and an `oidc-users.json` for each provider, in

@@ -478,25 +478,14 @@ func (p *oidcProfile) prepare(rootDir string, cfg *simpleca.Config, name string,
 	return tokens.PrepareToken(filepath.Join(rootDir, p.CA), name, nil, valid, scopes, types, domains, ips, clients)
 }
 
-// Check validates the oidc section of cfg and the profiles of oidc-users.json of rootDir.
+// Check validates the oidc section of cfg, and reports in the log an oidc-users.json of rootDir
+// that is not valid and a certificate of a profile without ca.
 func Check(rootDir string, cfg *simpleca.Config) error {
 	if _, _, err := Resolved(cfg.OIDC, cfg.Path); err != nil {
 		return err
 	}
-	users, err := loadOIDCUsers(rootDir)
-	if err != nil {
-		return err
-	}
-	for _, p := range users.Profiles {
-		if _, _, err := p.prepare(rootDir, cfg, p.Name, false); err != nil {
-			return fmt.Errorf("profile %s of %q: %w", p.Name, users.path, err)
-		}
-		switch {
-		case p.givesCertificate():
-			if _, err := p.certificate(rootDir, cfg, users.userEKUs()); err != nil {
-				return fmt.Errorf("profile %s of %q: certificate: %w", p.Name, users.path, err)
-			}
-		case p.Certificate != nil:
+	for _, p := range loadOIDCUsers(rootDir, cfg).Profiles {
+		if p.Certificate != nil && !p.givesCertificate() {
 			slog.Warn("oidc.profile", "profile", p.Name, "message", "the certificate has no ca; the profile gives no certificate")
 		}
 	}
@@ -673,11 +662,7 @@ func (c *Client) signIn(w http.ResponseWriter, r *http.Request, oc simpleca.OIDC
 	if err != nil {
 		return nil, err
 	}
-	profiles, err := loadOIDCUsers(c.rootDir)
-	if err != nil {
-		return nil, err
-	}
-	profile := profiles.profileFor(user, groups, roles)
+	profile := loadOIDCUsers(c.rootDir, cfg).profileFor(user, groups, roles)
 	if profile == nil {
 		return nil, StatusError(http.StatusForbidden, "no profile of %s is given to %q", UsersFile, user)
 	}
@@ -858,11 +843,7 @@ func (c *Client) APISelfCert(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	users, err := loadOIDCUsers(c.rootDir)
-	if err != nil {
-		fail(err)
-		return
-	}
+	users := loadOIDCUsers(c.rootDir, cfg)
 	i := slices.IndexFunc(users.Profiles, func(p oidcProfile) bool { return p.Name == who.Profile })
 	if i == -1 || !users.Profiles[i].givesCertificate() {
 		fail(StatusError(http.StatusForbidden, "the profile %s of %q gives no certificate", who.Profile, user))

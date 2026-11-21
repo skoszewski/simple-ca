@@ -23,7 +23,6 @@ import (
 	"github.com/skoszewski/serve-markdown/v3/render"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
-	"github.com/skoszewski/simple-ca/src/pkg/simpleca/oidc"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/tokens"
 )
 
@@ -346,10 +345,6 @@ func TestRunServe(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(badConfig, simpleca.ConfigFile), []byte(`{"bogus": 1}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	badUsers := srvMakeCA(t, "")
-	if err := os.WriteFile(filepath.Join(badUsers, oidc.UsersFile), []byte("not JSON"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	badKey := srvMakeCA(t, "")
 	if err := os.WriteFile(filepath.Join(badKey, "ca_key.pem"),
 		pem.EncodeToMemory(&pem.Block{Type: "ENCRYPTED PRIVATE KEY", Bytes: []byte("x")}), 0o600); err != nil {
@@ -376,7 +371,6 @@ func TestRunServe(t *testing.T) {
 		{[]string{"--ca-dir", badConfig}, "bogus"},
 		{[]string{"--ca-dir", badTheme}, themeFile},
 		{[]string{"--ca-dir", badKey}, ""},
-		{[]string{"--ca-dir", badUsers}, ""},
 		{[]string{"--ca-dir", caDir, "--trusted-proxy", "nope", "--tls-cert", filepath.Join(tlsDir, "localhost_cert.pem"),
 			"--tls-key", filepath.Join(tlsDir, "localhost_key.pem")}, `--trusted-proxy: "nope" is not an IP address or a prefix`},
 		{[]string{"--ca-dir", srvMakeCA(t, `{"tokens": {"keep_expired": "soon"}}`)}, "keep_expired"},

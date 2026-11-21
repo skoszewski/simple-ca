@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.21.5
+
+fix: serve starts with an oidc-users.json it cannot use, reports it in the log and reads it as
+missing, the audit log names the root CA as ca=/, and ./build.mjs publish runs dist, apt, sums
+and docker.
+
+- An `oidc-users.json` that is not valid JSON, has an unknown key or a profile or rule `serve`
+  cannot use no longer stops `serve` from starting: it is reported as an `oidc.users` error in
+  the log, at the start and at each sign-in, and no user gets a profile until it is fixed.
+- A record of the audit log of the root CA has `ca=/` in place of `ca=""`, also in the journal
+  and on the standard error of `serve`; `audit list --ca /` selects them, as `--ca ""` does.
+- `./build.mjs publish` runs `dist`, `apt`, `sums` and `docker` in turn and takes their options:
+  `--all`, `--key`, `--passphrase-file`, `--registry`, `--push`, `--full` with its directories,
+  the platforms, and `--glob`, the glob of `sums`; `dist` always takes the Debian packages, as
+  with `--dpkg`.
+- `./build.mjs sums` without a directory writes the sum files of `dist/`.
+
 ## 1.21.4
 
 fix: a user signed in with OIDC gets their own certificate with the token of the sign-in, of the

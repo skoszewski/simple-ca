@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -188,8 +189,20 @@ type oidcRule struct {
 	Profile string   `json:"profile"`
 }
 
-// loadOIDCUsers reads and validates oidc-users.json of rootDir, empty when it does not exist.
-func loadOIDCUsers(rootDir string) (*oidcUsers, error) {
+// loadOIDCUsers returns oidc-users.json of rootDir with the settings of cfg, empty when it does not
+// exist or is not valid; an invalid file is reported in the log.
+func loadOIDCUsers(rootDir string, cfg *simpleca.Config) *oidcUsers {
+	users, err := readOIDCUsers(rootDir, cfg)
+	if err != nil {
+		slog.Error("oidc.users", "error", err.Error(), "message", "the file is read as missing")
+		return &oidcUsers{path: filepath.Join(rootDir, UsersFile)}
+	}
+	return users
+}
+
+// readOIDCUsers reads and validates oidc-users.json of rootDir, and each of its profiles with the
+// settings of cfg; empty when the file does not exist.
+func readOIDCUsers(rootDir string, cfg *simpleca.Config) (*oidcUsers, error) {
 	users := &oidcUsers{path: filepath.Join(rootDir, UsersFile)}
 	b, err := os.ReadFile(users.path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -228,6 +241,16 @@ func loadOIDCUsers(rootDir string) (*oidcUsers, error) {
 			return nil, fmt.Errorf("rules[%d] of %q: a rule needs users or groups", i, users.path)
 		case !slices.Contains(names, r.Profile):
 			return nil, fmt.Errorf("rules[%d] of %q: unknown profile %q", i, users.path, r.Profile)
+		}
+	}
+	for _, p := range users.Profiles {
+		if _, _, err := p.prepare(rootDir, cfg, p.Name, false); err != nil {
+			return nil, fmt.Errorf("profile %s of %q: %w", p.Name, users.path, err)
+		}
+		if p.givesCertificate() {
+			if _, err := p.certificate(rootDir, cfg, users.userEKUs()); err != nil {
+				return nil, fmt.Errorf("profile %s of %q: certificate: %w", p.Name, users.path, err)
+			}
 		}
 	}
 	return users, nil

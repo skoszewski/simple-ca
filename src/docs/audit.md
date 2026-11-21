@@ -26,7 +26,7 @@ A value with a space, a `"` or a `=` is quoted as a Go string, and an empty valu
 
 The records have these keys:
 
-- `ca` - the issuing CA, `""` for the root CA, in every record;
+- `ca` - the issuing CA, `/` for the root CA, in every record;
 - `via` - how the change was made: `cli`, `api` (the signing API), `form` (the signing form),
   `webui` (the token and certificate pages), `acme`, `oidc`, `setup` (a setup code exchanged),
   or `serve` (its own removal of expired tokens);
@@ -127,12 +127,12 @@ written, those of its filters alone:
 ```sh
 simple-ca audit list --ca-dir /etc/simple-ca --event token. --since 2026-11-01
 simple-ca audit list --ca-dir /etc/simple-ca --ca servers --actor deploy
-simple-ca audit list --ca-dir /etc/simple-ca --ca ""
+simple-ca audit list --ca-dir /etc/simple-ca --ca /
 ```
 
 - `--event` - an event, such as `cert.issue`, or the start of events ending in a dot, such as
   `token.`;
-- `--ca` - an issuing CA, or `""` for the root CA;
+- `--ca` - an issuing CA, or `/` or `""` for the root CA;
 - `--actor` - an actor;
 - `--since` and `--until` - the records from a time on, and before a time, in RFC 3339 or as a
   date, such as `2026-11-03`.

@@ -41,7 +41,7 @@ func runAuditList(args []string) error {
 			"were written, or those of the filters given alone.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	event := fs.String("event", "", "`event`, such as cert.issue, or the start of events, such as token.")
-	ca := fs.String("ca", "", "issuing CA `name`; empty for the root CA")
+	ca := fs.String("ca", "", "issuing CA `name`; / or empty for the root CA")
 	actor := fs.String("actor", "", "`actor`: an OS user, a token name, an OIDC user or an ACME account")
 	since := fs.String("since", "", "records from this `time` on: RFC 3339, such as 2026-11-03T21:00:00Z, or a date")
 	until := fs.String("until", "", "records before this `time`: RFC 3339 or a date")
@@ -79,7 +79,7 @@ func runAuditList(args []string) error {
 	for _, e := range entries {
 		switch {
 		case *event != "" && e.Event != *event && !(strings.HasSuffix(*event, ".") && strings.HasPrefix(e.Event, *event)):
-		case given["ca"] && e.CA != *ca:
+		case given["ca"] && e.CA != strings.TrimPrefix(*ca, simpleca.AuditRootCA):
 		case *actor != "" && !slices.Contains(e.Fields, [2]string{"actor", *actor}):
 		case !from.IsZero() && e.Time.Before(from):
 		case !to.IsZero() && !e.Time.Before(to):
