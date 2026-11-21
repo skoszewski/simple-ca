@@ -131,6 +131,107 @@ func CertFileName(cn, email string, userNames bool) string {
 	return strings.Trim(FileNameRE.ReplaceAllString(name, "_"), "_")
 }
 
+// Names returns the subject, the subjectAltName extension, when there are SANs, and the file
+// name of a certificate of the type certType named by subjectName and sans, with the name rules
+// of MakeCert: the user name rules with userNames, else the server name rules.
+func Names(subjectName string, sans []string, certType string, userNames bool) (pkix.Name, []pkix.Extension, string, error) {
+	var cn, email string
+	var dnsNames, emails []string
+	var ips []netip.Addr
+	var oids []x509.OID
+	rest := sans
+	if !userNames {
+		if !simpleca.IsHostname(subjectName) {
+			return pkix.Name{}, nil, "", fmt.Errorf("invalid CN %q: a %s certificate's CN must be a hostname or FQDN", subjectName, certType)
+		}
+		cn = subjectName
+		dnsNames = []string{cn}
+	} else {
+		if EmailRE.MatchString(subjectName) {
+			email = subjectName
+		} else {
+			cn = subjectName
+		}
+		if len(rest) > 0 {
+			next := rest[0]
+			rest = rest[1:]
+			switch {
+			case email == "" && !EmailRE.MatchString(next):
+				return pkix.Name{}, nil, "", fmt.Errorf("invalid emailAddress %q: the CN is %q, so the second argument must be the email address", next, cn)
+			case email == "":
+				email = next
+			case EmailRE.MatchString(next):
+				return pkix.Name{}, nil, "", fmt.Errorf("invalid CN %q: the emailAddress is %q, so the second argument must be the CN", next, email)
+			default:
+				cn = next
+			}
+		}
+		if email != "" {
+			emails = []string{email}
+		}
+		if strings.ContainsFunc(cn, unicode.IsControl) {
+			return pkix.Name{}, nil, "", errors.New("invalid CN: it holds a control character")
+		}
+	}
+	for _, entry := range rest {
+		oid, oidErr := x509.ParseOID(entry)
+		ip, isIP := simpleca.ParseIP(entry)
+		switch {
+		case !userNames && isIP:
+			ips = append(ips, ip)
+		case oidErr == nil:
+			oids = append(oids, oid)
+		case !userNames && simpleca.IsHostname(entry):
+			dnsNames = append(dnsNames, entry)
+		case userNames && EmailRE.MatchString(entry):
+			emails = append(emails, entry)
+		case !userNames:
+			return pkix.Name{}, nil, "", fmt.Errorf("invalid SAN %q: must be a hostname, FQDN, IPv4 or IPv6 address, or numeric OID", entry)
+		default:
+			return pkix.Name{}, nil, "", fmt.Errorf("invalid SAN %q: must be an email address or numeric OID", entry)
+		}
+	}
+
+	certName := CertFileName(cn, email, userNames)
+	if certName == "" {
+		return pkix.Name{}, nil, "", fmt.Errorf("%q gives no file name: it needs a letter or a digit", cmp.Or(cn, email))
+	}
+
+	subject := pkix.Name{CommonName: cn}
+	if email != "" {
+		subject.ExtraNames = []pkix.AttributeTypeAndValue{
+			{Type: OIDEmailAddress, Value: asn1.RawValue{Tag: asn1.TagIA5String, Bytes: []byte(email)}},
+		}
+	}
+
+	// The subjectAltName extension, with the registeredID names.
+	var names []asn1.RawValue
+	for _, e := range emails {
+		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 1, Bytes: []byte(e)})
+	}
+	for _, d := range dnsNames {
+		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 2, Bytes: []byte(d)})
+	}
+	for _, ip := range ips {
+		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 7, Bytes: ip.AsSlice()})
+	}
+	for _, oid := range oids {
+		b, err := oid.MarshalBinary()
+		if err != nil {
+			return pkix.Name{}, nil, "", err
+		}
+		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 8, Bytes: b})
+	}
+	if len(names) == 0 {
+		return subject, nil, certName, nil
+	}
+	san, err := asn1.Marshal(names)
+	if err != nil {
+		return pkix.Name{}, nil, "", err
+	}
+	return subject, []pkix.Extension{{Id: oidSubjectAltName, Value: san}}, certName, nil
+}
+
 // ErrCertExists reports a certificate that exists with its key, which cert create does not
 // replace.
 var ErrCertExists = errors.New("the certificate and its key exist already")
@@ -190,62 +291,9 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 	}
 	userNames := def.Names == "user"
 
-	// The subject and the SANs, by the name rules of the certificate type.
-	var cn, email string
-	var dnsNames, emails []string
-	var ips []netip.Addr
-	var oids []x509.OID
-	rest := sans
-	if !userNames {
-		if !simpleca.IsHostname(subjectName) {
-			return nil, fmt.Errorf("invalid CN %q: a %s certificate's CN must be a hostname or FQDN", subjectName, certType)
-		}
-		cn = subjectName
-		dnsNames = []string{cn}
-	} else {
-		if EmailRE.MatchString(subjectName) {
-			email = subjectName
-		} else {
-			cn = subjectName
-		}
-		if len(rest) > 0 {
-			next := rest[0]
-			rest = rest[1:]
-			switch {
-			case email == "" && !EmailRE.MatchString(next):
-				return nil, fmt.Errorf("invalid emailAddress %q: the CN is %q, so the second argument must be the email address", next, cn)
-			case email == "":
-				email = next
-			case EmailRE.MatchString(next):
-				return nil, fmt.Errorf("invalid CN %q: the emailAddress is %q, so the second argument must be the CN", next, email)
-			default:
-				cn = next
-			}
-		}
-		if email != "" {
-			emails = []string{email}
-		}
-		if strings.ContainsFunc(cn, unicode.IsControl) {
-			return nil, errors.New("invalid CN: it holds a control character")
-		}
-	}
-	for _, entry := range rest {
-		oid, oidErr := x509.ParseOID(entry)
-		ip, isIP := simpleca.ParseIP(entry)
-		switch {
-		case !userNames && isIP:
-			ips = append(ips, ip)
-		case oidErr == nil:
-			oids = append(oids, oid)
-		case !userNames && simpleca.IsHostname(entry):
-			dnsNames = append(dnsNames, entry)
-		case userNames && EmailRE.MatchString(entry):
-			emails = append(emails, entry)
-		case !userNames:
-			return nil, fmt.Errorf("invalid SAN %q: must be a hostname, FQDN, IPv4 or IPv6 address, or numeric OID", entry)
-		default:
-			return nil, fmt.Errorf("invalid SAN %q: must be an email address or numeric OID", entry)
-		}
+	subject, sanExt, certName, err := Names(subjectName, sans, certType, userNames)
+	if err != nil {
+		return nil, err
 	}
 
 	if certDir == "" {
@@ -266,37 +314,6 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 		publishURL += "/" + issuingCA
 	}
 
-	certName := CertFileName(cn, email, userNames)
-	if certName == "" {
-		return nil, fmt.Errorf("%q gives no file name: it needs a letter or a digit", cmp.Or(cn, email))
-	}
-
-	subject := pkix.Name{CommonName: cn}
-	if email != "" {
-		subject.ExtraNames = []pkix.AttributeTypeAndValue{
-			{Type: OIDEmailAddress, Value: asn1.RawValue{Tag: asn1.TagIA5String, Bytes: []byte(email)}},
-		}
-	}
-
-	// The subjectAltName extension, with the registeredID names.
-	var names []asn1.RawValue
-	for _, e := range emails {
-		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 1, Bytes: []byte(e)})
-	}
-	for _, d := range dnsNames {
-		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 2, Bytes: []byte(d)})
-	}
-	for _, ip := range ips {
-		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 7, Bytes: ip.AsSlice()})
-	}
-	for _, oid := range oids {
-		b, err := oid.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-		names = append(names, asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 8, Bytes: b})
-	}
-
 	certOut := filepath.Join(certDir, certName+"_cert.pem")
 	keyOut := filepath.Join(certDir, certName+"_key.pem")
 	if simpleca.FileExists(certOut) && simpleca.FileExists(keyOut) {
@@ -311,7 +328,7 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 	if err != nil {
 		return nil, err
 	}
-	key, err := newKey(cmp.Or(leafKeyType, simpleca.KeyType(caKey.Public())))
+	key, err := NewKey(cmp.Or(leafKeyType, simpleca.KeyType(caKey.Public())))
 	if err != nil {
 		return nil, err
 	}
@@ -334,13 +351,7 @@ func MakeCert(subjectName string, sans []string, caDir, certDir, certType string
 		KeyUsage:              keyUsage,
 		ExtKeyUsage:           extKeyUsages,
 		UnknownExtKeyUsage:    extKeyUsageOIDs,
-	}
-	if len(names) > 0 {
-		san, err := asn1.Marshal(names)
-		if err != nil {
-			return nil, err
-		}
-		tmpl.ExtraExtensions = []pkix.Extension{{Id: oidSubjectAltName, Value: san}}
+		ExtraExtensions:       sanExt,
 	}
 	if cfg.CAPublishBaseURL != "" {
 		tmpl.IssuingCertificateURL = []string{publishURL + "/ca_cert.crt"}

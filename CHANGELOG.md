@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.21.0
+
+feat: an OIDC user gets a user certificate named by the ID token, from the page
+/oidc-certificate or from request-cert --oidc and --oidc-device.
+
+- A profile of `oidc-users.json` takes a `certificate` section, with `types`, the certificate
+  types it offers, built-in or of `simple-ca.json`, `days`, and `email_domains` of the email
+  address. A profile with `certificate` and without `token` gives no token.
+- `user_ekus` of `oidc-users.json` is the rule on the extended key usages of those types, of the
+  nodes `require`, `allow`, `and`, `or` and `not`; without it, a type may have `clientAuth`,
+  `emailProtection` and `codeSigning` alone. A type that does not meet it, has no extended key
+  usage or has the server name rules is refused at startup.
+- `POST /api/oidc-cert` issues the certificate of the profile of the user of an ID token for the
+  public key of a CSR, or for a new key it returns in a PKCS#12 file with a password shown once.
+  The CN comes from the name claim and the email address from the email claim; the subject and
+  the extensions of the CSR are not used. An email address with `email_verified` false, or
+  outside `email_domains`, is refused. `type` names one of the types of the profile; a profile
+  of several types and a request without it get `409 Conflict` with the types.
+- The page `/oidc-certificate`, linked from the index page and the signing forms, signs in and
+  gets the certificate, with a generated key or an uploaded or pasted CSR, and asks for the type
+  when the profile offers several.
+- `request-cert --oidc SERVE_URL` signs in in the browser, which comes back to a port of
+  127.0.0.1, and `request-cert --oidc-device SERVE_URL` with the device authorization grant; both
+  write the key, the certificate and the chain, named by `--name` or the local part of the email
+  address. `--type` names the type, and `--no-browser` prints the sign-in URL without opening
+  the browser.
+- `simple-ca.json` takes `oidc.email_claim`, `oidc.name_claim`, `oidc.cli_client_id`, the public
+  client of `request-cert`, and `oidc.cli_scopes`. An ID token of that client gives a
+  certificate and no token, and a claim path with `CLIENT_ID` reads the roles of the client the
+  ID token was issued for.
+- `GET /api/oidc` adds `cli_client_id`, `cli_scopes`, `email_claim` and
+  `device_authorization_endpoint` when `oidc.cli_client_id` is set.
+- The examples of `examples/oidc/` have a certificate profile and a client of `request-cert`.
+- `./release.mjs`, `./build.mjs dist` and the Debian changelog of `./build.mjs` read the summary
+  of an entry as a paragraph, its lines joined with single spaces, so a summary may be wrapped.
+
 ## 1.20.6
 
 fix: ./build.mjs apt takes its key and passphrase files from environment variables.

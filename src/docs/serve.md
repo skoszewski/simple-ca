@@ -24,12 +24,13 @@ matters. The names `help`, `docs`, `tokens`, `certificates`, `audit`, `downloads
 be issuing CA names, because the pages use those paths.
 
 The index page draws the links of its header from `/api/links`. A request without a token gets
-those of the public pages: "Set up a token", "Describe a token", and "Downloads" and "Apt" when
-they are served. A request with a valid token of the root CA or an issuing CA as its bearer
-token, used from a client the token allows, also gets "Tokens", "Certificates" and "Audit log"
-with `--webui`, and the name of the token. A refused token is answered as the pages answer it,
-and counts as a [refused credential](signing-api.md#refused-credentials). With `--webui`, the
-index page has a Login button where it shows who is signed in. It opens the login dialog of the
+those of the public pages: "Set up a token", "Describe a token", "Get my certificate" with the
+OIDC sign-in, and "Downloads" and "Apt" when they are served. A request with a valid token of
+the root CA or an issuing CA as its bearer token, used from a client the token allows, also gets
+"Tokens", "Certificates" and "Audit log" with `--webui`, and the name of the token. A refused
+token is answered as the pages answer it, and counts as a
+[refused credential](signing-api.md#refused-credentials). With `--webui`, the index page has a
+Login button where it shows who is signed in. It opens the login dialog of the
 pages:
 
 - **Login with token:** takes a token, or a setup code, which is exchanged and its token shown
@@ -107,7 +108,9 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/NAME/.well-known/openid-configuration`, `/NAME/jwks.json` | the same of the issuing CA `NAME` | `application/json` |
 | `/api/oidc` | the settings of the [OIDC sign-in](oidc.md), `404 Not Found` when it is off, `502 Bad Gateway` when the discovery document of the provider cannot be read | `application/json` |
 | `/api/oidc-token` | the exchange of an ID token for the token of its user, `POST` | `application/json` |
+| `/api/oidc-cert` | the certificate of the user of an ID token, `POST` | `application/json` |
 | `/oidc-callback` | the page the OIDC provider sends the browser back to, its redirect URI | `text/html` |
+| `/oidc-certificate` | the page of the certificate of an OIDC user | `text/html` |
 | `/help/` | the help of the signing API for its clients | `text/html` |
 | `/help` | a redirect (`307 Temporary Redirect`) to `/help/` | |
 | `/docs/` | with `--docs`, the guides of `simple-ca`, from `usage.md` | `text/html` |
@@ -145,7 +148,8 @@ script `/assets/webui/index.js`, the copy buttons of the index and downloads pag
 `/assets/webui/sign.js`, and `/token-setup` shows the token with `/assets/webui/setup.js`, so the
 pages load nothing from other sites. The
 [OIDC sign-in](oidc.md), `/assets/webui/oidc.js`, sends the browser to the provider, and the page
-`/oidc-callback` redeems the code at the token endpoint of the provider.
+`/oidc-callback` redeems the code at the token endpoint of the provider. The page
+`/oidc-certificate` requests the certificate of an OIDC user with `/assets/webui/oidc-cert.js`.
 
 The files are read on each request, so a CRL written by `crl create` is served at once; a file that
 does not exist is `404 Not Found`. No other file is served, but those of `--downloads` and

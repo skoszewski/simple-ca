@@ -60,10 +60,27 @@ func TestOIDCResolved(t *testing.T) {
 			t.Errorf("Resolved of %+v: %+v, %v, %v", c.in, got, on, err)
 		}
 	}
+	// The email and name claims of each provider, and the scopes of the client of request-cert.
+	got, _, err := Resolved(simpleca.OIDCConfig{Provider: "entra", Issuer: "https://idp.example.com", ClientID: "simple-ca",
+		CLIClientID: "simple-ca-cli"}, path)
+	if err != nil || !slices.Equal(got.EmailClaim, simpleca.ClaimPaths{"email", "preferred_username"}) ||
+		!slices.Equal(got.NameClaim, simpleca.ClaimPaths{"name"}) || !slices.Equal(got.CLIScopes, []string{"openid", "profile", "email"}) {
+		t.Errorf("Resolved of Entra ID with a CLI client: %+v, %v", got, err)
+	}
+	got, _, err = Resolved(simpleca.OIDCConfig{Issuer: "https://idp.example.com", ClientID: "simple-ca", CLIClientID: "cli",
+		CLIScopes: []string{"email"}, EmailClaim: simpleca.ClaimPaths{"mail"}}, path)
+	if err != nil || !slices.Equal(got.EmailClaim, simpleca.ClaimPaths{"mail"}) || !slices.Equal(got.CLIScopes, []string{"openid", "email"}) {
+		t.Errorf("Resolved with CLI scopes and an email claim: %+v, %v", got, err)
+	}
+	if got, _, _ := Resolved(simpleca.OIDCConfig{Issuer: "https://idp.example.com", ClientID: "simple-ca"}, path); got.CLIScopes != nil {
+		t.Errorf("Resolved without a CLI client: CLI scopes %v, want none", got.CLIScopes)
+	}
 	for _, c := range []struct {
 		in   simpleca.OIDCConfig
 		want string
 	}{
+		{simpleca.OIDCConfig{Issuer: "https://idp.example.com", ClientID: "x", CLIClientID: "x"}, "oidc.cli_client_id"},
+		{simpleca.OIDCConfig{Issuer: "https://idp.example.com", ClientID: "x", CLIScopes: []string{"openid"}}, "oidc.cli_scopes"},
 		{simpleca.OIDCConfig{Provider: "other", Issuer: "https://idp.example.com", ClientID: "x"}, "must be one of entra, generic, keycloak"},
 		{simpleca.OIDCConfig{Issuer: "https://idp.example.com"}, "oidc.client_id"},
 		{simpleca.OIDCConfig{Issuer: "idp.example.com", ClientID: "x"}, "not an http or https URL"},

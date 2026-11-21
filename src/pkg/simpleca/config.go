@@ -114,7 +114,8 @@ type AuditConfig struct {
 }
 
 // OIDCConfig is the oidc section of simple-ca.json, the OIDC sign-in of serve, off without an
-// issuer.
+// issuer. ClientID is the public client of the pages, and CLIClientID, when given, the public
+// client of request-cert, which asks for CLIScopes.
 type OIDCConfig struct {
 	Provider    string     `json:"provider,omitempty"`
 	Issuer      string     `json:"issuer,omitempty"`
@@ -124,7 +125,11 @@ type OIDCConfig struct {
 	UserClaim   ClaimPaths `json:"user_claim,omitempty"`
 	GroupsClaim ClaimPaths `json:"groups_claim,omitempty"`
 	RolesClaim  ClaimPaths `json:"roles_claim,omitempty"`
+	EmailClaim  ClaimPaths `json:"email_claim,omitempty"`
+	NameClaim   ClaimPaths `json:"name_claim,omitempty"`
 	ReuseToken  bool       `json:"reuse_token,omitempty"`
+	CLIClientID string     `json:"cli_client_id,omitempty"`
+	CLIScopes   []string   `json:"cli_scopes,omitempty"`
 }
 
 // ClaimPaths are the dotted paths of claims of an ID token, given as one string or a list.

@@ -2,6 +2,7 @@
   "oidc": {
     "provider": "keycloak",
     "issuer": "https://sso.example.com/realms/lab",
-    "client_id": "simple-ca"
+    "client_id": "simple-ca",
+    "cli_client_id": "simple-ca-cli"
   }
 }

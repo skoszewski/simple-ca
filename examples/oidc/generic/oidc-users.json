@@ -18,6 +18,15 @@
         "scopes": ["sign"],
         "domains": ["lab.example.org"]
       }
+    },
+    {
+      "name": "staff",
+      "ca": "servers",
+      "certificate": {
+        "types": ["user"],
+        "days": 30,
+        "email_domains": ["example.com"]
+      }
     }
   ],
   "rules": [
@@ -32,6 +41,10 @@
     {
       "groups": ["web-team"],
       "profile": "web-signer"
+    },
+    {
+      "groups": ["staff"],
+      "profile": "staff"
     }
   ]
 }

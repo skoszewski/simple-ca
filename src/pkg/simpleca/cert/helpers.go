@@ -65,8 +65,8 @@ func writePEMFile(path, blockType string, der []byte, mode os.FileMode) error {
 // keyTypes are the key types of --key-type: rsa, RSA 4096, and ec, ECDSA P-256.
 var keyTypes = []string{"rsa", "ec"}
 
-// newKey returns a new private key of keyType, rsa or ec.
-func newKey(keyType string) (crypto.Signer, error) {
+// NewKey returns a new private key of keyType, rsa or ec.
+func NewKey(keyType string) (crypto.Signer, error) {
 	switch keyType {
 	case "rsa":
 		return rsa.GenerateKey(rand.Reader, 4096)

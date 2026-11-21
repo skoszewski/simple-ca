@@ -64,6 +64,8 @@ The Go `request-cert` also takes options, each of which replaces its environment
 SIMPLE_CA_TOKEN=TOKEN request-cert [options] CA_URL CN [DNS_NAME ...]
 request-cert --token-file FILE [options] CA_URL CN [DNS_NAME ...]
 request-cert --setup-code CODE [--token-file NEW_FILE] [options] CA_URL CN [DNS_NAME ...]
+request-cert --oidc [--no-browser] [--type TYPE] [--name NAME] [--out-dir DIR] SERVE_URL
+request-cert --oidc-device [--type TYPE] [--name NAME] [--out-dir DIR] SERVE_URL
 ```
 
 - `--token-file FILE` - the file holding the token, or, with `--setup-code`, the new file the
@@ -76,6 +78,17 @@ request-cert --setup-code CODE [--token-file NEW_FILE] [options] CA_URL CN [DNS_
 - `--name NAME` - the name of the copy of the certificate the CA keeps, `NAME_cert.pem`; the CN of
   the files written here by default.
 - `--out-dir DIR` - the directory of the three files, the working directory by default.
+- `--oidc` - signs in at the OIDC provider of `serve` in the browser and requests a user
+  certificate of the signed-in person; `--no-browser` prints the sign-in URL without opening the
+  browser.
+- `--oidc-device` - signs in with a code entered on any device, the device authorization grant,
+  and requests a user certificate of the signed-in person.
+
+With `--oidc` and `--oidc-device`, `SERVE_URL` is the URL of `serve`, `--type` names one of the
+types of the profile of the user, needed when it offers several, `--name` names the files written
+here, the local part of the email address by default, and `--token-file`, `--setup-code` and
+`--days` are refused; see
+[User certificates](oidc.md#user-certificates).
 - `--version` prints the version, and `-h` the usage. Wrong arguments print the usage and exit
   with 2.
 

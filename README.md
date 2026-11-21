@@ -61,8 +61,9 @@ command of its own;
 - [serve](src/docs/serve.md) - the HTTP server of the CA certificates, CRLs and the index page.
 - [ACME](src/docs/acme.md) - the ACME server of `serve`.
 - [Signing API](src/docs/signing-api.md) - tokens, the `/api/sign` API and the signing form.
-- [OIDC sign-in](src/docs/oidc.md) - tokens for the users of a generic OIDC provider, Keycloak or
-  Entra ID, given by `oidc-users.json`.
+- [OIDC sign-in](src/docs/oidc.md) - tokens and user certificates for the users of a generic OIDC
+  provider, Keycloak or Entra ID, given by `oidc-users.json`; `request-cert --oidc` and
+  `--oidc-device` get the certificate from the command line.
 - [Workload identity federation](src/docs/workload-identity.md) - JWTs of token types that Google
   and Microsoft Entra exchange for their own credentials, issued to tokens with the scope
   `federate`.

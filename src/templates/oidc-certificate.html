@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Get my certificate - {{.Title}} - simple-ca</title>
+    <script src="{{.Script}}"></script>
+    {{template "theme" .Theme}}
+  </head>
+  <body class="min-h-screen bg-page text-ink">
+    <div class="mx-auto max-w-3xl px-4 py-10 sm:py-16 xl:w-3/4 xl:max-w-[120rem] 2xl:w-2/3">
+      <div class="overflow-hidden rounded-2xl border border-line bg-card shadow-lg">
+        <div class="bg-head px-6 py-4 text-head-ink">
+          <h1 class="text-xl font-semibold">Get my certificate</h1>
+          <p class="mt-1 text-sm text-head-muted">{{.Title}}, served by simple-ca</p>
+        </div>
+        <form id="cert-form" class="space-y-5 px-6 py-5">
+          <p id="cert-off" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink">The OIDC
+            sign-in is off on this server.</p>
+          <p class="text-sm">Sign in to get a certificate for yourself. Its subject is your name and email address, as your
+            identity provider gives them; your profile sets its type and validity.</p>
+          <fieldset class="space-y-3">
+            <legend class="text-sm font-medium">The key</legend>
+            <label class="flex items-start gap-2 text-sm">
+              <input type="radio" name="mode" value="generate" checked class="mt-1">
+              <span>Generate it on the server, and download it with the certificate in a PKCS#12 file, protected by a
+                password shown once. The server keeps no copy of the key.</span>
+            </label>
+            <div id="generate-fields" class="space-y-1 pl-6">
+              <label for="key-type" class="block text-sm font-medium">Key type</label>
+              <select id="key-type" class="rounded-lg border border-field-line bg-field px-3 py-2 text-sm">
+                <option value="">The type of the CA key</option>
+                <option value="ec">EC P-256</option>
+                <option value="rsa">RSA 4096</option>
+              </select>
+            </div>
+            <label class="flex items-start gap-2 text-sm">
+              <input type="radio" name="mode" value="csr" class="mt-1">
+              <span>Use my own key: upload or paste a certificate signing request. Only its public key is used; its
+                subject and extensions are replaced.</span>
+            </label>
+            <div id="csr-fields" class="hidden space-y-2 pl-6">
+              <input id="csr-file" type="file" accept=".csr,.pem,.req,.txt" class="block text-sm">
+              <textarea id="csr" rows="8" autocorrect="off" autocapitalize="off" spellcheck="false"
+                placeholder="-----BEGIN CERTIFICATE REQUEST-----"
+                class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-xs"></textarea>
+            </div>
+          </fieldset>
+          <p id="cert-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink"></p>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <a class="text-sm text-link hover:underline" href="/">All CAs</a>
+            <button id="oidc-sign-in" type="button" class="hidden rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover"></button>
+          </div>
+        </form>
+        <div id="type-choice" class="hidden space-y-4 px-6 py-5">
+          <p id="type-label" class="text-sm">Your profile offers more than one certificate type; choose the type of
+            your certificate.</p>
+          <div id="type-picker"></div>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <a class="text-sm text-link hover:underline" href="/">All CAs</a>
+            <button id="type-issue" type="button" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Issue the certificate</button>
+          </div>
+        </div>
+        <div id="cert-result" class="hidden space-y-4 px-6 py-5">
+          <p id="cert-summary" class="text-sm"></p>
+          <div id="pfx-result" class="hidden space-y-2">
+            <label for="pfx-password" class="block text-sm font-medium">The password of the PKCS#12 file, shown once</label>
+            <div class="flex gap-2">
+              <input id="pfx-password" readonly class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-sm">
+              <button id="pfx-copy" type="button" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Copy</button>
+            </div>
+          </div>
+          <div class="space-y-1">
+            <label for="cert-pem" class="block text-sm font-medium">The certificate and its chain</label>
+            <textarea id="cert-pem" readonly rows="10" autocorrect="off" autocapitalize="off" spellcheck="false"
+              class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-xs"></textarea>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <a class="text-sm text-link hover:underline" href="/">All CAs</a>
+            <div class="flex flex-wrap gap-2">
+              <button id="pem-copy" type="button" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Copy</button>
+              <button id="pem-download" type="button" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Download the certificate</button>
+              <button id="pfx-download" type="button" class="hidden rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Download the PKCS#12 file</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {{template "version"}}
+    </div>
+    <script src="/assets/webui/picker.js"></script>
+    <script src="/assets/webui/oidc.js"></script>
+    <script src="/assets/webui/oidc-cert.js"></script>
+  </body>
+</html>

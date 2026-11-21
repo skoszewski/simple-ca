@@ -34,12 +34,16 @@ import (
 
 // oidcProviders are the label and claim defaults of each provider.
 var oidcProviders = map[string]struct {
-	label               string
-	user, groups, roles simpleca.ClaimPaths
+	label                            string
+	user, groups, roles, email, name simpleca.ClaimPaths
 }{
-	"generic":  {"OIDC", simpleca.ClaimPaths{"sub"}, simpleca.ClaimPaths{"groups"}, simpleca.ClaimPaths{"roles"}},
-	"keycloak": {"Keycloak", simpleca.ClaimPaths{"preferred_username"}, simpleca.ClaimPaths{"groups"}, simpleca.ClaimPaths{"realm_access.roles", "resource_access.CLIENT_ID.roles"}},
-	"entra":    {"Entra ID", simpleca.ClaimPaths{"preferred_username"}, simpleca.ClaimPaths{"groups"}, simpleca.ClaimPaths{"roles"}},
+	"generic": {"OIDC", simpleca.ClaimPaths{"sub"}, simpleca.ClaimPaths{"groups"}, simpleca.ClaimPaths{"roles"},
+		simpleca.ClaimPaths{"email"}, simpleca.ClaimPaths{"name"}},
+	"keycloak": {"Keycloak", simpleca.ClaimPaths{"preferred_username"}, simpleca.ClaimPaths{"groups"},
+		simpleca.ClaimPaths{"realm_access.roles", "resource_access.CLIENT_ID.roles"}, simpleca.ClaimPaths{"email"},
+		simpleca.ClaimPaths{"name"}},
+	"entra": {"Entra ID", simpleca.ClaimPaths{"preferred_username"}, simpleca.ClaimPaths{"groups"},
+		simpleca.ClaimPaths{"roles"}, simpleca.ClaimPaths{"email", "preferred_username"}, simpleca.ClaimPaths{"name"}},
 }
 
 // Resolved returns c validated, with the defaults of its provider, and false when it is off.
@@ -60,6 +64,10 @@ func Resolved(c simpleca.OIDCConfig, path string) (simpleca.OIDCConfig, bool, er
 			strings.Join(slices.Sorted(maps.Keys(oidcProviders)), ", "))
 	case c.ClientID == "":
 		return c, false, fmt.Errorf("oidc.client_id of %q is required with oidc.issuer", path)
+	case c.CLIClientID != "" && c.CLIClientID == c.ClientID:
+		return c, false, fmt.Errorf("oidc.cli_client_id of %q must name another client than oidc.client_id", path)
+	case c.CLIClientID == "" && len(c.CLIScopes) > 0:
+		return c, false, fmt.Errorf("oidc.cli_scopes of %q needs oidc.cli_client_id", path)
 	}
 	if len(c.Scopes) == 0 {
 		c.Scopes = []string{"openid", "profile", "email"}
@@ -78,6 +86,18 @@ func Resolved(c simpleca.OIDCConfig, path string) (simpleca.OIDCConfig, bool, er
 	}
 	if len(c.RolesClaim) == 0 {
 		c.RolesClaim = preset.roles
+	}
+	if len(c.EmailClaim) == 0 {
+		c.EmailClaim = preset.email
+	}
+	if len(c.NameClaim) == 0 {
+		c.NameClaim = preset.name
+	}
+	if c.CLIClientID != "" && len(c.CLIScopes) == 0 {
+		c.CLIScopes = slices.Clone(c.Scopes)
+	}
+	if c.CLIClientID != "" && !slices.Contains(c.CLIScopes, "openid") {
+		c.CLIScopes = append([]string{"openid"}, c.CLIScopes...)
 	}
 	return c, true, nil
 }

@@ -138,7 +138,7 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 					"Please create the root CA first", caName)
 		}
 		fmt.Printf("Generating root CA certificate %q and key...\n", caName)
-		key, err := newKey(keyType)
+		key, err := NewKey(keyType)
 		if err != nil {
 			return err
 		}
@@ -202,7 +202,7 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 		if err != nil {
 			return err
 		}
-		key, err := newKey(keyType)
+		key, err := NewKey(keyType)
 		if err != nil {
 			return err
 		}

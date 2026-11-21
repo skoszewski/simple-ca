@@ -73,6 +73,20 @@ token allows more than one; without it, the first type of the token is used. An 
 never overwritten, and a refused request prints the status and the error, as listed under
 [Errors](#errors), and exits with 1. `request-cert -h` lists the options.
 
+Where the server offers the OIDC sign-in for `request-cert`, a person gets a user certificate of
+themselves without a token: `--oidc` signs in in the browser, and `--oidc-device` with a code
+entered on any device, such as on a machine without a browser. It takes the URL of the server,
+and names the files after the local part of the email address, or `--name`; `--type` chooses
+the type when the profile of the person offers several:
+
+```sh
+request-cert --oidc http://pki.example.com:8080
+request-cert --oidc-device --type person --name laptop http://pki.example.com:8080
+```
+
+The page `/oidc-certificate` does the same in the browser, and can also make the key and give it
+in a PKCS#12 file.
+
 ## With openssl, curl and jq
 
 These commands do the same step by step, and also make certificates with IP addresses, or sign

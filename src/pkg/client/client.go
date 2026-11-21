@@ -129,11 +129,13 @@ func ReplaceFile(path, data string) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// StatusError is an answer that is not 200 OK: its target, its status and its message.
+// StatusError is an answer that is not 200 OK: its target, its status, its message and, of an
+// OAuth answer, its error code.
 type StatusError struct {
-	Target  string
-	Code    int
-	Message string
+	Target    string
+	Code      int
+	Message   string
+	ErrorCode string
 }
 
 func (e *StatusError) Error() string {
@@ -167,13 +169,42 @@ func Post(target, contentType, bearer string, body []byte, result any) error {
 			Error            any    `json:"error"`
 			ErrorDescription string `json:"error_description"`
 		}
+		var code string
 		if json.Unmarshal(answer, &e) == nil {
 			if s, ok := e.Error.(string); ok && s != "" {
-				message = s
+				message, code = s, s
 			}
 			if e.ErrorDescription != "" {
 				message = e.ErrorDescription
 			}
+		}
+		return &StatusError{Target: target, Code: resp.StatusCode, Message: message, ErrorCode: code}
+	}
+	if err := json.Unmarshal(answer, result); err != nil {
+		return fmt.Errorf("%q: %w", target, err)
+	}
+	return nil
+}
+
+// Get decodes the JSON answer of target into result; an answer that is not 200 OK is a
+// *StatusError with the text of the answer.
+func Get(target string, result any) error {
+	resp, err := Client.Get(target)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, MaxAnswer))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		message := strings.TrimSpace(string(answer))
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(answer, &e) == nil && e.Error != "" {
+			message = e.Error
 		}
 		return &StatusError{Target: target, Code: resp.StatusCode, Message: message}
 	}

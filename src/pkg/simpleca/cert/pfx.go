@@ -23,6 +23,7 @@
 package cert
 
 import (
+	"crypto"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -71,14 +72,6 @@ func EncodePFX(certPath, caDir, password string) ([]byte, error) {
 	if !simpleca.FileExists(certPath) || !simpleca.FileExists(keyPath) {
 		return nil, errors.New("server certificate or key not found")
 	}
-	rootDir, issuingCA, err := simpleca.LocateCA(caDir)
-	if err != nil {
-		return nil, err
-	}
-	rootCertPath := filepath.Join(rootDir, "ca_cert.pem")
-	if !simpleca.FileExists(rootCertPath) {
-		return nil, fmt.Errorf("root CA certificate not found in %q", rootDir)
-	}
 	cert, err := simpleca.LoadCert(certPath)
 	if err != nil {
 		return nil, err
@@ -86,6 +79,20 @@ func EncodePFX(certPath, caDir, password string) ([]byte, error) {
 	key, err := simpleca.LoadKey(keyPath)
 	if err != nil {
 		return nil, err
+	}
+	return EncodePFXKey(key, cert, caDir, password)
+}
+
+// EncodePFXKey returns the PKCS#12 bundle, protected with password, of cert, its key and the
+// chain of the CA in caDir that signed it.
+func EncodePFXKey(key crypto.Signer, cert *x509.Certificate, caDir, password string) ([]byte, error) {
+	rootDir, issuingCA, err := simpleca.LocateCA(caDir)
+	if err != nil {
+		return nil, err
+	}
+	rootCertPath := filepath.Join(rootDir, "ca_cert.pem")
+	if !simpleca.FileExists(rootCertPath) {
+		return nil, fmt.Errorf("root CA certificate not found in %q", rootDir)
 	}
 	root, err := simpleca.LoadCert(rootCertPath)
 	if err != nil {

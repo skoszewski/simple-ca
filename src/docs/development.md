@@ -332,7 +332,7 @@ to `dist/`, for an internal release of [release.mjs --no-tag](#releasing):
 `simple-ca-X.Y.Z-<goos>-<goarch>.tar.gz` with the six programs, and
 `simple-ca-lite-X.Y.Z-<goos>-<goarch>.tar.gz` with `simple-ca-lite`, each a `.zip` on Windows,
 built as the workflow builds them and versioned `vX.Y.Z` of the newest `CHANGELOG.md` entry. It
-refuses uncommitted changes, an entry that no commit has the summary line of, and a host without
+refuses uncommitted changes, an entry that no commit has the summary of, and a host without
 the toolchain of its own `simple-ca-trust`: Swift on macOS and the .NET SDK on Windows. The
 programs of each archive are packed from `.build/pack-<archive>/`, removed afterwards.
 
@@ -384,19 +384,20 @@ workflow:
 
 ## Releasing
 
-`CHANGELOG.md` holds every release, newest first: a `## x.y.z` heading, a summary line between
-blank lines, and the changes as a list. An entry is released once a commit on `dev` has its
-summary line as the message; the newest entry not yet released collects the changes made since
-the last release.
+`CHANGELOG.md` holds every release, newest first: a `## x.y.z` heading, a summary paragraph
+between blank lines, and the changes as a list. The summary is the commit message of the release,
+its lines joined with single spaces, so it may be wrapped at 100 columns. An entry is released
+once a commit on `dev` has its summary as the message; the newest entry not yet released collects
+the changes made since the last release.
 
 `./release.mjs`, run on `dev`, releases the newest entry, without pushing anything: it commits
-everything with the entry's summary line as the message. Releases made this way stay on the
+everything with the entry's summary as the message. Releases made this way stay on the
 machine; each next one needs a new entry, with a new version.
 
 `./release.mjs --push REMOTE` publishes the newest entry on the git remote `REMOTE`, such as
 `origin` on GitHub, and `./release.mjs --push all` on every remote `git remote` lists:
 
-1. commits everything with the entry's summary line as the message, when the entry is not
+1. commits everything with the entry's summary as the message, when the entry is not
    released yet;
 2. makes the annotated tag `vx.y.z` on `dev`, unless an earlier `--push` made it; its message,
    which the workflows publish as the release notes, is the entry followed by the entries released

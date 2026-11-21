@@ -26,6 +26,15 @@
         "valid": "8h",
         "scopes": ["certs"]
       }
+    },
+    {
+      "name": "staff",
+      "ca": "servers",
+      "certificate": {
+        "types": ["user"],
+        "days": 30,
+        "email_domains": ["example.com"]
+      }
     }
   ],
   "rules": [

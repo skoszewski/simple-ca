@@ -12,8 +12,9 @@ const oidcBase64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+
 const oidcRandom = () => oidcBase64url(crypto.getRandomValues(new Uint8Array(32)));
 
 // oidcButton shows button, which starts the sign-in, when it is on; save runs before leaving the
-// page, and failed shows an error.
-async function oidcButton(button, save, failed) {
+// page, and failed shows an error. With the purpose "certificate", the sign-in returns the ID
+// token to the page instead of exchanging it for a token.
+async function oidcButton(button, save, failed, purpose = "token") {
   const settings = await oidcSettings();
   if (!settings) {
     return;
@@ -32,7 +33,7 @@ async function oidcButton(button, save, failed) {
     const state = oidcRandom();
     const nonce = oidcRandom();
     const challenge = oidcBase64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
-    sessionStorage.setItem(oidcFlowKey, JSON.stringify({ verifier, state, nonce, back: location.pathname + location.search }));
+    sessionStorage.setItem(oidcFlowKey, JSON.stringify({ verifier, state, nonce, purpose, back: location.pathname + location.search }));
     const url = new URL(settings.authorization_endpoint);
     for (const [key, value] of Object.entries({ response_type: "code", client_id: settings.client_id,
       redirect_uri: location.origin + settings.redirect_path, scope: settings.scopes.join(" "), state, nonce,
@@ -43,15 +44,16 @@ async function oidcButton(button, save, failed) {
   });
 }
 
-// oidcTaken returns, once, the /api/oidc-token answer left by the callback page, or null.
+// oidcTaken returns, once, the /api/oidc-token answer left by the callback page, or the ID token,
+// {id_token}, of a sign-in for a certificate, or null.
 function oidcTaken() {
   const result = sessionStorage.getItem(oidcResultKey);
   sessionStorage.removeItem(oidcResultKey);
   return result ? JSON.parse(result) : null;
 }
 
-// oidcCallback redeems the code, exchanges the ID token for the token, and returns to the page the
-// sign-in started on.
+// oidcCallback redeems the code, exchanges the ID token for the token, or keeps it for the page
+// of a certificate, and returns to the page the sign-in started on.
 async function oidcCallback() {
   const message = document.getElementById("oidc-message");
   const back = document.getElementById("oidc-back");
@@ -98,6 +100,12 @@ async function oidcCallback() {
     (c) => c.charCodeAt(0))));
   if (claims.nonce !== flow.nonce) {
     fail("The ID token does not answer this sign-in; start it again.");
+    return;
+  }
+  // The page of a certificate sends the ID token itself, with its request.
+  if (flow.purpose === "certificate") {
+    sessionStorage.setItem(oidcResultKey, JSON.stringify({ id_token: tokens.id_token }));
+    location.replace(flow.back);
     return;
   }
   // An active token of the user is replaced or reused only on the user's choice.

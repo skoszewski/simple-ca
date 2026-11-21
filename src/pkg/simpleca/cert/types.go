@@ -156,6 +156,45 @@ var KeyUsageNames = []struct {
 	{x509.KeyUsageDecipherOnly, "decipherOnly"},
 }
 
+// extKeyUsageOIDs are the OIDs of the extended key usages crypto/x509 knows.
+var extKeyUsageOIDs = map[x509.ExtKeyUsage]string{
+	x509.ExtKeyUsageAny:                            "2.5.29.37.0",
+	x509.ExtKeyUsageServerAuth:                     "1.3.6.1.5.5.7.3.1",
+	x509.ExtKeyUsageClientAuth:                     "1.3.6.1.5.5.7.3.2",
+	x509.ExtKeyUsageCodeSigning:                    "1.3.6.1.5.5.7.3.3",
+	x509.ExtKeyUsageEmailProtection:                "1.3.6.1.5.5.7.3.4",
+	x509.ExtKeyUsageIPSECEndSystem:                 "1.3.6.1.5.5.7.3.5",
+	x509.ExtKeyUsageIPSECTunnel:                    "1.3.6.1.5.5.7.3.6",
+	x509.ExtKeyUsageIPSECUser:                      "1.3.6.1.5.5.7.3.7",
+	x509.ExtKeyUsageTimeStamping:                   "1.3.6.1.5.5.7.3.8",
+	x509.ExtKeyUsageOCSPSigning:                    "1.3.6.1.5.5.7.3.9",
+	x509.ExtKeyUsageMicrosoftServerGatedCrypto:     "1.3.6.1.4.1.311.10.3.3",
+	x509.ExtKeyUsageNetscapeServerGatedCrypto:      "2.16.840.1.113730.4.1",
+	x509.ExtKeyUsageMicrosoftCommercialCodeSigning: "1.3.6.1.4.1.311.2.1.22",
+	x509.ExtKeyUsageMicrosoftKernelCodeSigning:     "1.3.6.1.4.1.311.61.1.1",
+}
+
+// EKUOIDs returns the OIDs of the extended key usages ekus, names of ExtKeyUsageNames or numeric
+// OIDs as ParseUsages takes them, each once, so that a name and its OID are the same usage.
+func EKUOIDs(ekus []string) ([]string, error) {
+	_, known, others, err := ParseUsages(nil, ekus)
+	if err != nil {
+		return nil, err
+	}
+	var oids []string
+	for _, usage := range known {
+		if oid := extKeyUsageOIDs[usage]; !slices.Contains(oids, oid) {
+			oids = append(oids, oid)
+		}
+	}
+	for _, oid := range others {
+		if s := oid.String(); !slices.Contains(oids, s) {
+			oids = append(oids, s)
+		}
+	}
+	return oids, nil
+}
+
 // ExtKeyUsageNames names the extended key usages crypto/x509 knows.
 var ExtKeyUsageNames = map[x509.ExtKeyUsage]string{
 	x509.ExtKeyUsageAny:                            "any",

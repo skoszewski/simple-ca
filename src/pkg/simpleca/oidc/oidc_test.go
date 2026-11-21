@@ -112,15 +112,15 @@ func TestOIDCKeys(t *testing.T) {
 	mu.Unlock()
 	client := NewClient(rootDir)
 	oc, _, _ := Resolved(cfg.OIDC, cfg.Path)
-	if _, err := client.checkIDToken(oc, idToken("k1", key1, user("alice@example.com", nil))); err != nil {
+	if _, err := client.checkIDToken(oc, idToken("k1", key1, user("alice@example.com", nil)), []string{oc.ClientID}, true); err != nil {
 		t.Fatalf("checkIDToken: %v", err)
 	}
 	client.keys = map[string]crypto.PublicKey{"k1": &key1.PublicKey}
-	if _, err := client.checkIDToken(oc, idToken("k2", key2, user("alice@example.com", nil))); err == nil {
+	if _, err := client.checkIDToken(oc, idToken("k2", key2, user("alice@example.com", nil)), []string{oc.ClientID}, true); err == nil {
 		t.Error("checkIDToken with a key of the JWKS not fetched again yet succeeded, want an error")
 	}
 	client.keysAt = time.Now().Add(-keysRefetch)
-	if _, err := client.checkIDToken(oc, idToken("k2", key2, user("alice@example.com", nil))); err != nil {
+	if _, err := client.checkIDToken(oc, idToken("k2", key2, user("alice@example.com", nil)), []string{oc.ClientID}, true); err != nil {
 		t.Errorf("checkIDToken with the new key k2: %v", err)
 	}
 	mu.Lock()
@@ -175,12 +175,21 @@ func TestOIDCCheck(t *testing.T) {
 		}
 	}
 
-	write(simpleca.ConfigFile, `{"oidc": {"provider": "entra", "issuer": "https://idp.example.com", "client_id": "simple-ca"}}`)
+	write(simpleca.ConfigFile, `{"oidc": {"provider": "entra", "issuer": "https://idp.example.com", "client_id": "simple-ca"},
+  "types": {
+    "person": {"names": "user", "key_usage": ["digitalSignature"], "ext_key_usage": ["clientAuth", "emailProtection"]},
+    "company": {"names": "user", "key_usage": ["digitalSignature"], "ext_key_usage": ["clientAuth", "1.3.6.1.4.1.99999.20"]},
+    "dual": {"names": "user", "key_usage": ["digitalSignature"], "ext_key_usage": ["clientAuth", "serverAuth"]},
+    "device": {"key_usage": ["digitalSignature"], "ext_key_usage": ["clientAuth"]},
+    "bare": {"names": "user", "key_usage": ["digitalSignature"], "ext_key_usage": []}
+  }}`)
 	write(UsersFile, `{
   "profiles": [
     {"name": "ca-admin", "token": {"valid": "8h", "scopes": ["tokens", "certs"]}},
     {"name": "web-signer", "ca": "clients", "token": {"scopes": ["sign"], "domains": ["example.com"]}},
-    {"name": "viewer", "ca": "clients", "token": {"scopes": ["certs"], "networks": ["10.0.0.0/8"]}}
+    {"name": "viewer", "ca": "clients", "token": {"scopes": ["certs"], "networks": ["10.0.0.0/8"]}},
+    {"name": "staff", "ca": "clients", "certificate": {"types": ["person", "user"], "days": 30, "email_domains": ["example.com"]}},
+    {"name": "both", "token": {"scopes": ["certs"]}, "certificate": {"types": ["user"]}}
   ],
   "rules": [
     {"users": ["alice@example.com", "henry@example.com"], "profile": "ca-admin"},
@@ -200,6 +209,8 @@ func TestOIDCCheck(t *testing.T) {
 		"an unknown provider": `{"oidc": {"provider": "other", "issuer": "https://idp.example.com", "client_id": "x"}}`,
 		"no client ID":        `{"oidc": {"issuer": "https://idp.example.com"}}`,
 		"an issuer not a URL": `{"oidc": {"issuer": "idp.example.com", "client_id": "x"}}`,
+		"the same CLI client": `{"oidc": {"issuer": "https://idp.example.com", "client_id": "x", "cli_client_id": "x"}}`,
+		"CLI scopes alone":    `{"oidc": {"issuer": "https://idp.example.com", "client_id": "x", "cli_scopes": ["openid"]}}`,
 	} {
 		cfg := &simpleca.Config{Path: simpleca.ConfigFile}
 		if err := json.Unmarshal([]byte(c), cfg); err != nil {
@@ -218,10 +229,101 @@ func TestOIDCCheck(t *testing.T) {
 		"an unknown profile":  `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}], "rules": [{"users": ["x"], "profile": "b"}]}`,
 		"a rule without whom": `{"profiles": [{"name": "a", "token": {"scopes": ["certs"]}}], "rules": [{"profile": "a"}]}`,
 		"an unknown key":      `{"profiles": [], "groups": []}`,
+		"the server type":     `{"profiles": [{"name": "a", "certificate": {"types": ["server"]}}]}`,
+		"serverAuth":          `{"profiles": [{"name": "a", "certificate": {"types": ["dual"]}}]}`,
+		"the server names":    `{"profiles": [{"name": "a", "certificate": {"types": ["device"]}}]}`,
+		"no EKUs":             `{"profiles": [{"name": "a", "certificate": {"types": ["bare"]}}]}`,
+		"an EKU not allowed":  `{"profiles": [{"name": "a", "certificate": {"types": ["company"]}}]}`,
+		"an unknown type":     `{"profiles": [{"name": "a", "certificate": {"types": ["other"]}}]}`,
+		"no types":            `{"profiles": [{"name": "a", "certificate": {"types": []}}]}`,
+		"negative days":       `{"profiles": [{"name": "a", "certificate": {"types": ["user"], "days": -1}}]}`,
+		"an email domain":     `{"profiles": [{"name": "a", "certificate": {"types": ["user"], "email_domains": ["not a domain"]}}]}`,
+		"a type key":          `{"profiles": [{"name": "a", "certificate": {"type": "user"}}]}`,
+		"a hosts key":         `{"profiles": [{"name": "a", "certificate": {"types": ["user"], "hosts": ["10.0.0.1"]}}]}`,
+		"a domains key":       `{"profiles": [{"name": "a", "certificate": {"types": ["user"], "domains": ["example.com"]}}]}`,
+		"a broken rule":       `{"user_ekus": {"require": ["clientAuth"], "allow": ["clientAuth"]}, "profiles": []}`,
 	} {
 		write(UsersFile, users)
 		if err := Check(rootDir, cfg); err == nil {
 			t.Errorf("checkOIDC with %s in %s succeeded, want an error", name, UsersFile)
 		}
+	}
+
+	// user_ekus admits a type with an EKU it names.
+	write(UsersFile, `{"user_ekus": {"allow": ["clientAuth", "1.3.6.1.4.1.99999.20"]},
+  "profiles": [{"name": "a", "certificate": {"types": ["company"]}}]}`)
+	if err := Check(rootDir, cfg); err != nil {
+		t.Errorf("checkOIDC with a type of an EKU of user_ekus: %v", err)
+	}
+}
+
+func TestEKURule(t *testing.T) {
+	parse := func(s string) *ekuRule {
+		t.Helper()
+		var r ekuRule
+		dec := json.NewDecoder(strings.NewReader(s))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&r); err != nil {
+			t.Fatalf("rule %s: %v", s, err)
+		}
+		return &r
+	}
+	oids := func(ekus ...string) []string {
+		t.Helper()
+		o, err := cert.EKUOIDs(ekus)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return o
+	}
+	example := parse(`{"and": [
+  {"allow": ["clientAuth", "emailProtection", "codeSigning", "1.3.6.1.4.1.99999.20"]},
+  {"or": [{"require": ["clientAuth"]}, {"require": ["emailProtection"]}]},
+  {"not": {"require": ["serverAuth"]}}]}`)
+	if err := example.check(1); err != nil {
+		t.Fatalf("check of the example: %v", err)
+	}
+	for _, c := range []struct {
+		rule *ekuRule
+		ekus []string
+		want bool
+	}{
+		{example, []string{"clientAuth", "codeSigning"}, true},
+		{example, []string{"emailProtection", "1.3.6.1.4.1.99999.20"}, true},
+		{example, []string{"codeSigning"}, false},
+		{example, []string{"clientAuth", "serverAuth"}, false},
+		{example, []string{"clientAuth", "1.2.3.4"}, false},
+		{parse(`{"require": ["1.3.6.1.5.5.7.3.2"]}`), []string{"clientAuth"}, true},
+		{parse(`{"allow": ["clientAuth"]}`), []string{"1.3.6.1.5.5.7.3.2"}, true},
+		{&defaultUserEKUs, []string{"clientAuth", "emailProtection", "codeSigning"}, true},
+		{&defaultUserEKUs, []string{"serverAuth", "clientAuth"}, false},
+	} {
+		if got := c.rule.matches(oids(c.ekus...)); got != c.want {
+			t.Errorf("rule %+v with %v: %v, want %v", c.rule, c.ekus, got, c.want)
+		}
+	}
+
+	deep := `{"require": ["clientAuth"]}`
+	for range 8 {
+		deep = `{"not": ` + deep + `}`
+	}
+	for name, s := range map[string]string{
+		"two keys":       `{"require": ["clientAuth"], "allow": ["clientAuth"]}`,
+		"no key":         `{}`,
+		"an empty list":  `{"allow": []}`,
+		"an empty and":   `{"and": []}`,
+		"an EKU":         `{"require": ["client auth"]}`,
+		"a nested error": `{"or": [{"require": ["clientAuth"]}, {"not": {}}]}`,
+		"nine levels":    deep,
+	} {
+		if err := parse(s).check(1); err == nil {
+			t.Errorf("check of %s succeeded, want an error", name)
+		}
+	}
+	var r ekuRule
+	dec := json.NewDecoder(strings.NewReader(`{"deny": ["serverAuth"]}`))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&r) == nil {
+		t.Error("a rule with the key deny decoded, want an error")
 	}
 }

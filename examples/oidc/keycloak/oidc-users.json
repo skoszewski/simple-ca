@@ -27,6 +27,15 @@
         "scopes": ["certs"],
         "networks": ["192.168.1.0/24"]
       }
+    },
+    {
+      "name": "staff",
+      "ca": "servers",
+      "certificate": {
+        "types": ["user"],
+        "days": 30,
+        "email_domains": ["example.com"]
+      }
     }
   ],
   "rules": [
@@ -37,6 +46,10 @@
     {
       "groups": ["/web-team"],
       "profile": "web-signer"
+    },
+    {
+      "groups": ["/staff"],
+      "profile": "staff"
     }
   ]
 }

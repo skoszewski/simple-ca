@@ -59,8 +59,9 @@ function read(command, ...args) {
 }
 
 // The entries, newest first: each "## " heading with its version, and its body, every line up to
-// the next heading. The summary line of the newest entry follows its heading between blank lines,
-// and is neither a "-" item nor a heading.
+// the next heading. The summary of the newest entry is the paragraph after its heading and a blank
+// line, ended by a blank line, neither a "-" item nor holding a heading; its lines are joined with
+// single spaces.
 const lines = readFileSync(CHANGELOG, 'utf8').split('\n');
 const headings = lines.flatMap((line, index) => (line.startsWith('## ') ? [index] : []));
 if (headings.length === 0) fail(`${CHANGELOG} has no "## x.y.z" entry`);
@@ -78,9 +79,13 @@ const tag = `v${version}`;
 // A version x.y.z-N, N a number, is a later release of the same code with changes to the
 // documentation or the packaging alone; it is not tagged, so nothing builds it.
 const untagged = /-[0-9]+$/.test(version);
-const [above, line, below] = lines.slice(headings[0] + 1, headings[0] + 4);
-const summary = above?.trim() === '' && below?.trim() === '' && line?.trim() && !line.startsWith('-') && !line.startsWith('#') ? line.trim() : undefined;
-if (!summary) fail(`put a summary line between blank lines right after the newest heading of ${CHANGELOG}`);
+const end = lines.findIndex((line, index) => index > headings[0] + 1 && line.trim() === '');
+const paragraph = end === -1 ? [] : lines.slice(headings[0] + 2, end);
+const summary =
+  lines[headings[0] + 1]?.trim() === '' && paragraph.length > 0 && !paragraph[0].startsWith('-') && !paragraph.some((line) => line.startsWith('#'))
+    ? paragraph.map((line) => line.trim()).join(' ')
+    : undefined;
+if (!summary) fail(`put a summary paragraph between blank lines right after the newest heading of ${CHANGELOG}`);
 
 if (read('git', 'branch', '--show-current') !== 'dev') fail('a release is made from dev');
 // The remotes --push names, one or all of git remote; without --push, a release counts as
@@ -98,7 +103,7 @@ const remoteTags = new Map(remotes.map((remote) => [remote, new Set(read('git', 
 const pending = remotes.filter((remote) => !remoteTags.get(remote).has(tag));
 if (pending.length === 0) fail(`${tag} is published on ${remotes.join(' and ')}; add a new CHANGELOG.md entry first`);
 
-// The release commit of an entry is a commit on dev whose message is the entry's summary line.
+// The release commit of an entry is a commit on dev whose message is the entry's joined summary.
 const hasCommits = spawnSync('git', ['rev-parse', '-q', '--verify', 'HEAD'], { cwd: import.meta.dirname }).status === 0;
 const committed = hasCommits && read('git', 'log', '--format=%s', 'dev').split('\n').includes(summary);
 const dirty = read('git', 'status', '--porcelain') !== '';

@@ -4,8 +4,10 @@ title: OIDC sign-in
 
 `serve` can hand out tokens to the users of an OpenID Connect provider, next to
 [setup codes](signing-api.md#one-time-setup-codes): a user signs in at the provider, and `serve`
-makes the user's token from the profile `oidc-users.json` gives the user. Generic OIDC providers,
-Keycloak and Microsoft Entra ID are supported.
+makes the user's token from the profile `oidc-users.json` gives the user. A profile can also give
+the user a user certificate named after the user, from the page `/oidc-certificate` or from
+`request-cert`; see [User certificates](#user-certificates). Generic OIDC providers, Keycloak and
+Microsoft Entra ID are supported.
 
 The sign-in is offered as a "Sign in with LABEL" button on:
 
@@ -88,22 +90,33 @@ The `oidc` section of [simple-ca.json](configuration.md) turns the sign-in on:
   or a list.
 - `reuse_token` - `true` offers "Use the current token" when a user signs in with an active
   token, which gives that token again in place of a new one; off by default.
+- `email_claim` and `name_claim` - the claims giving the email address and the CN of a user
+  certificate, one or a list, the first one present giving the value.
+- `cli_client_id` - the client ID of the public client of `request-cert`, another client than
+  `client_id`, with a loopback redirect URI and the device authorization grant. Without it,
+  `request-cert --oidc` and `--oidc-device` are refused.
+- `cli_scopes` - the scopes `request-cert` asks for; those of `scopes` by default, and `openid` is
+  always asked for. It needs `cli_client_id`.
 
 A claim is a dotted path into the ID token, such as `realm_access.roles`, and the segment
-`CLIENT_ID` stands for the client ID. A claim is a string or a list of strings.
+`CLIENT_ID` stands for the client ID the ID token was issued for, `client_id` or
+`cli_client_id`. A claim is a string or a list of strings.
 
-| `provider` | `label` | `user_claim` | `groups_claim` | `roles_claim` |
-|---|---|---|---|---|
-| `generic` | `OIDC` | `sub` | `groups` | `roles` |
-| `keycloak` | `Keycloak` | `preferred_username` | `groups` | `realm_access.roles`, `resource_access.CLIENT_ID.roles` |
-| `entra` | `Entra ID` | `preferred_username` | `groups` | `roles` |
+| `provider` | `label` | `user_claim` | `groups_claim` | `roles_claim` | `email_claim` | `name_claim` |
+|---|---|---|---|---|---|---|
+| `generic` | `OIDC` | `sub` | `groups` | `roles` | `email` | `name` |
+| `keycloak` | `Keycloak` | `preferred_username` | `groups` | `realm_access.roles`, `resource_access.CLIENT_ID.roles` | `email` | `name` |
+| `entra` | `Entra ID` | `preferred_username` | `groups` | `roles` | `email`, `preferred_username` | `name` |
 
 `serve` accepts an ID token signed with RS256, ES256, ES384, ES512 or EdDSA by a key of the JWKS
-of the provider. Its `iss` must be the issuer and its `aud` must hold the client ID. Its `azp`,
-when present, must be the client ID too. It must have a subject and a `nonce`, must not have
-expired, and its `iat` must be present and at most 2 minutes ahead of the clock of `serve`. Its
-`nonce` gives one token: an ID token that has given a token is refused after that. The JWKS is
-fetched again for a key it does not have, at most once a minute.
+of the provider. Its `iss` must be the issuer. It is issued for its `azp`, or, without one, for
+the client ID its `aud` holds; that client must be `client_id` for a token, and `client_id` or
+`cli_client_id` for a certificate, and `aud` must hold it. It must have a subject, must not have
+expired, and its `iat` must be present and at most 2 minutes ahead of the clock of `serve`. An ID
+token for a token must have a `nonce`; one for a certificate may lack it, as an ID token of the
+device authorization grant does. An ID token gives one token or one certificate, and is refused
+after that; it is known by its `nonce`, or by its SHA-256 without one. The JWKS is fetched again
+for a key it does not have, at most once a minute.
 
 ## oidc-users.json
 
@@ -153,11 +166,11 @@ refused, and a setting not described here is an error.
 }
 ```
 
-A profile is a token profile:
+A profile gives a token, a certificate, or both:
 
 - `name` - a **kebab-case** name, such as `ca-admin`; a role of the same value gives the profile.
-- `ca` - the issuing CA of the tokens, empty or left out for the root CA. Its key must be in its
-  directory.
+- `ca` - the issuing CA of the tokens and the certificates, empty or left out for the root CA. Its
+  key must be in its directory.
 - `token` - the settings of the token, those of the `tokens` section of `simple-ca.json`:
   `valid`, `scopes`, `types`, `domains`, `ips`, `hosts` and `networks`, and `localhost`, as
   `token create --localhost` gives it. A setting left out takes its value from the `tokens`
@@ -165,6 +178,9 @@ A profile is a token profile:
   profile. A profile has no token type of
   [workload identity federation](workload-identity.md): with the scope `federate`, its token gets
   no JWTs, and grants the scope `federate` to the tokens its user creates on the token page.
+- `certificate` - the settings of the user certificate, described in
+  [User certificates](#user-certificates). A profile with `certificate` and without `token` gives
+  no token; one without either gives a token of the defaults of the `tokens` section.
 
 A rule gives its `profile` to the users of `users`, compared with the user claim, and to the
 members of `groups`, compared with the groups claim.
@@ -185,13 +201,124 @@ refused with `409 Conflict`. The token is accepted only from the clients of its 
 
 `serve` refuses to start with an `oidc` section or an `oidc-users.json` it cannot use. This
 covers an unknown provider, a missing client ID, an unknown CA, a profile name that is not
-kebab-case or is given twice, a rule without users and groups or naming an unknown profile, and a
-token that `token create` would refuse. Both files are read on each sign-in, so a change applies
-without a restart.
+kebab-case or is given twice, a rule without users and groups or naming an unknown profile, a
+token that `token create` would refuse, a certificate without `types`, of an unknown type or a type
+that `user_ekus` or the user name rules keep out, negative days, or an email domain that is not a
+domain name, and a `user_ekus` rule that is not valid. Both files are read on each sign-in, so a
+change applies without a restart.
 
 `examples/oidc/` holds a `simple-ca.json` and an `oidc-users.json` for each provider, in
 `generic/`, `keycloak/` and `entra/`; the Entra ID one gives its profiles by app roles alone,
 apart from one user.
+
+## User certificates
+
+A profile with `certificate` gives its users a user certificate of themselves. The subject comes
+from the ID token: the CN from `name_claim`, left out without it, and the `emailAddress`, which is
+also the email address SAN, from `email_claim`. When the user sends a CSR, only its public key is
+used; its subject, its SANs and its other extensions are not. Each sign-in issues a new
+certificate, and the certificates issued before stay valid until they expire or are revoked.
+Servers, and certificates renewed without a person, are given their certificates by tokens or
+setup codes of the [signing API](signing-api.md), not by the OIDC sign-in.
+
+```json
+{
+  "user_ekus": {
+    "and": [
+      {"allow": ["clientAuth", "emailProtection", "codeSigning", "1.3.6.1.4.1.99999.20"]},
+      {"or": [{"require": ["clientAuth"]}, {"require": ["emailProtection"]}]},
+      {"not": {"require": ["serverAuth"]}}
+    ]
+  },
+  "profiles": [
+    {
+      "name": "staff",
+      "ca": "people",
+      "certificate": {
+        "types": ["person", "user"],
+        "days": 30,
+        "email_domains": ["example.com"]
+      }
+    }
+  ],
+  "rules": [
+    {
+      "groups": ["staff"],
+      "profile": "staff"
+    }
+  ]
+}
+```
+
+The `certificate` section of a profile:
+
+- `types` - the certificate types the profile offers, one or more types of `simple-ca.json`,
+  built-in or of its `types` section. Each has the user name rules, at least one extended key
+  usage, and extended key usages that meet `user_ekus`;
+- `days` - the validity in days, `days.cert` of `simple-ca.json` by default, else 365;
+- `email_domains` - the domains of the email address, with their subdomains; any domain without
+  them.
+
+`user_ekus`, at the top of `oidc-users.json`, is the rule on the extended key usages of every type
+of `types`. It is a node, an object of exactly one key:
+
+| Key | Value | Holds when |
+|---|---|---|
+| `require` | a list of extended key usages | the type has every one of them |
+| `allow` | a list of extended key usages | the type has no other one |
+| `and` | a list of nodes | every node holds |
+| `or` | a list of nodes | a node holds |
+| `not` | a node | the node does not hold |
+
+An extended key usage is a name, such as `clientAuth`, or a numeric OID, as in the `types` of
+`simple-ca.json`, and a name is the same usage as its OID. A usage the type must not have is
+`not` of `require`. `allow` admits the usages it names alone, so a usage that no rule names keeps
+a type out. The lists are not empty, and the nodes are nested at most 8 levels deep. Without
+`user_ekus`, the rule is `{"allow": ["clientAuth", "emailProtection", "codeSigning"]}`, which
+the built-in type `user` meets and `server` does not. The example admits types of `clientAuth`
+or `emailProtection`, with `codeSigning` and the OID `1.3.6.1.4.1.99999.20` besides, and no
+`serverAuth`.
+
+A certificate is refused with `403 Forbidden` when the ID token has no email claim, or one that
+is not an email address, when its `email_verified` is `false`, when the email address is not in
+`email_domains`, and when the request names a type the profile does not offer. A profile of
+several types needs the type of the request; without it, the answer is `409 Conflict` with the
+types, and the ID token stays unused for the next request. The certificate is stored in the
+directory of the CA of the profile as `NAME-SERIAL_cert.pem`, with `NAME` the name the token of
+the user has, and is logged with the OIDC user, the client ID and the client.
+
+There are three ways to get it.
+
+- **The page `/oidc-certificate`**, linked from the index page and the signing forms: the user
+  chooses to have the key generated, of the type of the CA key, `ec` or `rsa`, or uploads or
+  pastes a CSR, and signs in with the client of the pages. A generated key is returned in a
+  PKCS#12 file, with a random password shown once, and `serve` keeps no copy of it. The page also
+  shows the certificate with its chain. For a profile of several types, it asks for the type after
+  the sign-in.
+- **`request-cert --oidc SERVE_URL`**, which signs in with the client of `cli_client_id`: the
+  authorization code flow with PKCE, the browser sent back to `http://127.0.0.1:PORT` on a free
+  port of the machine. It opens the browser at the sign-in URL and prints the URL, or only prints
+  it with `--no-browser`, and waits 5 minutes for the browser to come back.
+- **`request-cert --oidc-device SERVE_URL`**, the device authorization grant of the same client:
+  it prints the verification URL and the code to enter there, on any device, and polls the
+  provider until the user has signed in. The provider must name a
+  `device_authorization_endpoint` in its discovery document.
+
+`SERVE_URL` is the URL of `serve`, such as `https://pki.example.com:8443`; the profile gives the
+CA. `request-cert` makes an EC P-256 key and writes `NAME_key.pem`, `NAME_cert.pem` and
+`NAME_chain.pem` to `--out-dir`, `NAME` being `--name`, else the local part of the email address
+of the ID token. `--type` names the type, among those of the profile, and is needed when it
+offers several. `--token-file`, `--setup-code`, `--days` and a CN are refused with these options.
+
+```sh
+request-cert --oidc --out-dir ~/.certs https://pki.example.com:8443
+request-cert --oidc-device --type person --name laptop https://pki.example.com:8443
+```
+
+The client of `request-cert` is another public client of the provider than that of the pages, as
+described for each provider below. Its roles are its own: a Keycloak client role, in
+`resource_access.CLIENT_ID.roles`, or an Entra ID app role, gives a profile only through the
+client it is assigned on.
 
 ## Requests and responses
 
@@ -215,6 +342,10 @@ sign-in is off, `500 Internal Server Error` when `simple-ca.json` cannot be read
   "reuse_token": false
 }
 ```
+
+With `cli_client_id`, the answer also has `cli_client_id`, `cli_scopes` and `email_claim`, and
+`device_authorization_endpoint` when the provider has one, the settings `request-cert` signs in
+with.
 
 `POST /api/oidc-token` takes a JSON body of at most 64 KiB, `{"id_token": "eyJ..."}`, and
 answers as [/api/token-setup](signing-api.md#setup-code-exchange) does:
@@ -245,9 +376,11 @@ Any other error is `{"error": "..."}` with the status:
 - `400 Bad Request` - a body that is not a JSON object with a non-empty `id_token` and no other
   keys than `id_token`, `replace` and `reuse`, `reuse` without `reuse_token`, or `replace` and
   `reuse` together;
-- `401 Unauthorized` - an ID token `serve` does not accept, or one used before;
-- `403 Forbidden` - a user without a user claim or a profile, a user claim that makes no
-  kebab-case token name, or a client the token of the profile is not accepted from;
+- `401 Unauthorized` - an ID token `serve` does not accept, one used before, or one of the client
+  of `request-cert`;
+- `403 Forbidden` - a user without a user claim or a profile, a profile that gives no token, a
+  user claim that makes no kebab-case token name, or a client the token of the profile is not
+  accepted from;
 - `404 Not Found` - the sign-in is off;
 - `409 Conflict` without `active` - the name of the token belongs to another token;
 - `413 Request Entity Too Large` - a body larger than 64 KiB;
@@ -258,6 +391,32 @@ Any other error is `{"error": "..."}` with the status:
 
 Every token made is logged with the OIDC user and the client.
 
+`POST /api/oidc-cert` takes a JSON body of at most 64 KiB with the ID token and a CSR,
+`{"id_token": "eyJ...", "csr": "-----BEGIN CERTIFICATE REQUEST-----..."}`, or the ID token and
+`"generate": true`, with an optional `"key_type"`, `ec` or `rsa`, the type of the CA key without
+it. `"type"` names one of the types of the profile, and is needed when it offers several. It
+answers with the certificate of the profile of the user:
+
+```json
+{
+  "ca": "people",
+  "name": "alice-example-com",
+  "type": "person",
+  "serial": "5F3A...",
+  "certificate": "-----BEGIN CERTIFICATE-----...",
+  "chain": "-----BEGIN CERTIFICATE-----..."
+}
+```
+
+`chain` is the certificate followed by the certificate of its CA when that CA is an issuing CA.
+With `generate`, the answer adds `file`, the name of the PKCS#12 file, `password`, its password,
+and `pfx`, the file in base64. A profile of several types and a request without `type` give
+`409 Conflict` with `{"error": "...", "types": ["person", "user"]}`. Any other error is
+`{"error": "..."}` with the statuses of `/api/oidc-token`; `400 Bad Request` also covers a CSR
+that does not parse, `csr` and `generate` together or neither, and `key_type` without
+`generate`, and `403 Forbidden` a profile without `certificate` and the refusals of
+[User certificates](#user-certificates). A refused request leaves the ID token unused.
+
 ## Generic provider
 
 Register a public client for the authorization code flow with PKCE (S256), without a client
@@ -265,6 +424,10 @@ secret. Register `https://pki.example.com:8443/oidc-callback` as its redirect UR
 `serve` followed by `/oidc-callback`. Allow the origin of `serve`,
 `https://pki.example.com:8443`, to call the token endpoint (CORS). Then set `issuer` and
 `client_id`, and the claims of the provider when they differ from those of `generic`.
+
+For `request-cert`, register a second public client, without a client secret, with the redirect
+URI `http://127.0.0.1`, any port of which the provider must accept (RFC 8252), and the device
+authorization grant when the provider offers it. Set its client ID as `cli_client_id`.
 
 ## Keycloak
 
@@ -296,6 +459,12 @@ In the admin console of the realm:
 
 A realm role or a client role named like a profile, such as `web-signer`, gives that profile.
 
+For `request-cert`, create a second public client, such as `simple-ca-cli`, with Standard flow on
+and PKCE `S256` as above, the Valid redirect URI `http://127.0.0.1`, which allows any port, no Web
+origins, and the OAuth 2.0 device authorization grant turned on in its capabilities for
+`--oidc-device`. Add the same mappers to its dedicated scope, and set
+`"cli_client_id": "simple-ca-cli"`. Its client roles are in `resource_access.simple-ca-cli.roles`.
+
 ## Entra ID
 
 In the Microsoft Entra admin center:
@@ -317,6 +486,19 @@ In the Microsoft Entra admin center:
   }
 }
 ```
+
+For `request-cert`, register a second application:
+
+1. App registrations, New registration, for the accounts of this organizational directory only.
+2. Authentication, Add a platform, Mobile and desktop applications, with the redirect URI
+   `http://127.0.0.1`; Entra ID ignores its port. The portal refuses a plain HTTP `127.0.0.1`
+   redirect URI, so add it to `replyUrlsWithType` in the Manifest, with the type
+   `InstalledClient`.
+3. Authentication, Allow public client flows, Yes, for the device code flow of `--oidc-device`.
+4. Token configuration, Add optional claim, ID, `email`, for the email address of the
+   certificate; without it, `preferred_username` gives it.
+5. Set its Application (client) ID as `cli_client_id`, and assign its app roles to the users of
+   the certificates.
 
 ### App roles
 

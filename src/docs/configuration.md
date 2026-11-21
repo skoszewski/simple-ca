@@ -75,7 +75,8 @@ writes it, and it can be written or edited by hand. A setting not described here
   "oidc": {
     "provider": "keycloak",
     "issuer": "https://sso.example.com/realms/lab",
-    "client_id": "simple-ca"
+    "client_id": "simple-ca",
+    "cli_client_id": "simple-ca-cli"
   }
 }
 ```
@@ -136,9 +137,9 @@ writes it, and it can be written or edited by hand. A setting not described here
     A field left out keeps its value of the built-in type. See
     [Workload identity federation](workload-identity.md#token-types).
 - `oidc` - the [OIDC sign-in](oidc.md) of the pages of `serve`: `provider`,
-  `issuer`, `client_id`, `scopes`, `label`, `user_claim`, `groups_claim`, `roles_claim` and
-  `reuse_token`; the users get their tokens from the profiles of `oidc-users.json` in the root CA
-  directory.
+  `issuer`, `client_id`, `scopes`, `label`, `user_claim`, `groups_claim`, `roles_claim`,
+  `email_claim`, `name_claim`, `reuse_token`, `cli_client_id` and `cli_scopes`; the users get their
+  tokens and their certificates from the profiles of `oidc-users.json` in the root CA directory.
 - `serve` - the settings of [serve](serve.md):
   - `trusted_proxies` - the addresses and prefixes of the proxies whose `X-Forwarded-For` header
     names the client of every request to `serve`, such as of the [signing API](signing-api.md),
@@ -199,7 +200,7 @@ name. A role left out keeps its built-in colour, and a setting not described her
 
 | Page | Colours |
 |---|---|
-| the index page, `/token-setup`, `/oidc-callback` | those of the root CA |
+| the index page, `/token-setup`, `/oidc-callback`, `/oidc-certificate` | those of the root CA |
 | `/sign`, `/NAME/sign` | those of the CA of the form |
 | the token and certificate pages | those of the CA chosen in their selector, changing with it |
 | the audit page | those of the root CA, or of its own CA for an issuing CA token |
