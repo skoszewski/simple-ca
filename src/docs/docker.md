@@ -149,7 +149,7 @@ The repository is signed with the gpg key of
 [Development](development.md#signing-key). A key without a passphrase:
 
 ```sh
-SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+export SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
 
 ./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE"
 ```
@@ -157,8 +157,8 @@ SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
 A key with a passphrase, held in a file of its own:
 
 ```sh
-SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
-SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
+export SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+export SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
 
 ./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE" --passphrase-file "$SIMPLE_CA_GPG_PASSPHRASE_FILE"
 ```

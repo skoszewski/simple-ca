@@ -76,8 +76,8 @@ the packages, and `--full` takes both from `dist/` and `apt/` and builds `simple
 
 ```sh
 REGISTRY=registry.example.com
-SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
-SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
+export SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+export SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
 
 ./release.mjs --no-tag
 ./build.mjs dist --all --dpkg
@@ -102,8 +102,8 @@ nothing, so any host does it.
 
 ```sh
 REGISTRY=registry.example.com
-SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
-SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
+export SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+export SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
 
 ./release.mjs --push all
 # wait until the release workflow has published the release on GitHub
@@ -127,6 +127,11 @@ SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
 ./build.mjs clean              # remove bin/, .build/, dist/, apt/ and the build files of
                                # trust/macos and trust/windows
 ```
+
+Every action of `./build.mjs` prints each step it takes on stderr, such as
+`Building dist/simple-ca-1.7.0-linux-amd64.tar.gz...`, and the files it writes on stdout. A
+refused command line prints its reason before the usage and exits with 2, and a failed command
+names the command and its exit status.
 
 While the newest `CHANGELOG.md` entry is not tagged, `build`, and `trust` for `linux/*`, build
 the Go programs as its release candidate: `simple-ca --version` prints
@@ -223,13 +228,12 @@ that fails. [systemd](systemd.md#debian-package) describes the installed `simple
 ## apt repository
 
 ```sh
-SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
-SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
+export SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+export SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
 SOURCE=dist
 DEST=apt
 
-./build.mjs apt --key "$SIMPLE_CA_GPG_KEY_FILE" \
-  --passphrase-file "$SIMPLE_CA_GPG_PASSPHRASE_FILE" "$SOURCE" "$DEST"
+./build.mjs apt "$SOURCE" "$DEST"
 ```
 
 `./build.mjs apt` builds the flat apt repository that `serve --packages` serves at `/apt/` (see
@@ -243,8 +247,9 @@ A container of `simple-ca-builder`, built by [`./build.mjs setup`](#builder-imag
 as `key.asc`. `./build.mjs apt` fails while the image is missing. `--key` names the armored
 secret key, as `gpg --export-secret-keys --armor` writes it, `SIMPLE_CA_GPG_KEY_FILE` by
 default, and `--passphrase-file` a file holding its passphrase, when it has one,
-`SIMPLE_CA_GPG_PASSPHRASE_FILE` by default; with neither the option nor the variable for the key,
-`apt` is refused. Both files are mounted read-only in `/run/secrets` of the
+`SIMPLE_CA_GPG_PASSPHRASE_FILE` by default. The variables are read from the environment, so the
+shell exports them. With neither the option nor the variable for the key, `apt` is refused with
+that reason. Both files are mounted read-only in `/run/secrets` of the
 container, as `gpg_key` and `gpg_passphrase`, and are in no layer of the image. The container
 runs with the engine `setup` uses, on a local engine, as the user running it.
 
@@ -261,7 +266,7 @@ passphrase:
 
 ```sh
 SIMPLE_CA_GPG_KEY_UID='simple-ca apt repository <apt@example.com>'
-SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+export SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
 
 mkdir -p "$(dirname "$SIMPLE_CA_GPG_KEY_FILE")"
 gpg --batch --pinentry-mode loopback --passphrase '' \
@@ -277,8 +282,8 @@ A key with a passphrase, a random one in a file of its own, which gpg reads its 
 
 ```sh
 SIMPLE_CA_GPG_KEY_UID='simple-ca apt repository <apt@example.com>'
-SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
-SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
+export SIMPLE_CA_GPG_KEY_FILE=$HOME/.config/simple-ca/apt-signing-key.asc
+export SIMPLE_CA_GPG_PASSPHRASE_FILE=$HOME/.config/simple-ca/apt-signing-key.pass
 
 mkdir -p "$(dirname "$SIMPLE_CA_GPG_KEY_FILE")"
 (umask 077 && openssl rand -base64 32 > "$SIMPLE_CA_GPG_PASSPHRASE_FILE")

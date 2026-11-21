@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.21.1
+
+fix: ./build.mjs names the reason of a refused command line and of a failed command, and prints
+each step it takes.
+
+- A refused command line of `./build.mjs` prints its reason before the usage, such as
+  `apt needs the signing key: give --key FILE or export SIMPLE_CA_GPG_KEY_FILE` for
+  `./build.mjs apt` without the key.
+- A command that fails during a build is named with its exit status, such as
+  `go build failed with the exit status 2`.
+- Every action prints its steps on stderr: `dist` the archives it builds and the release files it
+  downloads from GitHub, `deb` and `dist --dpkg` each Debian package, `apt` the signing of the
+  repository, `setup`, `docker` and `container` each image, `build` and `trust` each program,
+  `test` and `check` each check, and `clean` what it removes. The download of the serve-markdown
+  assets from GitHub is announced before it starts.
+- The development and Docker guides export `SIMPLE_CA_GPG_KEY_FILE` and
+  `SIMPLE_CA_GPG_PASSPHRASE_FILE`, which `./build.mjs apt` reads from the environment, and the
+  apt repository example runs `./build.mjs apt` with them alone.
+
 ## 1.21.0
 
 feat: an OIDC user gets a user certificate named by the ID token, from the page
