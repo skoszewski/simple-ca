@@ -366,8 +366,7 @@ func runTokenDescribe(args []string) error {
 		if caCert == nil {
 			notes = append(notes, [2]string{"Signature", "not checked; --ca-dir of its CA or --ca-bundle checks it"})
 		} else if *caBundle != "" {
-			notes = append(notes, [2]string{"Signature", "valid, of the CA " + caCert.Subject.String() +
-				"; --ca-dir of that CA shows its limits and whether it was renewed, revoked or removed"})
+			notes = append(notes, [2]string{"Signature", "valid, of the CA " + caCert.Subject.String()})
 		} else if db, err := tokens.LoadTokens(dir); err != nil {
 			return err
 		} else if entry := db.Tokens[name]; entry != nil && entry.ID != "" && entry.ID == c.ID {

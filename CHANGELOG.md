@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.22.3
+
+fix: token describe --ca-bundle prints the Signature line as valid, of the CA that signed the
+token, alone.
+
+- The Signature line of `token describe --ca-bundle` names the CA that signed the token, without
+  the note on `--ca-dir`.
+
 ## 1.22.2
 
 fix: token describe checks the signature of a token of --token-file or --stdin with the CAs of
