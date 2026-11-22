@@ -217,6 +217,66 @@ func IssueLeaf(caDir, certType string, days int, ekus, kus []string, tmpl *x509.
 	return x509.ParseCertificate(der)
 }
 
+// IssueCA signs a CA certificate of path length 0 with the subject CN cn for the public key pub
+// with the CA in caDir, an issuing CA of path length 1, valid for days from now, and returns it
+// without recording it in index.txt. Its key usages are keyCertSign and cRLSign, and the AIA and
+// CRL Distribution Point URLs are those of the CA.
+func IssueCA(caDir, cn string, days int, pub any) (*x509.Certificate, error) {
+	rootDir, issuingCA, err := simpleca.LocateCA(caDir)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := simpleca.LoadConfig(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	caCertPath := filepath.Join(caDir, "ca_cert.pem")
+	caKeyPath := filepath.Join(caDir, "ca_key.pem")
+	if !simpleca.FileExists(caCertPath) || !simpleca.FileExists(caKeyPath) {
+		return nil, fmt.Errorf("CA certificate and key not found in %q, which is not a CA directory", caDir)
+	}
+	caCert, err := simpleca.LoadCert(caCertPath)
+	if err != nil {
+		return nil, err
+	}
+	if issuingCA == "" || caCert.MaxPathLen != 1 {
+		return nil, fmt.Errorf("the CA in %q is not an issuing CA of path length 1", caDir)
+	}
+	caKey, err := simpleca.LoadKey(caKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if err := CheckValidity(caCert, now, days); err != nil {
+		return nil, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: cn},
+		NotBefore:             now,
+		NotAfter:              now.AddDate(0, 0, days),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		MaxPathLen:            0,
+		MaxPathLenZero:        true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
+	if cfg.CAPublishBaseURL != "" {
+		publishURL := cfg.CAPublishBaseURL + "/" + issuingCA
+		tmpl.IssuingCertificateURL = []string{publishURL + "/ca_cert.crt"}
+		tmpl.CRLDistributionPoints = []string{publishURL + "/crl.pem"}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(der)
+}
+
 // CertFile returns the file of the certificate the name gives, NAME_cert.pem, each run of
 // characters besides letters, digits, - and _ in name as one _; a name that gives no file name,
 // or gives ca_cert.pem, the file of the CA certificate, is an error.

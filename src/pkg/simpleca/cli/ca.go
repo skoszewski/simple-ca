@@ -43,6 +43,8 @@ func runCACreate(args []string) error {
 	fs.StringVar(baseURL, "ca-publish-base-url", "", "former name of --ca-url")
 	caDir := fs.String("ca-dir", "", "`directory` of the root CA")
 	keyType := fs.String("key-type", "rsa", "`type` of the CA key: rsa (RSA 4096, RS256 tokens) or ec (ECDSA P-256, ES256 tokens)")
+	pathLen := fs.Int("path-length", 0, "path `length` of the CA certificate: 1 or 2 for the root CA, 1 by default; 0 or 1 for\n"+
+		"an issuing CA, 0 by default, 1 only under a root CA of path length 2")
 	writeConf := fs.Bool("write-conf", false, "also write openssl.cnf for the openssl ca command to the CA directory")
 	rest, given, err := ParseArgs(fs, args, 1, 1)
 	if err != nil {
@@ -64,7 +66,10 @@ func runCACreate(args []string) error {
 	case !given["days"] && *issuingCA != "":
 		*days = 0
 	}
-	if err := cert.MakeCA(dir, rest[0], *days, *issuingCA, *baseURL, *keyType); err != nil {
+	if !given["path-length"] {
+		*pathLen = -1
+	}
+	if err := cert.CreateCA(dir, rest[0], *days, *issuingCA, *baseURL, *keyType, *pathLen); err != nil {
 		return err
 	}
 	target := dir
@@ -74,7 +79,11 @@ func runCACreate(args []string) error {
 	if crt, err := simpleca.LoadCert(filepath.Join(target, "ca_cert.pem")); *days == 0 && err == nil {
 		*days = int(crt.NotAfter.Sub(crt.NotBefore).Hours() / 24)
 	}
-	simpleca.Audit(target, "ca.create", "subject", rest[0], "days", *days, "key_type", *keyType, "via", "cli", "actor", simpleca.CLIActor())
+	pairs := []any{"subject", rest[0], "days", *days, "key_type", *keyType}
+	if crt, err := simpleca.LoadCert(filepath.Join(target, "ca_cert.pem")); err == nil {
+		pairs = append(pairs, "path_length", crt.MaxPathLen)
+	}
+	simpleca.Audit(target, "ca.create", append(pairs, "via", "cli", "actor", simpleca.CLIActor())...)
 	if !*writeConf {
 		return nil
 	}

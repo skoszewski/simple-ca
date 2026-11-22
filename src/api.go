@@ -223,7 +223,7 @@ func listTokens(w io.Writer, caDir string) error {
 		if t.Federate != nil {
 			federates = t.Federate.Type
 		}
-		if t.HasScope("sign") {
+		if t.HasScope("sign") || t.HasScope(tokens.SignCA) {
 			certs = fmt.Sprint(len(t.Certs))
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", simpleca.Printable(name), expires,
@@ -287,8 +287,8 @@ func describeToken(name string, t *tokens.APIToken, limits bool) [][2]string {
 		attributes = append(attributes, [2]string{"Code usable from", list(showPrefixes(t.Setup.Clients), "any client")},
 			[2]string{"Valid after the exchange", valid})
 	}
-	// Only a token with the scope sign issues certificates.
-	if t.HasScope("sign") {
+	// Only a token with the scope sign or sign-ca issues certificates.
+	if t.HasScope("sign") || t.HasScope(tokens.SignCA) {
 		certs := fmt.Sprint(len(t.Certs))
 		if len(t.Certs) > 0 {
 			certs += ": " + strings.Join(t.Certs, ", ")
@@ -837,26 +837,12 @@ func requestOrigin(r *http.Request) string {
 // the CA instead, used from a client it is exchanged from: the certificate is signed with the
 // limits of that token, which is revoked once it is issued, and a refused request leaves the code
 // as it was.
-func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certType, base string, days int,
-	ekus, kus []string, setupCodes bool) (crt, caCert *x509.Certificate, fileName string, err error) {
-	cert.IssueMu.Lock()
-	defer cert.IssueMu.Unlock()
-	unlock, err := tokens.LockTokens(caDir)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	defer unlock()
-	caCert, err = simpleca.LoadCert(filepath.Join(caDir, "ca_cert.pem"))
-	if err != nil {
-		return nil, nil, "", err
-	}
-	db, err := tokens.LoadTokens(caDir)
-	if err != nil {
-		return nil, nil, "", err
-	}
+// signingToken returns the name and the entry of the token of db, a token of the CA in caDir with
+// the certificate caCert, that signs a certificate with the scope: a JWT, or with setupCodes also
+// a setup code, used from client.
+func signingToken(db *tokens.TokensDB, caDir string, caCert *x509.Certificate, token string, client netip.Addr,
+	setupCodes bool, scope string) (name string, tok *tokens.APIToken, err error) {
 	token = strings.TrimSpace(token)
-	var name string
-	var tok *tokens.APIToken
 	if setupCodes && !strings.Contains(token, ".") {
 		hash := tokens.SetupCodeHash(token)
 		for n, t := range db.Tokens {
@@ -866,20 +852,89 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 		}
 		switch {
 		case tok == nil:
-			return nil, nil, "", apiErr(http.StatusUnauthorized, "unknown or used setup code")
+			return "", nil, apiErr(http.StatusUnauthorized, "unknown or used setup code")
 		case !time.Now().Before(tok.Expires):
-			return nil, nil, "", apiErr(http.StatusUnauthorized, "the setup code has expired")
+			return "", nil, apiErr(http.StatusUnauthorized, "the setup code has expired")
 		case !(&tokens.APIToken{Clients: tok.Setup.Clients}).ClientAllowed(client):
-			return nil, nil, "", apiErr(http.StatusForbidden, "the setup code is not usable from %s", client)
+			return "", nil, apiErr(http.StatusForbidden, "the setup code is not usable from %s", client)
 		}
 	} else if name, tok, err = checkToken(db, caCert, token); err != nil {
-		return nil, nil, "", otherCAToken(caDir, token, err)
+		return "", nil, otherCAToken(caDir, token, err)
 	}
 	if !tok.ClientAllowed(client) {
-		return nil, nil, "", apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
+		return "", nil, apiErr(http.StatusForbidden, "the token is not allowed from %s", client)
 	}
-	if !tok.HasScope("sign") {
-		return nil, nil, "", apiErr(http.StatusForbidden, "the token does not have the scope sign")
+	if !tok.HasScope(scope) {
+		return "", nil, apiErr(http.StatusForbidden, "the token does not have the scope %s", scope)
+	}
+	return name, tok, nil
+}
+
+// storeSigned writes crt, which the CA in caDir signed of the type certType for the token name of
+// db, to fileName in caDir, SERIAL_cert.pem without it, records it in index.txt and in the
+// certificates of the token, ends the token of a setup code, and audits it for client; it returns
+// the file name.
+func storeSigned(db *tokens.TokensDB, caDir, name string, tok *tokens.APIToken, crt *x509.Certificate, certType,
+	fileName string, setupCodes bool, client netip.Addr) (string, error) {
+	serial := cert.SerialHex(crt.SerialNumber)
+	fileName = cmp.Or(fileName, serial+"_cert.pem")
+	if err := cert.StoreCert(caDir, filepath.Join(caDir, fileName), crt); err != nil {
+		return "", err
+	}
+	tok.Certs = append(tok.Certs, serial)
+	byCode := tok.Pending()
+	if byCode {
+		// The token of a setup code signs this certificate alone.
+		tok.Setup, tok.Expires = nil, time.Now().UTC().Truncate(time.Second)
+	}
+	if err := db.Save(caDir); err != nil {
+		return "", err
+	}
+	via := "api"
+	if setupCodes {
+		via = "form"
+	}
+	pairs := []any{"setup_code", byCode, "via", via, "actor", name}
+	if tok.OIDC != nil {
+		pairs = append(pairs, "oidc_user", tok.OIDC.User)
+	}
+	cert.AuditIssued(caDir, crt, certType, append(pairs, "client", client.String())...)
+	return fileName, nil
+}
+
+// lockSigning takes the locks of the certificates serve issues and of the tokens of the CA in
+// caDir, and returns the function releasing them, the CA certificate and the tokens.
+func lockSigning(caDir string) (func(), *x509.Certificate, *tokens.TokensDB, error) {
+	cert.IssueMu.Lock()
+	unlock, err := tokens.LockTokens(caDir)
+	if err != nil {
+		cert.IssueMu.Unlock()
+		return nil, nil, nil, err
+	}
+	release := func() { unlock(); cert.IssueMu.Unlock() }
+	caCert, err := simpleca.LoadCert(filepath.Join(caDir, "ca_cert.pem"))
+	if err != nil {
+		release()
+		return nil, nil, nil, err
+	}
+	db, err := tokens.LoadTokens(caDir)
+	if err != nil {
+		release()
+		return nil, nil, nil, err
+	}
+	return release, caCert, db, nil
+}
+
+func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certType, base string, days int,
+	ekus, kus []string, setupCodes bool) (crt, caCert *x509.Certificate, fileName string, err error) {
+	release, caCert, db, err := lockSigning(caDir)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	defer release()
+	name, tok, err := signingToken(db, caDir, caCert, token, client, setupCodes, "sign")
+	if err != nil {
+		return nil, nil, "", err
 	}
 	// The default type is the first type of the token, server for the type *.
 	if certType == "" && len(tok.Types) > 0 {
@@ -958,41 +1013,70 @@ func signWithToken(caDir, token string, client netip.Addr, csrData []byte, certT
 	if err != nil {
 		return nil, nil, "", err
 	}
-	serial := cert.SerialHex(crt.SerialNumber)
-	fileName = cmp.Or(fileName, serial+"_cert.pem")
-	if err := cert.StoreCert(caDir, filepath.Join(caDir, fileName), crt); err != nil {
+	if fileName, err = storeSigned(db, caDir, name, tok, crt, certType, fileName, setupCodes, client); err != nil {
 		return nil, nil, "", err
 	}
-	tok.Certs = append(tok.Certs, serial)
-	byCode := tok.Pending()
-	if byCode {
-		// The token of a setup code signs this certificate alone.
-		tok.Setup, tok.Expires = nil, time.Now().UTC().Truncate(time.Second)
-	}
-	if err := db.Save(caDir); err != nil {
-		return nil, nil, "", err
-	}
-	via := "api"
-	if setupCodes {
-		via = "form"
-	}
-	pairs := []any{"setup_code", byCode, "via", via, "actor", name}
-	if tok.OIDC != nil {
-		pairs = append(pairs, "oidc_user", tok.OIDC.User)
-	}
-	cert.AuditIssued(caDir, crt, certType, append(pairs, "client", client.String())...)
 	return crt, caCert, fileName, nil
+}
+
+// signCAWithToken signs a CA certificate of path length 0 for the key of the CSR csrData with the
+// CA in caDir, an issuing CA of path length 1, for the JWT token of the scope sign-ca used from
+// client, valid for days, the CN of the CSR its subject alone, and stores it as base gives the
+// file name, as signWithToken stores a certificate. It returns the certificate, the CA certificate
+// and the root CA certificate.
+func signCAWithToken(caDir, token string, client netip.Addr, csrData []byte, base string, days int) (crt, caCert,
+	rootCert *x509.Certificate, err error) {
+	release, caCert, db, err := lockSigning(caDir)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer release()
+	name, tok, err := signingToken(db, caDir, caCert, token, client, false, tokens.SignCA)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	csr, err := cert.ParseCSR(csrData)
+	if err != nil {
+		return nil, nil, nil, apiErr(http.StatusBadRequest, "csr: %v", err)
+	}
+	cn := strings.TrimSpace(csr.Subject.CommonName)
+	if cn == "" {
+		return nil, nil, nil, apiErr(http.StatusBadRequest, "csr: the subject has no CN, the name of the CA")
+	}
+	fileName, err := cert.CertFile(base)
+	if err != nil {
+		return nil, nil, nil, apiErr(http.StatusBadRequest, "name: %v", err)
+	}
+	if err := cert.CheckValidity(caCert, time.Now(), days); err != nil {
+		return nil, nil, nil, apiErr(http.StatusBadRequest, "days: %v", err)
+	}
+	rootDir, _, err := simpleca.LocateCA(caDir)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if rootCert, err = simpleca.LoadCert(filepath.Join(rootDir, "ca_cert.pem")); err != nil {
+		return nil, nil, nil, err
+	}
+	if crt, err = cert.IssueCA(caDir, cn, days, csr.PublicKey); err != nil {
+		return nil, nil, nil, err
+	}
+	if _, err := storeSigned(db, caDir, name, tok, crt, "ca", fileName, false, client); err != nil {
+		return nil, nil, nil, err
+	}
+	return crt, caCert, rootCert, nil
 }
 
 // apiSign serves a POST of /api/sign for the CA in caDir: it signs the CSR of the JSON request
 // with the type it names for the bearer token of the request, as signWithToken, for the client
-// clientAddr finds with the trusted proxies, and returns the certificate with its chain.
-func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
+// clientAddr finds with the trusted proxies, and returns the certificate with its chain. With
+// signCA, it serves /CA/api/sign-ca: the request is of csr, name and days, the certificate a CA
+// certificate signCAWithToken signs, and its chain ends with the root CA.
+func apiSign(w http.ResponseWriter, r *http.Request, caDir string, signCA bool) {
 	if !simpleca.FileExists(filepath.Join(caDir, "ca_key.pem")) || !tokens.Exists(caDir) {
 		http.NotFound(w, r)
 		return
 	}
-	var crt, caCert *x509.Certificate
+	var crt, caCert, rootCert *x509.Certificate
 	var req struct {
 		CSR  string   `json:"csr"`
 		Type string   `json:"type"`
@@ -1001,13 +1085,30 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 		KU   []string `json:"ku"`
 		EKU  []string `json:"eku"`
 	}
+	var caReq struct {
+		CSR  string `json:"csr"`
+		Name string `json:"name"`
+		Days int    `json:"days"`
+	}
+	fields := "csr, type, name, days, ku and eku"
+	if signCA {
+		fields = "csr, name and days"
+	}
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	ct, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";")
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, signMaxBody))
 	dec.DisallowUnknownFields()
 	// The body is read only once the content type and the bearer token are there.
 	var decodeErr error
-	decode := func() bool { decodeErr = dec.Decode(&req); return decodeErr != nil }
+	decode := func() bool {
+		if signCA {
+			decodeErr = dec.Decode(&caReq)
+			req.CSR, req.Name, req.Days = caReq.CSR, caReq.Name, caReq.Days
+		} else {
+			decodeErr = dec.Decode(&req)
+		}
+		return decodeErr != nil
+	}
 	client := clientAddr(r)
 	var err error
 	switch {
@@ -1018,15 +1119,19 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 	case decode() && bodyTooLarge(decodeErr):
 		err = apiErr(http.StatusRequestEntityTooLarge, "%s", tooLargeText(signMaxBody))
 	case decodeErr != nil:
-		err = apiErr(http.StatusBadRequest, "invalid request: the body is not a JSON object of csr, type, name, "+
-			"days, ku and eku")
+		err = apiErr(http.StatusBadRequest, "invalid request: the body is not a JSON object of %s", fields)
 	// The API takes no defaults: the type, the file name and the days are given, as cert sign takes them.
-	case strings.TrimSpace(req.Type) == "":
+	case !signCA && strings.TrimSpace(req.Type) == "":
 		err = apiErr(http.StatusBadRequest, "type: the certificate type is required")
 	case strings.TrimSpace(req.Name) == "" || strings.ContainsAny(req.Name, `/\`):
 		err = apiErr(http.StatusBadRequest, "name: the file name of the certificate is required, without a directory")
 	case req.Days < 1:
 		err = apiErr(http.StatusBadRequest, "days: the validity in days must be a positive integer")
+	case signCA:
+		err = guard.attempt(w, r, caDir, func() (err error) {
+			crt, caCert, rootCert, err = signCAWithToken(caDir, token, client, []byte(req.CSR), req.Name, req.Days)
+			return err
+		})
 	default:
 		err = guard.attempt(w, r, caDir, func() (err error) {
 			crt, caCert, _, err = signWithToken(caDir, token, client, []byte(req.CSR), req.Type, req.Name, req.Days,
@@ -1053,6 +1158,9 @@ func apiSign(w http.ResponseWriter, r *http.Request, caDir string) {
 	chain := certPEM
 	if !bytes.Equal(caCert.RawSubject, caCert.RawIssuer) {
 		chain += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw}))
+	}
+	if rootCert != nil {
+		chain += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootCert.Raw}))
 	}
 	json.NewEncoder(w).Encode(map[string]string{"serial": cert.SerialHex(crt.SerialNumber), "certificate": certPEM, "chain": chain})
 }

@@ -51,10 +51,14 @@ import (
 const TokensFile = "tokens-db.json"
 
 // TokenScopes are the scopes a token may have: sign for the signing API and the signing form,
-// tokens for the token page of serve --webui, certs for its certificate page, audit for its audit
-// page, federate for the JWTs of a token type at /api/federation-token, and SelfCert; the scope *
-// is all of them but SelfCert.
-var TokenScopes = []string{"sign", "tokens", "certs", "audit", "federate", SelfCert}
+// SignCA, tokens for the token page of serve --webui, certs for its certificate page, audit for
+// its audit page, federate for the JWTs of a token type at /api/federation-token, and SelfCert;
+// the scope * is all of them but SignCA and SelfCert.
+var TokenScopes = []string{"sign", SignCA, "tokens", "certs", "audit", "federate", SelfCert}
+
+// SignCA is the scope of the CA certificates of path length 0 an issuing CA of path length 1
+// signs at /CA/api/sign-ca. Only a token of such a CA has it, and the scope * does not stand for it.
+const SignCA = "sign-ca"
 
 // SelfCert is the scope of the user certificate of the OIDC user a token was made for, at
 // /api/self-cert. The OIDC sign-in alone gives it, and the scope * does not stand for it.
@@ -185,10 +189,11 @@ func (t *APIToken) EffectiveScopes() []string {
 	return t.Scopes
 }
 
-// HasScope reports whether the token has the scope, named or by the scope *; SelfCert only named.
+// HasScope reports whether the token has the scope, named or by the scope *; SignCA and SelfCert
+// only named.
 func (t *APIToken) HasScope(scope string) bool {
-	if scope == SelfCert {
-		return slices.Contains(t.Scopes, SelfCert)
+	if scope == SelfCert || scope == SignCA {
+		return slices.Contains(t.Scopes, scope)
 	}
 	return Allows(t.EffectiveScopes(), scope)
 }
@@ -611,6 +616,11 @@ func PrepareToken(caDir, name string, fed *TokenFederate, valid time.Duration, s
 	if !simpleca.FileExists(filepath.Join(caDir, "ca_cert.pem")) || !simpleca.FileExists(caKeyPath) {
 		return nil, nil, fmt.Errorf("CA certificate and key not found in %q, which is not a CA directory", caDir)
 	}
+	if slices.Contains(scopes, SignCA) {
+		if err := CheckSignCA(caDir); err != nil {
+			return nil, nil, err
+		}
+	}
 	caKey, err := simpleca.LoadKey(caKeyPath)
 	if err != nil {
 		return nil, nil, err
@@ -627,6 +637,24 @@ func PrepareToken(caDir, name string, fed *TokenFederate, valid time.Duration, s
 	now := time.Now().UTC().Truncate(time.Second)
 	return &APIToken{ID: simpleca.RandomID(), Scopes: scopes, Types: certTypes, Domains: names, IPs: prefixes,
 		Clients: clientPrefixes, Issued: now, Expires: now.Add(valid), Federate: fed}, caKey, nil
+}
+
+// CheckSignCA returns an error unless the CA in caDir is an issuing CA whose certificate has the
+// path length 1, the CA a token of the scope SignCA belongs to.
+func CheckSignCA(caDir string) error {
+	_, caID, err := simpleca.LocateCA(caDir)
+	if err != nil {
+		return err
+	}
+	crt, err := simpleca.LoadCert(filepath.Join(caDir, "ca_cert.pem"))
+	if err != nil {
+		return err
+	}
+	if caID == "" || crt.MaxPathLen != 1 {
+		return fmt.Errorf("the scope %s needs an issuing CA of path length 1, created with ca create --issuing-ca "+
+			"--path-length 1 under a root CA of path length 2", SignCA)
+	}
+	return nil
 }
 
 // Active reports whether the token is neither revoked, pending nor expired at now.

@@ -46,7 +46,7 @@ async function showCA() {
       cell(!t.federate ? "-" : element("button", { type: "button", textContent: typeLabel(t.federate.type),
         title: "Show the federation", onclick: () => showFederation(t),
         className: "underline decoration-muted decoration-dotted underline-offset-4 hover:text-link" })),
-      cell(allowsScope(t.scopes, "sign") ? String(t.certs.length) : "-"),
+      cell(allowsScope(t.scopes, "sign") || t.scopes.includes("sign-ca") ? String(t.certs.length) : "-"),
       element("td", { className: "py-1.5 text-right" }, !managed ? null : element("div", { className: "flex justify-end gap-2" },
         t.pending && !t.expired ? null : button("Renew", () => renew(t, ended)),
         ended
@@ -66,8 +66,8 @@ async function showCA() {
         filters: [
           { name: "status", label: "Status", multiple: true, match: (t, values) => values.includes(tokenStatus(t)),
             choices: [["", "all"], ["active", "active"], ["pending", "waiting for a setup code"], ["expired", "expired"], ["revoked", "revoked"]] },
-          { name: "scope", label: "Scope", multiple: true, match: (t, values) => values.every((scope) => allowsScope(t.scopes, scope)),
-            choices: [["", "all"], ...["sign", "tokens", "certs", "audit", "federate"].map((s) => [s, s])] },
+          { name: "scope", label: "Scope", multiple: true, match: (t, values) => values.every((scope) => scope === "sign-ca" ? t.scopes.includes(scope) : allowsScope(t.scopes, scope)),
+            choices: [["", "all"], ...["sign", "sign-ca", "tokens", "certs", "audit", "federate"].map((s) => [s, s])] },
           { name: "federates", label: "Federates", multiple: true,
             match: (t, values) => values.includes(t.federate ? t.federate.type : "none"),
             choices: [["", "all"], ...info.token_types.map((type) => [type.name, typeLabel(type.name)]), ["none", "none"]] },
@@ -158,8 +158,10 @@ function openCreate() {
   $("create-federate").replaceChildren();
   federateChoices = "";
   const choices = (values) => values.map((v) => [v, v === "*" ? "* (all)" : v]);
+  // The scope sign-ca is offered only for an issuing CA of path length 1.
+  const scopes = info.scopes.filter((s) => s !== "sign-ca" || ca.sign_ca);
   $("create-scopes").replaceChildren(picker({ name: "scopes", labelledBy: "create-scopes-label", multiple: true, only: "*",
-    choices: choices(info.scopes), value: info.defaults.scopes.filter((s) => info.scopes.includes(s)),
+    choices: choices(scopes), value: info.defaults.scopes.filter((s) => scopes.includes(s)),
     placeholder: "none", onchange: signFields }));
   $("create-types").replaceChildren(picker({ name: "types", labelledBy: "create-types-label", multiple: true, only: "*",
     choices: choices([...info.types, "*"]), value: info.defaults.types.filter((t) => t === "*" || info.types.includes(t)),

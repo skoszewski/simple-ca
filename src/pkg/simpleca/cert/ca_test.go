@@ -265,3 +265,68 @@ func TestKebabCaseNames(t *testing.T) {
 	}
 	assertEKU(t, certPath, "TLS Web Server Authentication")
 }
+
+func TestCAPathLength(t *testing.T) {
+	pathLen := func(dir string) int {
+		t.Helper()
+		crt, err := simpleca.LoadCert(filepath.Join(dir, "ca_cert.pem"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return crt.MaxPathLen
+	}
+
+	// The defaults are 1 for the root CA and 0 for an issuing CA.
+	caDir := t.TempDir()
+	if err := MakeCA(caDir, "Root", 3650, "", "", "ec"); err != nil {
+		t.Fatal(err)
+	}
+	if err := MakeCA(caDir, "Servers", 0, "servers", "", "ec"); err != nil {
+		t.Fatal(err)
+	}
+	if got := pathLen(caDir); got != 1 {
+		t.Errorf("default root path length %d, want 1", got)
+	}
+	if got := pathLen(filepath.Join(caDir, "servers")); got != 0 {
+		t.Errorf("default issuing path length %d, want 0", got)
+	}
+	// An issuing CA of path length 1 needs a root CA of path length 2.
+	if err := CreateCA(caDir, "Sub", 0, "sub", "", "ec", 1); err == nil || !strings.Contains(err.Error(), "path length 2") {
+		t.Errorf("path length 1 under a root of path length 1: %v, want an error", err)
+	}
+
+	for _, n := range []int{0, 3} {
+		if err := CreateCA(t.TempDir(), "Root", 3650, "", "", "ec", n); err == nil {
+			t.Errorf("root path length %d accepted", n)
+		}
+	}
+
+	// A root CA of path length 2 has issuing CAs of path length 0 and 1, never 2.
+	caDir = t.TempDir()
+	if err := CreateCA(caDir, "Root", 3650, "", "", "ec", 2); err != nil {
+		t.Fatal(err)
+	}
+	if got := pathLen(caDir); got != 2 {
+		t.Errorf("root path length %d, want 2", got)
+	}
+	if err := CreateCA(caDir, "Sub", 0, "sub", "", "ec", 2); err == nil {
+		t.Error("issuing path length 2 accepted")
+	}
+	if err := CreateCA(caDir, "Sub", 0, "sub", "", "ec", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateCA(caDir, "Leaves", 0, "leaves", "", "ec", -1); err != nil {
+		t.Fatal(err)
+	}
+	if got := pathLen(filepath.Join(caDir, "sub")); got != 1 {
+		t.Errorf("issuing path length %d, want 1", got)
+	}
+	leaves, err := simpleca.LoadCert(filepath.Join(caDir, "leaves", "ca_cert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leaves.MaxPathLen != 0 || !leaves.MaxPathLenZero {
+		t.Errorf("default issuing CA under a root of path length 2: %d, want 0", leaves.MaxPathLen)
+	}
+	verifyCert(t, filepath.Join(caDir, "ca_bundle.pem"), filepath.Join(caDir, "sub", "ca_cert.pem"))
+}

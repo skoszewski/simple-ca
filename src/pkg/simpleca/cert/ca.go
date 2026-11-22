@@ -70,13 +70,32 @@ func rebuildCABundle(caDir string) error {
 	return os.WriteFile(filepath.Join(caDir, "ca_bundle.pem"), bundle, 0o644)
 }
 
-// MakeCA creates the root CA in caDir, or with issuingCA, a kebab-case name, an issuing CA in
+// MakeCA creates a CA as CreateCA does, with the default path length.
+func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) error {
+	return CreateCA(caDir, caName, days, issuingCA, baseURL, keyType, -1)
+}
+
+// CreateCA creates the root CA in caDir, or with issuingCA, a kebab-case name, an issuing CA in
 // caDir/issuingCA signed by the root CA in caDir, with a key of keyType, rsa or ec, its database
 // and an empty first CRL valid for days.crl of simple-ca.json, 30 days without it, and skips a CA
 // that exists. An issuing CA with days of zero is valid as long as its root CA.
-func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) error {
+//
+// pathLen is the path length of the CA certificate, its default when negative: 1 or 2 for the
+// root CA, 1 by default, and 0 or 1 for an issuing CA, 0 by default, 1 only under a root CA of
+// path length 2.
+func CreateCA(caDir, caName string, days int, issuingCA, baseURL, keyType string, pathLen int) error {
 	if days < 1 && (days != 0 || issuingCA == "") {
 		return errors.New("--days must be a positive integer")
+	}
+	switch {
+	case pathLen < 0 && issuingCA == "":
+		pathLen = 1
+	case pathLen < 0:
+		pathLen = 0
+	case issuingCA == "" && pathLen != 1 && pathLen != 2:
+		return fmt.Errorf("--path-length %d of a root CA must be 1 or 2", pathLen)
+	case issuingCA != "" && pathLen > 1:
+		return fmt.Errorf("--path-length %d of an issuing CA must be 0 or 1", pathLen)
 	}
 	if !slices.Contains(keyTypes, keyType) {
 		return fmt.Errorf("--key-type %q must be rsa or ec", keyType)
@@ -154,7 +173,7 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 			NotAfter:              now.AddDate(0, 0, days),
 			IsCA:                  true,
 			BasicConstraintsValid: true,
-			MaxPathLen:            1,
+			MaxPathLen:            pathLen,
 			KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		}
 		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
@@ -198,6 +217,10 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 		if err != nil {
 			return err
 		}
+		if pathLen >= rootCert.MaxPathLen && rootCert.MaxPathLen >= 0 {
+			return fmt.Errorf("--path-length %d of an issuing CA needs a root CA of path length %d; "+
+				"that of the root CA in %q is %d", pathLen, pathLen+1, caDir, rootCert.MaxPathLen)
+		}
 		rootKey, err := simpleca.LoadKey(rootKeyPath)
 		if err != nil {
 			return err
@@ -225,8 +248,8 @@ func MakeCA(caDir, caName string, days int, issuingCA, baseURL, keyType string) 
 			NotAfter:              notAfter,
 			IsCA:                  true,
 			BasicConstraintsValid: true,
-			MaxPathLen:            0,
-			MaxPathLenZero:        true,
+			MaxPathLen:            pathLen,
+			MaxPathLenZero:        pathLen == 0,
 			KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		}
 		if baseURL != "" {

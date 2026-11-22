@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"maps"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -1344,5 +1345,169 @@ func TestAPISignStoresCertificates(t *testing.T) {
 	}
 	if entries, err := cert.ReadIndex(issuingDir); err != nil || len(entries) != 2 {
 		t.Errorf("index.txt: %d entries, %v, want the 2 certificates signed", len(entries), err)
+	}
+}
+
+func TestAPISignCA(t *testing.T) {
+	caDir := t.TempDir()
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	if err := cert.CreateCA(caDir, "Test Root CA", 3650, "", "http://pki.example.com", "ec", 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := cert.CreateCA(caDir, "Test Sub CA", 0, "sub", "", "ec", 1); err != nil {
+		t.Fatal(err)
+	}
+	subDir := filepath.Join(caDir, "sub")
+	code, err := tokens.AddToken(subDir, "linux-manager", nil, time.Hour, []string{tokens.SignCA}, nil, nil, nil, nil,
+		time.Hour, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := tokens.MakeToken(subDir, "deploy", time.Hour, nil, []string{"server"}, []string{"*"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(newServeMux(caDir, false, true))
+	defer server.Close()
+
+	do := func(path, token, body string) (int, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest("POST", server.URL+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var m map[string]any
+		json.NewDecoder(resp.Body).Decode(&m)
+		return resp.StatusCode, m
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: "Linux Manager VPN CA", Organization: []string{"Lab"}}}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}))
+	body := func(fields map[string]any) string {
+		b, _ := json.Marshal(fields)
+		return string(b)
+	}
+
+	// The setup code is exchanged at /api/token-setup for a token of the issuing CA.
+	status, answer := do("/api/token-setup", "", body(map[string]any{"code": code}))
+	jwt, _ := answer["token"].(string)
+	if status != http.StatusOK || answer["ca"] != "sub" || fmt.Sprint(answer["scopes"]) != "[sign-ca]" || jwt == "" {
+		t.Fatalf("token-setup: %d %v, want the token of sub with the scope sign-ca", status, answer)
+	}
+
+	// Refusals: the scope of each API, the body, the validity and the bearer token.
+	request := map[string]any{"csr": csr, "name": "vpn ca:1", "days": 365}
+	for _, c := range []struct {
+		path, token, body string
+		want              int
+	}{
+		{"/sub/api/sign-ca", signer, body(request), http.StatusForbidden},
+		{"/sub/api/sign", jwt, body(map[string]any{"csr": csr, "type": "server", "name": "x", "days": 30}), http.StatusForbidden},
+		{"/sub/api/sign-ca", "", body(request), http.StatusUnauthorized},
+		{"/sub/api/sign-ca", jwt, body(map[string]any{"csr": csr, "name": "x", "days": 365, "type": "server"}), http.StatusBadRequest},
+		{"/sub/api/sign-ca", jwt, body(map[string]any{"csr": csr, "name": "x", "days": 100000}), http.StatusBadRequest},
+		{"/sub/api/sign-ca", jwt, body(map[string]any{"csr": csr, "days": 365}), http.StatusBadRequest},
+		{"/sub/api/sign-ca", jwt, body(map[string]any{"csr": strings.Repeat("x", signMaxBody), "name": "x", "days": 1}),
+			http.StatusRequestEntityTooLarge},
+		{"/api/sign-ca", jwt, body(request), http.StatusNotFound},
+	} {
+		if status, answer := do(c.path, c.token, c.body); status != c.want {
+			t.Errorf("POST %s %.60s: %d %v, want %d", c.path, c.body, status, answer, c.want)
+		}
+	}
+
+	status, answer = do("/sub/api/sign-ca", jwt, body(request))
+	if status != http.StatusOK {
+		t.Fatalf("sign-ca: %d %v, want 200", status, answer)
+	}
+	var chain []*x509.Certificate
+	rest := []byte(answer["chain"].(string))
+	for block, r := pem.Decode(rest); block != nil; block, r = pem.Decode(r) {
+		crt, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chain = append(chain, crt)
+	}
+	if len(chain) != 3 || chain[1].Subject.CommonName != "Test Sub CA" || chain[2].Subject.CommonName != "Test Root CA" {
+		t.Fatalf("chain of %d certificates, want the certificate, the issuing CA and the root CA", len(chain))
+	}
+	crt := chain[0]
+	if answer["certificate"] != string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: crt.Raw})) ||
+		answer["serial"] != cert.SerialHex(crt.SerialNumber) {
+		t.Errorf("certificate and serial %v do not match the chain", answer["serial"])
+	}
+	if !crt.IsCA || crt.MaxPathLen != 0 || !crt.MaxPathLenZero || crt.KeyUsage != x509.KeyUsageCertSign|x509.KeyUsageCRLSign ||
+		len(crt.ExtKeyUsage) != 0 {
+		t.Errorf("CA %v, path length %d, key usage %v, extended %v", crt.IsCA, crt.MaxPathLen, crt.KeyUsage, crt.ExtKeyUsage)
+	}
+	if crt.Subject.String() != "CN=Linux Manager VPN CA" {
+		t.Errorf("subject %q, want the CN alone", crt.Subject)
+	}
+	if len(crt.SubjectKeyId) == 0 || !bytes.Equal(crt.AuthorityKeyId, chain[1].SubjectKeyId) {
+		t.Error("the certificate has no SKI, or an AKI other than the SKI of the issuing CA")
+	}
+	if fmt.Sprint(crt.IssuingCertificateURL, crt.CRLDistributionPoints) !=
+		"[http://pki.example.com/sub/ca_cert.crt] [http://pki.example.com/sub/crl.pem]" {
+		t.Errorf("AIA %v, CDP %v", crt.IssuingCertificateURL, crt.CRLDistributionPoints)
+	}
+	for _, ext := range crt.Extensions {
+		if (ext.Id.Equal([]int{2, 5, 29, 19}) || ext.Id.Equal([]int{2, 5, 29, 15})) && !ext.Critical {
+			t.Errorf("extension %v is not critical", ext.Id)
+		}
+	}
+	roots, inter := x509.NewCertPool(), x509.NewCertPool()
+	roots.AddCert(chain[2])
+	inter.AddCert(chain[1])
+	if _, err := crt.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter}); err != nil {
+		t.Errorf("the certificate does not verify: %v", err)
+	}
+
+	// A leaf the new CA signs verifies under the chain.
+	inter.AddCert(crt)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(7), Subject: pkix.Name{CommonName: "vpn.example.com"},
+		DNSNames: []string{"vpn.example.com"}, NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour),
+		BasicConstraintsValid: true, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	leafDER, err := x509.CreateCertificate(rand.Reader, tmpl, crt, key.Public(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, _ := x509.ParseCertificate(leafDER)
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, DNSName: "vpn.example.com"}); err != nil {
+		t.Errorf("a leaf of the new CA does not verify: %v", err)
+	}
+
+	// The certificate is stored under its sanitized name, listed in index.txt and in the token.
+	stored, err := simpleca.LoadCert(filepath.Join(subDir, "vpn_ca_1_cert.pem"))
+	if err != nil || !stored.Equal(crt) {
+		t.Errorf("vpn_ca_1_cert.pem: %v", err)
+	}
+	index, err := os.ReadFile(filepath.Join(subDir, "index.txt"))
+	if err != nil || !strings.Contains(string(index), cert.SerialHex(crt.SerialNumber)) {
+		t.Errorf("index.txt does not list the certificate: %v", err)
+	}
+	db, err := tokens.LoadTokens(subDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := db.Tokens["linux-manager"].Certs; !slices.Equal(got, []string{cert.SerialHex(crt.SerialNumber)}) {
+		t.Errorf("certificates of the token %v", got)
 	}
 }

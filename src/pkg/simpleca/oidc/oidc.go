@@ -458,11 +458,13 @@ func (p *oidcProfile) prepare(rootDir string, cfg *simpleca.Config, name string,
 			domains, ips = append(domains, "localhost"), append(ips, "127.0.0.1")
 		}
 	}
-	// The scope * stands for every scope but self-cert, which is added beside them.
+	// The scope * stands for every scope but sign-ca and self-cert, which is added beside them.
 	if p.givesCertificate() {
 		switch {
 		case slices.Contains(scopes, "*"):
-			scopes = slices.DeleteFunc(slices.Clone(tokens.TokenScopes), func(s string) bool { return s == tokens.SelfCert })
+			scopes = slices.DeleteFunc(slices.Clone(tokens.TokenScopes), func(s string) bool {
+				return s == tokens.SelfCert || s == tokens.SignCA
+			})
 		case len(scopes) == 0 && p.givesToken() && !cli:
 			scopes = []string{"sign"}
 		}

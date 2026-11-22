@@ -534,7 +534,7 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 
 	// The signing API of the root CA at /api/sign and of each issuing CA at /CA/api/sign.
 	mux.HandleFunc("POST /api/sign", func(w http.ResponseWriter, r *http.Request) {
-		apiSign(w, r, rootDir)
+		apiSign(w, r, rootDir, false)
 	})
 	mux.HandleFunc("GET /api/sign", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", http.MethodPost)
@@ -546,9 +546,27 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 			http.NotFound(w, r)
 			return
 		}
-		apiSign(w, r, dir)
+		apiSign(w, r, dir, false)
 	})
 	mux.HandleFunc("GET /{ca}/api/sign", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := issuingCADir(rootDir, r); !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	})
+
+	// The CA certificates an issuing CA of path length 1 signs at /CA/api/sign-ca.
+	mux.HandleFunc("POST /{ca}/api/sign-ca", func(w http.ResponseWriter, r *http.Request) {
+		dir, ok := issuingCADir(rootDir, r)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		apiSign(w, r, dir, true)
+	})
+	mux.HandleFunc("GET /{ca}/api/sign-ca", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := issuingCADir(rootDir, r); !ok {
 			http.NotFound(w, r)
 			return

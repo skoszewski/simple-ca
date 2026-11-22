@@ -8,7 +8,7 @@ write in [directory-layout.md](directory-layout.md).
 
 ```sh
 simple-ca ca create    [--ca-dir DIR] [--days N] [--ca-url URL] [--key-type rsa|ec]
-                       [--issuing-ca NAME] [--write-conf] CA_NAME
+                       [--issuing-ca NAME] [--path-length N] [--write-conf] CA_NAME
 simple-ca ca show      [--ca-dir DIR]
 
 simple-ca cert create  [--ca-dir DIR] [--cert-dir DIR] [--days N] [--type server|user|none]
@@ -92,6 +92,18 @@ key signs the certificates, the CRLs and the tokens of the CA, with `sha256WithR
 RS256 for an RSA key, and `ecdsa-with-SHA256` and ES256 for an EC key. Each CA has its own: an
 issuing CA with an EC key under a root CA with an RSA key is signed with the RSA key of the root,
 and the reverse.
+
+`--path-length` is the path length of the CA certificate, the number of CAs that may stand
+below it: `1` by default for the root CA, or `2`, and `0` by default for an issuing CA, or `1`
+under a root CA of path length 2. An issuing CA of path length 0 signs leaves; one of path
+length 1 also signs the issuing CAs of another PKI, with a token of the scope `sign-ca` at
+[`/NAME/api/sign-ca`](signing-api.md#ca-certificates). The certificate of a CA that exists is
+not changed: a hierarchy of three levels starts with `ca create --path-length 2` for its root.
+
+```sh
+simple-ca ca create --ca-dir /tmp/ca --path-length 2 "My Root CA"
+simple-ca ca create --ca-dir /tmp/ca --issuing-ca partners --path-length 1 "My Partners CA"
+```
 
 A new CA starts with an empty CRL, number 1, valid for `days.crl` of `simple-ca.json`, 30 days
 without it, so the CRL Distribution Point URL of its certificates has a CRL to serve from the

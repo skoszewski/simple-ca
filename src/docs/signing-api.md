@@ -19,12 +19,13 @@ only once, so copy it then.
 | Scope | Opens |
 |---|---|
 | `sign` | the [signing API](#requests-and-responses) and the [signing form](#signing-form) |
+| `sign-ca` | [`/NAME/api/sign-ca`](#ca-certificates), the CA certificates of path length 0 for another PKI; only for an issuing CA of path length 1 |
 | `tokens` | the [token page](#token-page) of `serve --webui` |
 | `certs` | the [certificate page](usage.md#certificate-page) of `serve --webui` |
 | `audit` | the [audit page](audit.md#the-audit-page) of `serve --webui` |
 | `federate` | [`/api/federation-token`](#federation-tokens), the JWTs of a token type for workload identity federation |
 | `self-cert` | [`/api/self-cert`](oidc.md#user-certificates), the user certificate of the OIDC user the token was made for; given by the OIDC sign-in alone |
-| `*` | all of them but `self-cert`, given alone |
+| `*` | all of them but `sign-ca` and `self-cert`, given alone |
 
 A root CA token opens the pages for every CA; an issuing CA token opens only its own CA.
 
@@ -103,8 +104,8 @@ simple-ca token create --ca-dir /tmp/ca/servers --otc --otc-network 192.168.1.0/
 `token list` lists the tokens of the CA: name, expiry (marked `(expired)`, `revoked`,
 `setup until TIME` or `setup expired`), scopes, cert types, domains, IP prefixes, clients, the
 token type of its JWTs with the scope `federate`, the number of certificates issued with the
-scope `sign`, and the OIDC user it was made for. `-` marks what a token without `sign` or
-`federate` does not have, and a token not made by the [OIDC sign-in](oidc.md).
+scope `sign` or `sign-ca`, and the OIDC user it was made for. `-` marks what a token without
+`sign`, `sign-ca` or `federate` does not have, and a token not made by the [OIDC sign-in](oidc.md).
 
 `token describe NAME` prints the attributes of the token `NAME` of the CA, one per line: its
 status (valid until, expired, revoked, or waiting for its setup code), when it was issued, its
@@ -224,8 +225,8 @@ root CA. On it you can:
   page show it; it opens a dialog of the token type, the audience and the claims. The filters are:
   - **Status**: active, waiting for a setup code, expired or revoked, one or more, showing the
     tokens of any status chosen;
-  - **Scope**: sign, tokens, certs, audit or federate, one or more, showing the tokens having every
-    scope chosen, by name or by `*`;
+  - **Scope**: sign, sign-ca, tokens, certs, audit or federate, one or more, showing the tokens
+    having every scope chosen, by name or by `*`, `sign-ca` by name alone;
   - **Federates**: one or more token types, or none, the tokens without the scope `federate`;
   - **Made by**: the OIDC sign-in or another way.
 
@@ -240,7 +241,8 @@ root CA. On it you can:
 - create a token with the options of `token create`, in a dialog filled with the `tokens`
   defaults of [simple-ca.json](configuration.md), or a setup code of it with "One-time setup
   code", its validity, 15 minutes by default, and the networks it is exchanged from. The name,
-  the validity, the scopes and the clients come first; the Signing group shows with the scope
+  the validity, the scopes and the clients come first; the scope `sign-ca` is offered only for an
+  issuing CA of path length 1. The Signing group shows with the scope
   `sign`, and the Federation group with the scope `federate`, both with `*`. In the Federation
   group, Token type picks the token type of its JWTs, or `none`, for a token that only grants the
   scope `federate`; once a type is chosen, Audience shows the audience of the type, which a value typed
@@ -256,7 +258,7 @@ tokens cannot be signed there.
 
 A signed-in token can give new tokens the scope `sign` and its own scopes, but no others: a token
 with only `tokens` can create `sign` and `tokens` tokens, but not `certs` tokens. A token with the
-scope `*` can give every scope, `*` included. It can renew, revoke and remove only tokens whose
+scope `*` can give every scope, `*` and `sign-ca` included. It can renew, revoke and remove only tokens whose
 scopes it has, apart from `sign`; removing all expired and revoked tokens skips the others. Make
 the first token with `token create` on the CA host:
 
@@ -295,7 +297,7 @@ API takes no defaults, unlike `token create` and `token renew`: a create gives `
 
 | Request | Body | Answer |
 |---|---|---|
-| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key` and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `token_types`, the token types of the scope `federate`, each with `name`, `base`, the built-in type it is or is based on, empty for none, `audience`, `needs_audience`, true when a token of the type needs an audience given, `valid`, the validity of its JWTs, and `max_valid`, empty without a limit; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json`, with only the scopes of them the token can give, or `sign` without any, and `otc_valid`, always 15 minutes |
+| `GET /tokens/api/cas` | | `title`, the root CA's CN; `user`, the name of the token, `user_ca`, its CA, and `user_token`, the token, with the fields of a token of `GET /tokens/api/tokens`; `cas`, the CAs the token opens, each with `id`, empty for the root CA, `subject`, the attributes of its subject as type and value pairs, `has_key`, `sign_ca`, true for an issuing CA of path length 1, whose tokens may have the scope `sign-ca`, and `theme`, the `light` and `dark` colours of its `theme.json` by role; `types`; `token_types`, the token types of the scope `federate`, each with `name`, `base`, the built-in type it is or is based on, empty for none, `audience`, `needs_audience`, true when a token of the type needs an audience given, `valid`, the validity of its JWTs, and `max_valid`, empty without a limit; `scopes`, the scopes the token can give; `defaults`, from `tokens` of `simple-ca.json`, with only the scopes of them the token can give, or `sign` without any, and `otc_valid`, always 15 minutes |
 | `GET /tokens/api/tokens?ca=CA` | | `tokens`, each with `name`, `issued`, `expires`, the expiry of its setup code when it is `pending`, `valid`, the validity `token renew` keeps, empty for a revoked token, `revoked`, `expired`, `pending`, `scopes`, `types`, `domains`, `ips` and `clients`, as prefixes, `certs`, the serials of the certificates issued with it, `oidc`, the `issuer`, `subject` and `user` of the OIDC user it was made for, or null, and `federate`, the `type`, `audience`, empty for that of the type, and `claims` of its JWTs, or null |
 | `POST /tokens/api/tokens` | `ca`, `name`, `valid`, `scopes`, `types`, `domains`, `ips`, `clients`, `localhost`; for the scope `federate`, `federate`, an object of `type`, `audience` and `claims`, an object of strings; for a setup code, `otc`, `otc_valid` and `otc_networks` | `201 Created`, `name` and `token`, the JWT, or `code`, the setup code |
 | `POST /tokens/api/tokens/renew` | `ca`, `name`, `valid`; for a setup code, `otc`, `otc_valid` and `otc_networks` | `name` and `token`, the new JWT, or `code`, the setup code |
@@ -321,7 +323,8 @@ its issuing CAs for the token at `/api/token-setup`, with `--webui` or without i
 
 The answer is `{"ca": "servers", "name": "builder", "token": "eyJ...", "scopes": ["sign"]}`: the
 issuing CA of the token, empty for the root CA, its name, its JWT, valid for the `--valid` of
-`token create` from now, and its scopes. The code works once. An error is `{"error": "..."}` with
+`token create` from now, and its scopes. The code of a token of the scope `sign-ca` is exchanged
+in the same way, and `ca` names its issuing CA, the CA of `/NAME/api/sign-ca`. The code works once. An error is `{"error": "..."}` with
 the status `400 Bad Request` for a body that is not a JSON object with the code,
 `401 Unauthorized` for an unknown, used or expired code, `403 Forbidden` for a client
 outside `--otc-network`, `413 Request Entity Too Large` for a body larger than 1 KiB,
@@ -448,6 +451,61 @@ jq -n --rawfile csr web.csr '{csr: $csr, type: "server", name: "web", days: 90}'
 [examples.md](examples.md) describes the API clients in `examples/` and `src/cmd/request-cert/`, in
 Python, Node.js, Go and the shell. They make a key and a request, and write the key, the
 certificate and its chain.
+
+### CA certificates
+
+An issuing CA of path length 1 signs the issuing CAs of another PKI, such as those of a VPN or an
+appliance, which then sign its leaves:
+
+```text
+root CA, path length 2           ca create --path-length 2
+  issuing CA NAME, path length 1 ca create --issuing-ca NAME --path-length 1
+    CA of the other PKI, path length 0, signed at /NAME/api/sign-ca
+      leaves of the other PKI
+```
+
+`serve` signs them at `/NAME/api/sign-ca`, a `POST` with a `sign-ca` token of the issuing CA
+`NAME` as the bearer token; a root CA has no such route. The token is made with
+`token create --scope sign-ca`, also with `--otc`, or on the [token page](#token-page), and only
+for an issuing CA of path length 1. The JSON body, of at most 64 KiB, takes `csr`, `name` and
+`days`, as `/NAME/api/sign` takes them, and nothing else:
+
+```json
+{
+  "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...",
+  "name": "vpn-ca",
+  "days": 1825
+}
+```
+
+The certificate is a CA certificate for the key of the request:
+
+- the subject is the CN of the request alone, which it must have; its other attributes and its
+  extensions are left out;
+- basic constraints `CA:TRUE, pathlen:0` and key usage `keyCertSign, cRLSign`, both critical, and
+  no extended key usage;
+- the subject key identifier, the authority key identifier of the issuing CA, and the AIA and CRL
+  Distribution Point URLs of the issuing CA, `URL/NAME/ca_cert.crt` and `URL/NAME/crl.pem`, with
+  `ca_publish_base_url` set;
+- `days` must not end after the issuing CA certificate.
+
+It is stored and recorded as a certificate of `/NAME/api/sign` is, and the answer has the same
+fields, `serial`, `certificate` and `chain`, but `chain` holds the certificate, the issuing CA
+certificate and the root CA certificate, so the other PKI can check the whole path. The errors
+and the counting of refused tokens are those of `/NAME/api/sign`; a token without the scope
+`sign-ca` is refused with `403 Forbidden`, and so is a `sign-ca` token at `/NAME/api/sign`.
+
+```sh
+CODE=$(simple-ca token create --ca-dir /tmp/ca/partners --scope sign-ca --otc --valid 720h vpn)
+TOKEN=$(jq -n --arg code "$CODE" '{code: $code}' |
+  curl -s -H 'Content-Type: application/json' --data @- \
+  http://pki.example.com:8080/api/token-setup | jq -r .token)
+openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout vpn-ca_key.pem \
+  -subj "/CN=VPN CA" -out vpn-ca.csr
+jq -n --rawfile csr vpn-ca.csr '{csr: $csr, name: "vpn-ca", days: 1825}' |
+  curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @- \
+  http://pki.example.com:8080/partners/api/sign-ca | jq -r .chain > vpn-ca_chain.pem
+```
 
 ## Federation tokens
 

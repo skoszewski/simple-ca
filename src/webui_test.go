@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -179,5 +181,66 @@ func TestTokenWebUI(t *testing.T) {
 	}
 	if status, _ := call(issuingKey, "GET", "/api/tokens?ca=", nil); status != http.StatusNotFound {
 		t.Errorf("GET /api/tokens of the root CA with an issuing CA token: %d, want 404", status)
+	}
+}
+
+func TestTokenWebUISignCA(t *testing.T) {
+	log.SetOutput(io.Discard)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	caDir := t.TempDir()
+	if err := cert.CreateCA(caDir, "Test CA", 3650, "", "", "ec", 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := cert.CreateCA(caDir, "Sub CA", 0, "sub", "", "ec", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := cert.CreateCA(caDir, "Servers CA", 0, "servers", "", "ec", 0); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := tokens.MakeToken(caDir, "admin", time.Hour, []string{"*"}, []string{"server"}, []string{"*"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(newServeMux(caDir, false, true))
+	defer server.Close()
+	call := func(method, path string, body any) (int, map[string]any) {
+		t.Helper()
+		b, _ := json.Marshal(body)
+		req, err := http.NewRequest(method, server.URL+"/tokens"+path, bytes.NewReader(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+admin)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var answer map[string]any
+		json.NewDecoder(resp.Body).Decode(&answer)
+		return resp.StatusCode, answer
+	}
+
+	// The page offers the scope sign-ca, which a token of the scope * grants, for the issuing CA
+	// of path length 1 alone.
+	status, answer := call("GET", "/api/cas", nil)
+	if status != http.StatusOK || !slices.Contains(answer["scopes"].([]any), any(tokens.SignCA)) {
+		t.Fatalf("GET /api/cas: %d %v, want the scope sign-ca among those granted", status, answer)
+	}
+	signCA := map[string]bool{}
+	for _, ca := range answer["cas"].([]any) {
+		signCA[ca.(map[string]any)["id"].(string)] = ca.(map[string]any)["sign_ca"].(bool)
+	}
+	if !maps.Equal(signCA, map[string]bool{"": false, "sub": true, "servers": false}) {
+		t.Errorf("sign_ca of the CAs: %v, want sub alone", signCA)
+	}
+	for ca, want := range map[string]int{"sub": http.StatusCreated, "servers": http.StatusBadRequest} {
+		if status, answer := call("POST", "/api/tokens", map[string]any{"ca": ca, "name": "lm", "valid": "1h",
+			"scopes": []string{tokens.SignCA}}); status != want {
+			t.Errorf("creating a sign-ca token of %s: %d %v, want %d", ca, status, answer, want)
+		}
 	}
 }

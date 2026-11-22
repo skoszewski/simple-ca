@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca"
+	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/jose"
 )
 
@@ -518,5 +519,49 @@ func TestSelfCertScope(t *testing.T) {
 		if got := (&APIToken{Scopes: c.scopes}).HasScope(SelfCert); got != c.want {
 			t.Errorf("HasScope(self-cert) of %v: %v, want %v", c.scopes, got, c.want)
 		}
+	}
+}
+
+func TestSignCAScope(t *testing.T) {
+	for _, c := range []struct {
+		scopes []string
+		want   bool
+	}{
+		{[]string{"*"}, false},
+		{nil, false},
+		{[]string{"sign"}, false},
+		{[]string{SignCA}, true},
+	} {
+		if got := (&APIToken{Scopes: c.scopes}).HasScope(SignCA); got != c.want {
+			t.Errorf("HasScope(sign-ca) of %v: %v, want %v", c.scopes, got, c.want)
+		}
+	}
+
+	// The scope is given only to a token of an issuing CA of path length 1, also with a setup code.
+	caDir := t.TempDir()
+	if err := cert.CreateCA(caDir, "Root", 3650, "", "", "ec", 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := cert.CreateCA(caDir, "Sub", 0, "sub", "", "ec", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := cert.CreateCA(caDir, "Leaves", 0, "leaves", "", "ec", 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{caDir, filepath.Join(caDir, "leaves")} {
+		if _, err := MakeToken(dir, "sub-ca", time.Hour, []string{SignCA}, nil, nil, nil, nil); err == nil ||
+			!strings.Contains(err.Error(), "path length 1") {
+			t.Errorf("sign-ca of %s: %v, want an error", dir, err)
+		}
+	}
+	subDir := filepath.Join(caDir, "sub")
+	if _, err := MakeToken(subDir, "sub-ca", time.Hour, []string{SignCA}, nil, nil, nil, nil); err != nil {
+		t.Fatalf("sign-ca of the issuing CA of path length 1: %v", err)
+	}
+	if _, err := AddToken(subDir, "sub-ca-otc", nil, time.Hour, []string{SignCA}, nil, nil, nil, nil, time.Hour, nil); err != nil {
+		t.Fatalf("sign-ca with a setup code: %v", err)
+	}
+	if tok := loadToken(t, subDir, "sub-ca-otc"); !tok.Pending() || !tok.HasScope(SignCA) {
+		t.Errorf("the token of the setup code: %+v, want pending with the scope sign-ca", tok)
 	}
 }

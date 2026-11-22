@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.23.0
+
+feat: ca create --path-length makes a root CA of path length 2 and an issuing CA of path length 1,
+whose tokens of the scope sign-ca have the CAs of another PKI signed at /NAME/api/sign-ca.
+
+- `ca create --path-length N` sets the path length of the CA certificate: 1 by default or 2 for
+  the root CA, 0 by default or 1 for an issuing CA, 1 only under a root CA of path length 2. In a
+  session it is `path-length=N`.
+- The token scope `sign-ca`, given by `token create --scope sign-ca`, also with `--otc`, and on
+  the token page, is only for an issuing CA of path length 1; `*` does not include it. The token
+  page offers it for such a CA alone, `GET /tokens/api/cas` marks it with `sign_ca`, and the list
+  filters by it.
+- `POST /NAME/api/sign-ca` takes a `sign-ca` token of the issuing CA `NAME` and a JSON body of
+  `csr`, `name` and `days`, and signs a CA certificate of path length 0 for the key of the
+  request, with the CN of the request as its subject, the key usages `keyCertSign` and `cRLSign`,
+  the key identifiers and the AIA and CRL Distribution Point URLs of the issuing CA. It is stored
+  and recorded as a certificate of `/NAME/api/sign` is, and the answer's `chain` holds the
+  certificate, the issuing CA and the root CA.
+- `token list` and `token describe` count the certificates of a `sign-ca` token.
+
 ## 1.22.3
 
 fix: token describe --ca-bundle prints the Signature line as valid, of the CA that signed the

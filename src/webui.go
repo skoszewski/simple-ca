@@ -107,6 +107,7 @@ type webuiCA struct {
 	ID      string      `json:"id"`
 	Subject [][2]string `json:"subject"`
 	HasKey  bool        `json:"has_key"`
+	SignCA  bool        `json:"sign_ca"`
 	Theme   themeConfig `json:"theme"`
 }
 
@@ -263,7 +264,7 @@ func (s *webuiServer) identify(given, scope string, client netip.Addr) error {
 }
 
 // grants reports whether the token of the request may grant the scopes: sign, and the scopes it
-// has itself, every scope with the scope *.
+// has itself, every scope with the scope *, sign-ca too.
 func (s *webuiServer) grants(scopes []string) bool {
 	return !slices.ContainsFunc(scopes, func(scope string) bool {
 		return scope != "sign" && !tokens.Allows(s.userScopes, scope)
@@ -576,7 +577,7 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 			slog.Error("serve.error", "dir", dir, "error", err.Error())
 		}
 		cas = append(cas, webuiCA{ID: id, Subject: cert.SubjectAttributes(cert.NameString(crt.Subject)),
-			HasKey: simpleca.FileExists(filepath.Join(dir, "ca_key.pem")), Theme: theme})
+			HasKey: simpleca.FileExists(filepath.Join(dir, "ca_key.pem")), SignCA: tokens.CheckSignCA(dir) == nil, Theme: theme})
 	}
 
 	answer := map[string]any{"title": rootCert.Subject.CommonName, "types": slices.Sorted(maps.Keys(types)), "cas": cas,

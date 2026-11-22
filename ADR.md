@@ -598,3 +598,22 @@ The connection is read from `SIMPLE_CA_DB_*` alone, each named as the `psql` var
 `PG`. They are given to pgx as a connection string, which overrides the environment and the
 service file, and the `PG*` variables of the process are removed before it is parsed, so a `PGHOST`
 or `~/.pgpass` meant for another program never directs simple-ca to another database.
+
+## The CAs of another PKI are signed by an issuing CA of path length 1 with the scope sign-ca
+
+Another PKI, such as that of a VPN appliance, keeps its own issuing CAs, which sign its leaves,
+and has them signed by simple-ca so they chain to its root. The hierarchy has three levels: a
+root CA of path length 2, an issuing CA of path length 1 that holds the tokens of the other PKI,
+and the CAs it signs, of path length 0. `ca create --path-length` chooses the path length per CA
+and refuses one its root CA cannot hold, so the default of two levels stays as it was.
+
+The CAs are signed at `/NAME/api/sign-ca` of that issuing CA, not by a certificate type of
+`/api/sign`: a type gives key usages and name rules of leaves, and a CA certificate needs basic
+constraints, its subject CN alone and no SANs, none of which a type or a request should set. The
+certificate is always of path length 0, so the other PKI cannot add levels below it. The scope
+`sign-ca` is only for an issuing CA of path length 1, checked when the token is made and when it
+signs, and `*` does not stand for it, as for `self-cert`: a token of every scope made for the
+pages must not sign CAs. A token with `*` may still grant it on the token page, so the operator
+of the pages can make one. The answer holds the root CA in `chain`, unlike `/api/sign`, so the
+other PKI can check the whole path against the root it was given; storing, recording, the errors
+and the counting of refused tokens are shared with `/api/sign`.
