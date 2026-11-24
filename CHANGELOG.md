@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.23.1
+
+fix: build.mjs docker, container and publish take --prune, which removes the local images of the
+older versions after the build.
+
+- `--prune` of `./build.mjs docker`, `container` and `publish` removes from the local image store
+  every tag of `simple-ca` and `simple-ca-full` whose image is not the one tagged `latest`, after
+  the build; the registry keeps them.
+
 ## 1.23.0
 
 feat: ca create --path-length makes a root CA of path length 2 and an issuing CA of path length 1,

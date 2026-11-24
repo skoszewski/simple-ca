@@ -330,6 +330,8 @@ APT_DIR=apt
   with Apple's `container` CLI.
 - `--registry` puts the images below a registry, `SIMPLE_CA_REGISTRY` by default, and `--push`
   pushes them.
+- `--prune` removes the local tags of the older versions of both images after the build, all
+  but the image tagged `latest`.
 - `--full` also builds `simple-ca-full`, with the release archives of the first directory,
   `dist/` by default, and the apt repository of the second, `apt/` by default.
 - A comma-separated list of platforms builds for them instead of the platform of the engine.

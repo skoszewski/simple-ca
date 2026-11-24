@@ -21,6 +21,8 @@ as `REGISTRY/simple-ca:X.Y.Z`. The image is for the platform of the Docker engin
 a remote host of the docker context, and a platform such as `linux/arm64` builds for it instead.
 The build stage runs on the platform of the engine and cross-compiles the programs, so a platform
 of another architecture needs no emulation on the engine. `--push` pushes the image too.
+`--prune` then removes from the local image store every tag of `simple-ca` and `simple-ca-full`
+whose image is not the one tagged `latest`; the registry keeps them.
 
 `./build.mjs container` builds the same image on the local Mac with Apple's `container` CLI, for
 the platform of its Linux VM unless a platform is named, and takes the same options; `--push`
