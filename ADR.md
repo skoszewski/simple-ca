@@ -564,15 +564,18 @@ who published it rests on the server the client trusts.
 control files are compressed with xz or zstd, which the Go standard library cannot read, and apt
 needs a `Release` signed with OpenPGP. `./build.mjs apt` builds and signs the repository in a
 container of `simple-ca-builder`, an Ubuntu image, with `apt-ftparchive` and gpg instead. The repository is flat, one directory
-and one channel, with the sources line `deb URL/apt ./`.
+and one channel, with the sources line `deb URL/apt ./`. The packages and the signing key are
+copied into the container with `docker cp`, and the repository out of it, in place of bind mounts,
+which a remote Docker engine cannot make of the host's directories; the key stays out of the image
+layers, and its copy is removed on every exit of `apt`, since a failed docker command ends the
+build without running its `finally`.
 
 ## The Go module is src/, the build context of the images
 
 The images and the Debian packages build from `src/`, which holds the Go module with what it
 embeds, the systemd units and the Debian package sources, and nothing else, so no ignore file
-picks their files: Apple's `container` CLI fails on an ignore file that re-includes files, and
-both engines build from the same directory. A module in a subdirectory has the path
-`github.com/skoszewski/simple-ca/src`.
+picks their files and every build reads the same directory. A module in a subdirectory has the
+path `github.com/skoszewski/simple-ca/src`.
 
 ## The tokens and the OIDC profiles can live in PostgreSQL tables named in simple-ca.json
 

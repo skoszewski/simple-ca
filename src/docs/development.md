@@ -16,6 +16,11 @@ of `src/Dockerfile.test`, keep their temporary files in a tmpfs on `/tmp`, and t
 workflow packs the archives in the temporary directory of its runner, `$RUNNER_TEMP`; only local
 builds of `build.mjs` use `.build/`.
 
+The actions that run Docker, `setup`, `deb`, `apt`, `docker`, `dist --dpkg` and `publish`, use the
+Docker context that `docker` selects, and `--context CONTEXT` forces another one: `build.mjs` sets
+`DOCKER_CONTEXT` for its `docker` and `docker buildx` commands, which overrides `DOCKER_HOST` and
+the context of `docker context use`.
+
 The actions have a section each:
 
 - [Builder image](#builder-image): `setup`;
@@ -25,7 +30,7 @@ The actions have a section each:
 - [Sum files](#sum-files): `sums`;
 - [Debian packages](#debian-packages): `deb`;
 - [apt repository](#apt-repository): `apt`;
-- [Container images](#container-images): `docker` and `container`;
+- [Container images](#container-images): `docker`;
 - [Internal releases](#internal-releases): `dist`.
 
 [Image workflows](#image-workflows) has the commands that build the images of an internal and of
@@ -40,9 +45,8 @@ a public release, [Release workflow](#release-workflow) describes what the tags 
 
 `simple-ca-builder` is an Ubuntu 26.04 image with `apt-ftparchive`, gpg and
 `simple-ca-builder/build-repo.sh`, which [apt](#apt-repository) runs. `./build.mjs setup` builds
-the image from `simple-ca-builder/Dockerfile`, anew each time it runs, with Apple's `container`
-CLI on macOS when it is installed, and with `docker` otherwise. `./build.mjs apt` fails while the
-image is missing.
+the image from `simple-ca-builder/Dockerfile` with `docker`, anew each time it runs.
+`./build.mjs apt` fails while the image is missing.
 
 ## Image workflows
 
@@ -52,7 +56,7 @@ packages come from the local `./build.mjs dist`. A public release is made by
 `./release.mjs --push`: its tag `vX.Y.Z` makes the GitHub workflow build the archives and the
 Debian packages and publish them as a release (see [Release workflow](#release-workflow) and
 [Releasing](#releasing)). `--registry` and `--push` put the images in a registry; the examples
-use `./build.mjs docker`, and `./build.mjs container` builds the same images on a Mac.
+use `./build.mjs docker`.
 
 `simple-ca-full` also needs the [builder image](#builder-image), built once with
 `./build.mjs setup`, and a [signing key](#signing-key) for its apt repository; a key without a
@@ -262,9 +266,13 @@ secret key, as `gpg --export-secret-keys --armor` writes it, `SIMPLE_CA_GPG_KEY_
 default, and `--passphrase-file` a file holding its passphrase, when it has one,
 `SIMPLE_CA_GPG_PASSPHRASE_FILE` by default. The variables are read from the environment, so the
 shell exports them. With neither the option nor the variable for the key, `apt` is refused with
-that reason. Both files are mounted read-only in `/run/secrets` of the
-container, as `gpg_key` and `gpg_passphrase`, and are in no layer of the image. The container
-runs with the engine `setup` uses, on a local engine, as the user running it.
+that reason.
+
+The packages and both files are copied into a container of the image with `docker cp`, the
+packages to `/repo` and the files to `/run/secrets`, as `gpg_key` and `gpg_passphrase`, so that a
+remote Docker engine builds the repository too. The files are in no layer of the image, and the
+repository is copied back from `/repo`, owned by the user running `apt`. The container and the
+copies of the files in `.build/` are removed when `apt` ends, also when it fails.
 
 `apt` replaces `DEST` with the repository: the `.deb` files and those six files. `DEST` is `apt/`
 in the root of the checkout by default, which `.gitignore` leaves out. A `DEST` that is `SOURCE`,
@@ -322,12 +330,10 @@ DOWNLOADS_DIR=dist
 APT_DIR=apt
 
 ./build.mjs docker --registry "$REGISTRY" --push --full "$DOWNLOADS_DIR" "$APT_DIR" "$PLATFORMS"
-./build.mjs container --registry "$REGISTRY" --push --full "$DOWNLOADS_DIR" "$APT_DIR" "$PLATFORMS"
 ```
 
 - `./build.mjs docker` builds `simple-ca:X.Y.Z` and `simple-ca:latest` for the version of the
-  newest `CHANGELOG.md` entry; `./build.mjs container` builds the same images on the local Mac
-  with Apple's `container` CLI.
+  newest `CHANGELOG.md` entry.
 - `--registry` puts the images below a registry, `SIMPLE_CA_REGISTRY` by default, and `--push`
   pushes them.
 - `--prune` removes the local tags of the older versions of both images after the build, all
@@ -370,13 +376,12 @@ depends on the newest entry:
 
 - **Not tagged, on macOS:** a full internal build. The Go programs are cross-compiled, and each
   `simple-ca-trust` is built by its own toolchain, so `--all` needs Swift and the .NET SDK, and
-  is refused, before anything is built, without them. `--dpkg` builds the packages for amd64 and
-  arm64 with Apple's `container` CLI when it is installed, and else with `docker buildx`, for the
-  architecture of the Docker engine.
+  is refused, before anything is built, without them. `--dpkg` builds the packages with
+  `docker buildx`, for the architecture of the Docker engine.
 - **Not tagged, on another host:** a partial internal build. The archives are built as on macOS,
   but the `darwin` `simple-ca-trust`, which only macOS builds, is skipped with a note, and so is
   the `windows` one without the .NET SDK; those `simple-ca` archives are packed without it.
-  `--dpkg` builds the packages with `docker buildx`, for the architecture of the Docker engine.
+  `--dpkg` builds the packages as on macOS.
 - **Tagged `vX.Y.Z`:** the release build. The files of the release are downloaded from GitHub,
   `https://github.com/skoszewski/simple-ca/releases/download/vX.Y.Z/`, where the release
   workflow published them, and nothing is built; any host does it.

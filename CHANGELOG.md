@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.23.2
+
+fix: build.mjs builds with Docker alone, on the Docker context that --context forces, and its
+container action for Apple's container CLI is removed.
+
+- `./build.mjs container` is removed; `./build.mjs docker` and `publish` build the images, and
+  `--prune` removes the older local images of Docker.
+- `./build.mjs setup`, `apt` and `dist --dpkg` run Docker also on macOS, and `dist --dpkg` builds
+  the Debian packages for the architecture of the Docker engine.
+- `--context CONTEXT` of `./build.mjs setup`, `deb`, `apt`, `docker`, `dist` and `publish` runs
+  their Docker commands on that Docker context in place of the selected one.
+- `./build.mjs apt` copies the packages and the signing key into its container and the repository
+  out of it, so it also builds the repository on a remote Docker engine, and removes the copy of
+  the key in `.build/apt` and the container also when it fails.
+- The Dockerfiles of the Debian packages copy `debian/` of `debian-package/` or
+  `debian-package-lite/` with `COPY`, in place of moving it in a `RUN` step.
+
 ## 1.23.1
 
 fix: build.mjs docker, container and publish take --prune, which removes the local images of the

@@ -14,7 +14,7 @@ WORKDIR /build/src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . ./
-RUN mv debian-package/debian debian
+COPY debian-package/debian debian/
 ARG VERSION=""
 RUN --mount=type=tmpfs,target=/tmp SIMPLE_CA_VERSION="$VERSION" dpkg-buildpackage -us -uc -b
 

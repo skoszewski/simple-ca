@@ -24,38 +24,17 @@ of another architecture needs no emulation on the engine. `--push` pushes the im
 `--prune` then removes from the local image store every tag of `simple-ca` and `simple-ca-full`
 whose image is not the one tagged `latest`; the registry keeps them.
 
-`./build.mjs container` builds the same image on the local Mac with Apple's `container` CLI, for
-the platform of its Linux VM unless a platform is named, and takes the same options; `--push`
-pushes both tags with `container image push`. The image is then run with `container run`.
-
-A new volume of the `container` CLI is owned by root, while Docker gives a new named volume the
-owner of `/data` in the image. The user 1000 of the image can then not write it, and `ca create`
-fails with `open /data/simple-ca.json: permission denied`, so the volume is given to the user
-1000 once, by `chown` of a busybox container, before the image uses it:
-
-```sh
-IMAGE=${SIMPLE_CA_REGISTRY:+$SIMPLE_CA_REGISTRY/}simple-ca
-
-container volume create simple-ca
-container run --rm -v simple-ca:/data docker.io/library/busybox chown 1000:1000 /data
-container run --rm -v simple-ca:/data "$IMAGE" ca create \
-  --ca-url http://pki.example.com:8080 "My Root CA"
-container run -d --rm --name simple-ca -p 8080:8080 -v simple-ca:/data "$IMAGE"
-```
-
-The same goes for `simple-ca-full`, with its image in `IMAGE`.
-
-Both take a comma-separated list of platforms for a multi-platform image, one image index with
-an image of each platform:
+`./build.mjs docker` takes a comma-separated list of platforms for a multi-platform image, one
+image index with an image of each platform:
 
 ```sh
 PLATFORMS=linux/amd64,linux/arm64
 
-./build.mjs container --push "$PLATFORMS"
+./build.mjs docker --push "$PLATFORMS"
 ```
 
 The build stage of each platform runs on the platform of the builder and cross-compiles. A
-multi-platform image of `docker` needs a buildx builder that supports multi-platform builds.
+multi-platform image needs a buildx builder that supports multi-platform builds.
 
 ```sh
 IMAGE=${SIMPLE_CA_REGISTRY:+$SIMPLE_CA_REGISTRY/}simple-ca
@@ -115,8 +94,8 @@ docker run -d --rm -p 8080:8080 -v simple-ca:/data \
 
 ## simple-ca-full
 
-`--full` adds a second image to `./build.mjs docker` and `./build.mjs container`:
-`simple-ca-full:X.Y.Z` and `simple-ca-full:latest`, built by `Dockerfile.full` from
+`--full` adds a second image to `./build.mjs docker`: `simple-ca-full:X.Y.Z` and
+`simple-ca-full:latest`, built by `Dockerfile.full` from
 `simple-ca:X.Y.Z` of the same build, below the same registry, and pushed with it by `--push`. It
 adds one layer:
 
@@ -186,8 +165,8 @@ packages are those of the architecture of the Docker engine; without `--all`, `.
 writes the archives of the host only. The image offers what `dist/` holds.
 
 The `FROM` of `Dockerfile.full` reads `simple-ca:X.Y.Z` where the builder reads images: the
-local images for the `docker` driver of buildx and for the `container` CLI, and the registry for
-a `docker-container` builder, so that a multi-platform build of `docker` needs `--push`, which
+local images for the `docker` driver of buildx, and the registry for a `docker-container`
+builder, so that a multi-platform build of `docker` needs `--push`, which
 pushes `simple-ca` before `simple-ca-full` is built.
 
 ## Docker Compose

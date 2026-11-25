@@ -16,7 +16,7 @@ import { sums } from "./lib/sums.mjs";
 import { trust } from "./lib/trust.mjs";
 
 const actions = {
-  assets, build, trust, docker: image, container: image, deb, dist, install, apt, setup, sums, publish, test, check, clean,
+  assets, build, trust, docker: image, deb, dist, install, apt, setup, sums, publish, test, check, clean,
 };
 
 parseArguments();
