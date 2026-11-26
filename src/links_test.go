@@ -27,10 +27,11 @@ func TestAPILinks(t *testing.T) {
 	}
 
 	type answer struct {
-		User   string     `json:"user"`
-		UserCA string     `json:"user_ca"`
-		Links  []pageLink `json:"links"`
-		Error  string     `json:"error"`
+		User      string      `json:"user"`
+		UserCA    string      `json:"user_ca"`
+		UserToken *webuiToken `json:"user_token"`
+		Links     []pageLink  `json:"links"`
+		Error     string      `json:"error"`
 	}
 	get := func(server *httptest.Server, token string) (int, answer) {
 		t.Helper()
@@ -64,11 +65,13 @@ func TestAPILinks(t *testing.T) {
 
 	withWebUI := httptest.NewServer(newServeMux(caDir, false, true))
 	defer withWebUI.Close()
-	if status, a := get(withWebUI, ""); status != http.StatusOK || !slices.Equal(hrefs(a), short) || a.User != "" {
+	if status, a := get(withWebUI, ""); status != http.StatusOK || !slices.Equal(hrefs(a), short) || a.User != "" || a.UserToken != nil {
 		t.Errorf("without a token: %d %v %q, want the short list and no user", status, hrefs(a), a.User)
 	}
-	if status, a := get(withWebUI, token); status != http.StatusOK || !slices.Equal(hrefs(a), full) || a.User != "alice" {
-		t.Errorf("with a valid token: %d %v %q, want the full list and alice", status, hrefs(a), a.User)
+	if status, a := get(withWebUI, token); status != http.StatusOK || !slices.Equal(hrefs(a), full) || a.User != "alice" ||
+		a.UserToken == nil || a.UserToken.Name != "alice" || len(a.UserToken.Scopes) == 0 {
+		t.Errorf("with a valid token: %d %v %q %+v, want the full list and alice with the attributes of its token", status, hrefs(a),
+			a.User, a.UserToken)
 	}
 	if status, a := get(withWebUI, token+"x"); status != http.StatusUnauthorized || len(a.Links) != 0 {
 		t.Errorf("with an invalid token: %d %v, want 401 and no links", status, hrefs(a))

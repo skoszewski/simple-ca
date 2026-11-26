@@ -33,8 +33,9 @@ async function showLinks() {
   if (!webui) {
     return;
   }
-  document.getElementById("user").textContent = answer.user ?
-    "Signed in as " + answer.user + (answer.user_ca ? " of issuing CA " + answer.user_ca : "") : "";
+  if (answer.user) {
+    showUser(answer.user, answer.user_ca, answer.user_token);
+  }
   document.getElementById("user-row").classList.toggle("hidden", !answer.user);
   document.getElementById("user-row").classList.toggle("flex", Boolean(answer.user));
   document.getElementById("login-open").classList.toggle("hidden", Boolean(answer.user));

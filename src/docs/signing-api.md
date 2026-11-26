@@ -210,10 +210,10 @@ which returns to the index page. A token without the
 scope of the page, or not allowed from the client, stays kept for the other pages of the tab, and
 another token given replaces it; an invalid token is forgotten. The page shows who is signed
 in, with a Sign out button; the name opens a dialog of the attributes of the token, as
-`token describe` prints them. The index page shows the name too, with Sign out, for a valid
-token, and otherwise a Login button opening the same dialog; it links to the token, certificate,
-audit and secret pages only for a valid token, as `/api/links` answers (see [serve](serve.md)).
-A root CA token sees every CA; an issuing CA token sees only its
+`token describe` prints them. The index page shows the name too, opening the same dialog, with
+Sign out, for a valid token, and otherwise a Login button opening the login dialog; it links to
+the token, certificate, audit and secret pages only for a valid token, as `/api/links` answers
+(see [serve](serve.md)). A root CA token sees every CA; an issuing CA token sees only its
 own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
 root CA. On it you can:
 

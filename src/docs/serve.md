@@ -28,9 +28,10 @@ The index page draws the links of its header from `/api/links`. A request withou
 those of the public pages: "Set up a token", "Get a secret", "Describe a token", and "Downloads"
 and "Apt" when they are served. A request with a valid token of the root CA or an issuing CA as
 its bearer token, used from a client the token allows, also gets "Tokens", "Certificates",
-"Audit log" and "Secrets" with `--webui`, and the name of the token, and with the scope
-`self-cert` "Get my certificate", `/self-cert`, with `self_cert: true`. A refused token is
-answered as the pages answer it, and
+"Audit log" and "Secrets" with `--webui`, the name of the token, and its attributes in
+`user_token`, as the token page lists a token, which the name on the index page opens in a
+dialog; with the scope `self-cert` it also gets "Get my certificate", `/self-cert`, with
+`self_cert: true`. A refused token is answered as the pages answer it, and
 counts as a [refused credential](signing-api.md#refused-credentials). With `--webui`, the index
 page has a Login button where it shows who is signed in. It opens the login dialog of the pages:
 
@@ -102,7 +103,7 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/api/token-setup` | the exchange of a setup code, `POST` | `application/json` |
 | `/secret-get` | "Get a secret", the value of a [one-time secret](secrets.md#get-a-secret) shown once to the holder of its code | `text/html` |
 | `/api/secret-get` | the value of a one-time secret for its code, `POST` | `application/json` |
-| `/api/links` | the links of the index page: the public pages, and with a valid bearer token also the pages of `--webui`, with the name of the token | `application/json` |
+| `/api/links` | the links of the index page: the public pages, and with a valid bearer token also the pages of `--webui`, with the name and the attributes of the token | `application/json` |
 | `/token-describe` | the attributes of a token pasted into it, see [Describe a token](signing-api.md#describe-a-token) | `text/html` |
 | `/api/federation-token` | a JWT of the token type of a token of the root CA with the scope `federate`, `POST`, see [Federation tokens](signing-api.md#federation-tokens) | `application/json` |
 | `/NAME/api/federation-token` | the same for a token of the issuing CA `NAME` | `application/json` |

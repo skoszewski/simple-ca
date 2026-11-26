@@ -297,8 +297,8 @@ type pageLink struct {
 
 // apiLinks answers GET /api/links with the links of the index page: those of the public pages to a
 // request without a bearer token, and with a valid token of the root CA or an issuing CA, used from
-// a client it allows, also those of the pages of webui, with the name and the CA of the token, and
-// with the scope self-cert the page of its user certificate. A token refused is answered as the
+// a client it allows, also those of the pages of webui, with the name, the CA and the attributes of
+// the token, and with the scope self-cert the page of its user certificate. A token refused is answered as the
 // pages answer it.
 func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool) {
 	links := []pageLink{{"Set up a token", "/token-setup"}, {"Get a secret", "/secret-get"},
@@ -310,10 +310,11 @@ func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool
 		links = append(links, pageLink{"Apt", aptPath})
 	}
 	answer := struct {
-		User     string     `json:"user,omitempty"`
-		UserCA   string     `json:"user_ca,omitempty"`
-		SelfCert bool       `json:"self_cert,omitempty"`
-		Links    []pageLink `json:"links"`
+		User      string      `json:"user,omitempty"`
+		UserCA    string      `json:"user_ca,omitempty"`
+		UserToken *webuiToken `json:"user_token,omitempty"`
+		SelfCert  bool        `json:"self_cert,omitempty"`
+		Links     []pageLink  `json:"links"`
 	}{}
 	given, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if strings.TrimSpace(given) != "" {
@@ -321,7 +322,8 @@ func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool
 		if !s.authenticate(w, r) {
 			return
 		}
-		answer.User, answer.UserCA = s.user, s.userCA
+		userToken := newWebuiToken(s.user, s.userToken, time.Now())
+		answer.User, answer.UserCA, answer.UserToken = s.user, s.userCA, &userToken
 		if s.userToken.HasScope(tokens.SelfCert) {
 			answer.SelfCert = true
 			links = append(links, pageLink{"Get my certificate", "/self-cert"})

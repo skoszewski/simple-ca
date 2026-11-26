@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.24.1
+
+fix: the name of the signed-in token on the index page opens the dialog of its attributes, as on
+the token, certificate, audit and secret pages.
+
+- "Signed in as NAME" on the index page is a button opening the dialog of the attributes of the
+  token, as on the pages of `serve --webui`.
+- `/api/links` answers a valid token with its attributes in `user_token`, as the token page lists
+  a token.
+
 ## 1.24.0
 
 feature: one-time secrets, created by tokens of the new scope secrets on the secret page, its API

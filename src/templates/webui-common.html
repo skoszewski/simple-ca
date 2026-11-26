@@ -40,8 +40,9 @@
         <p id="error" class="mx-6 mt-5 hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink"></p>
 {{- end}}
 
-{{/* The dialog asking for the token or a setup code, with the OIDC sign-in, and the dialog showing
-     a token or a code once; the pages and the index page share them, with login.js. */}}
+{{/* The dialog asking for the token or a setup code, with the OIDC sign-in, the dialog showing a
+     token or a code once, and the one showing the signed-in token; the pages and the index page
+     share them, with login.js. */}}
 {{define "login-dialogs" -}}
     <dialog id="login" class="m-auto w-full max-w-xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form id="login-form" class="space-y-4 px-6 py-5">
@@ -69,10 +70,6 @@
         </div>
       </form>
     </dialog>
-{{- end}}
-
-{{define "webui-dialogs" -}}
-    {{template "login-dialogs"}}
 
     <dialog id="user-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form method="dialog" class="space-y-4 px-6 py-5">
@@ -83,6 +80,10 @@
         </div>
       </form>
     </dialog>
+{{- end}}
+
+{{define "webui-dialogs" -}}
+    {{template "login-dialogs"}}
 
     <dialog id="confirm" class="m-auto w-full max-w-md overflow-visible rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form method="dialog" class="space-y-5 px-6 py-5">

@@ -62,8 +62,6 @@ signedIn = (setup) => {
     + "The setup code it was made from no longer works.", setup.token, load);
 };
 
-// The name of the signed-in token opens the dialog of its attributes.
-$("user").addEventListener("click", () => $("user-dialog").showModal());
 $("sign-out").addEventListener("click", () => {
   sessionStorage.removeItem(tokenName);
   $("user-row").classList.replace("flex", "hidden");
@@ -110,29 +108,7 @@ async function load() {
     return;
   }
   $("title").textContent = info.title + ", managed by simple-ca";
-  $("user").textContent = "Signed in as " + info.user + (info.user_ca ? " of issuing CA " + info.user_ca : "");
-  const u = info.user_token;
-  const joined = (values, none) => (values || []).join(", ") || none;
-  const attributes = [["Name", u.name], ["Status", "valid until " + time(u.expires)], ["Issued", time(u.issued)],
-    ["Scopes", joined(u.scopes, "-")]];
-  if (u.oidc) {
-    attributes.push(["OIDC user", u.oidc.user], ["OIDC issuer", u.oidc.issuer]);
-  }
-  const signs = u.scopes.some((scope) => scope === "sign" || scope === "*");
-  if (signs) {
-    attributes.push(["Cert types", joined(u.types, "-")], ["Domains", joined(u.domains, "-")],
-      ["IP addresses", joined((u.ips || []).map(address), "-")]);
-  }
-  if (u.federate) {
-    attributes.push(["Federates", u.federate.type], ["Audience", u.federate.audience || "that of the token type"],
-      ...Object.entries(u.federate.claims || {}).sort().map(([name, value]) => ["Claim " + name, value]));
-  }
-  attributes.push(["Used from", joined((u.clients || []).map(address), "any client")]);
-  if (signs) {
-    attributes.push(["Certificates", u.certs.length + (u.certs.length ? ": " + u.certs.join(", ") : "")]);
-  }
-  $("user-attributes").replaceChildren(...attributes.flatMap(([label, value]) => [
-    element("dt", { className: "text-muted", textContent: label }), element("dd", { className: "break-all", textContent: value })]));
+  showUser(info.user, info.user_ca, info.user_token);
   $("user-row").classList.replace("hidden", "flex");
   if (!info.cas.some((ca) => ca.id === caID)) {
     caID = info.cas[0].id;
@@ -179,14 +155,12 @@ const button = (label, onclick, primary = false) => element("button", { type: "b
     : "rounded-lg border border-field-line px-2.5 py-1 text-xs font-medium hover:bg-subtle" });
 const badge = (text) => element("span", { className: "rounded-full bg-bad px-2 py-0.5 text-xs font-medium text-bad-ink", textContent: text });
 const cell = (content, extra = "") => element("td", { className: "py-1.5 pr-3 " + extra }, content);
-const time = (value) => new Date(value).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
 // A subject comes as its attributes, each a type and a value: it is named by its CN, or else by
 // the whole subject in its one-line form.
 const oneLine = (attributes) => attributes.map(([type, value]) => `/${type}=${value}`).join("");
 const subjectName = (attributes) => attributes.find(([type]) => type === "CN")?.[1] ?? oneLine(attributes);
 const caRole = (ca) => ca.id ? "issuing CA " + ca.id : "root CA";
-// A prefix of a single address is shown as that address, and hex bytes are separated by colons.
-const address = (prefix) => prefix.replace(prefix.includes(":") ? /\/128$/ : /\/32$/, "");
+// Hex bytes are separated by colons.
 const colonHex = (hex) => (hex.match(/../g) || []).join(":");
 const heading = (ca) => {
   return element("div", { className: "flex flex-wrap items-baseline justify-between gap-2" },

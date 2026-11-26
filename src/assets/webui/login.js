@@ -58,3 +58,36 @@ document.getElementById("shown").addEventListener("close", () => {
 });
 copying(document.getElementById("shown-copy"), document.getElementById("shown-value"));
 oidcButton(document.getElementById("login-oidc"), null, askToken);
+
+// time shows a time of the API in UTC, and address a prefix of a single address as that address.
+const time = (value) => new Date(value).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+const address = (prefix) => prefix.replace(prefix.includes(":") ? /\/128$/ : /\/32$/, "");
+
+// showUser shows who is signed in, the token name of the CA ca, empty for the root CA, and puts the
+// attributes of the token u, as the API answers with it, in the dialog its name opens.
+function showUser(name, ca, u) {
+  document.getElementById("user").textContent = "Signed in as " + name + (ca ? " of issuing CA " + ca : "");
+  const joined = (values, none) => (values || []).join(", ") || none;
+  const attributes = [["Name", u.name], ["Status", "valid until " + time(u.expires)], ["Issued", time(u.issued)],
+    ["Scopes", joined(u.scopes, "-")]];
+  if (u.oidc) {
+    attributes.push(["OIDC user", u.oidc.user], ["OIDC issuer", u.oidc.issuer]);
+  }
+  const signs = u.scopes.some((scope) => scope === "sign" || scope === "*");
+  if (signs) {
+    attributes.push(["Cert types", joined(u.types, "-")], ["Domains", joined(u.domains, "-")],
+      ["IP addresses", joined((u.ips || []).map(address), "-")]);
+  }
+  if (u.federate) {
+    attributes.push(["Federates", u.federate.type], ["Audience", u.federate.audience || "that of the token type"],
+      ...Object.entries(u.federate.claims || {}).sort().map(([name, value]) => ["Claim " + name, value]));
+  }
+  attributes.push(["Used from", joined((u.clients || []).map(address), "any client")]);
+  if (signs) {
+    attributes.push(["Certificates", u.certs.length + (u.certs.length ? ": " + u.certs.join(", ") : "")]);
+  }
+  document.getElementById("user-attributes").replaceChildren(...attributes.flatMap(([label, value]) => [
+    element("dt", { className: "text-muted", textContent: label }), element("dd", { className: "break-all", textContent: value })]));
+}
+// The name of the signed-in token opens the dialog of its attributes.
+document.getElementById("user").addEventListener("click", () => document.getElementById("user-dialog").showModal());
