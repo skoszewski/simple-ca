@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.24.3
+
+fix: the pages of serve load Tailwind CSS after the style of their theme, so they no longer show
+unthemed when the page arrives in parts.
+
+- Every page loads the browser build of Tailwind CSS after the style of its theme colours, so its
+  first build reads the whole style; a page could show without its theme, with the error
+  "Missing closing } at :root[data-theme="dark"]" in the browser console.
+
 ## 1.24.2
 
 fix: the page "Get a secret" is served at /get-secret, and its API at /api/get-secret.

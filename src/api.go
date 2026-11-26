@@ -442,10 +442,10 @@ func tokenDescribePage(w http.ResponseWriter, r *http.Request, rootDir string) {
 		return
 	}
 	page := struct {
-		Title, Script, Action, Error, CA string
-		Theme                            template.CSS
-		Attributes                       [][2]string
-	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: r.URL.Path, Theme: pageTheme(rootDir)}
+		Title, Action, Error, CA string
+		Theme                    template.CSS
+		Attributes               [][2]string
+	}{Title: caCert.Subject.CommonName, Action: r.URL.Path, Theme: pageTheme(rootDir)}
 	status := http.StatusOK
 	if r.Method == http.MethodPost {
 		r.Body = http.MaxBytesReader(w, r.Body, formMaxBody)
@@ -524,10 +524,10 @@ func tokenSetupPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 		return
 	}
 	page := struct {
-		Title, Script, Action, Error, CA, Name, Token string
-		Theme                                         template.CSS
-		Attributes                                    [][2]string
-	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: r.URL.Path, Theme: pageTheme(rootDir)}
+		Title, Action, Error, CA, Name, Token string
+		Theme                                 template.CSS
+		Attributes                            [][2]string
+	}{Title: caCert.Subject.CommonName, Action: r.URL.Path, Theme: pageTheme(rootDir)}
 	status := http.StatusOK
 	if r.Method == http.MethodPost {
 		r.Body = http.MaxBytesReader(w, r.Body, formMaxBody)
@@ -1269,10 +1269,10 @@ func signPage(w http.ResponseWriter, r *http.Request, caDir, path string) {
 		return
 	}
 	page := struct {
-		Title, Script, Action, CSR, Type, Error, Unavailable string
-		Theme                                                template.CSS
-		Types                                                []struct{ Name, Label string }
-	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: path, Theme: pageTheme(caDir)}
+		Title, Action, CSR, Type, Error, Unavailable string
+		Theme                                        template.CSS
+		Types                                        []struct{ Name, Label string }
+	}{Title: caCert.Subject.CommonName, Action: path, Theme: pageTheme(caDir)}
 
 	// Each type is offered with what its certificates are for: its extended key usages, else its
 	// key usages.

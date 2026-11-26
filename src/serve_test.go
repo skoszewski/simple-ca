@@ -99,6 +99,11 @@ func TestServe(t *testing.T) {
 			t.Fatalf("the index page lacks %q:\n%s", s, page)
 		}
 	}
+	// Tailwind is loaded once, after the theme style it compiles.
+	if strings.Count(string(page), `<script src="`+tailwindPath+`">`) != 1 ||
+		strings.Index(string(page), `<script src="`+tailwindPath+`">`) < strings.Index(string(page), "</style>") {
+		t.Fatalf("the index page loads Tailwind other than once after its theme style:\n%s", page)
+	}
 	if strings.Contains(string(page), "https://") {
 		t.Fatalf("the index page loads a resource from another site:\n%s", page)
 	}

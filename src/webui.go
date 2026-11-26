@@ -281,7 +281,7 @@ func (s *webuiServer) mux() *http.ServeMux {
 		w.Header().Set("Cache-Control", "no-store")
 		page := map[string]string{"tokens": "tokens.html", "certs": "certs.html", "audit": "audit.html",
 			"secrets": "secrets.html"}[s.scope]
-		if err := pageTemplates.ExecuteTemplate(w, page, struct{ Script string }{tailwindPath}); err != nil {
+		if err := pageTemplates.ExecuteTemplate(w, page, nil); err != nil {
 			slog.Error("serve.error", "error", err.Error())
 		}
 	})

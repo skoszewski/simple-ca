@@ -117,10 +117,10 @@ func getSecretPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 		return
 	}
 	page := struct {
-		Title, Script, Action, Error, CA, Name, Value string
-		Shown                                         bool
-		Theme                                         template.CSS
-	}{Title: caCert.Subject.CommonName, Script: tailwindPath, Action: r.URL.Path, Theme: pageTheme(rootDir)}
+		Title, Action, Error, CA, Name, Value string
+		Shown                                 bool
+		Theme                                 template.CSS
+	}{Title: caCert.Subject.CommonName, Action: r.URL.Path, Theme: pageTheme(rootDir)}
 	status := http.StatusOK
 	if r.Method == http.MethodPost {
 		r.Body = http.MaxBytesReader(w, r.Body, formMaxBody)

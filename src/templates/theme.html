@@ -1,6 +1,7 @@
 {{/* The colours of the pages by their role, each set once for the light and once for the dark
      theme, which theme.js chooses, for the utility classes of the templates, then the colours of
-     theme in simple-ca.json, the CSS the template is given, in place of them. */}}
+     theme in simple-ca.json, the CSS the template is given, in place of them, and the browser
+     build of Tailwind CSS, loaded after the style it compiles has been read in full. */}}
 {{define "theme" -}}
 <style type="text/tailwindcss">
       @theme inline {
@@ -114,6 +115,7 @@
     </style>
     {{- end}}
     <script src="/assets/webui/theme.js"></script>
+    <script src="{{tailwind}}"></script>
 {{- end}}
 
 {{/* The version of simple-ca, below the content of every page, with the switch of the theme. */}}

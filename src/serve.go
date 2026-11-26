@@ -72,8 +72,8 @@ var (
 	oidPKCS7SignedData = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 2}
 )
 
-// tailwindPath is the URL of the browser build of Tailwind CSS, tailwindJS, which the index page
-// loads; it is dist/index.global.js of the npm package @tailwindcss/browser, under the MIT licence
+// tailwindPath is the URL of the browser build of Tailwind CSS, tailwindJS, which every page loads
+// after the style of its theme; it is dist/index.global.js of the npm package @tailwindcss/browser, under the MIT licence
 // of assets/tailwindcss-browser-LICENSE.
 const tailwindPath = "/assets/tailwindcss-browser-4.3.3.js"
 
@@ -178,14 +178,14 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 var templateFiles embed.FS
 
 // pageTemplates are templateFiles parsed, each named after its file, with the functions json,
-// which writes a value as JSON, version, the version of simple-ca, helpLink, the route of the
-// help page, empty for an executable without it, docsLink, the route of the guides, empty
-// unless they are served, downloadsLink, the route of the downloads page, and aptLink, the route
-// of the apt page, each empty unless it is served.
+// which writes a value as JSON, version, the version of simple-ca, tailwind, tailwindPath,
+// helpLink, the route of the help page, empty for an executable without it, docsLink, the route
+// of the guides, empty unless they are served, downloadsLink, the route of the downloads page,
+// and aptLink, the route of the apt page, each empty unless it is served.
 var pageTemplates = template.Must(template.New("").Funcs(template.FuncMap{"json": func(v any) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
-}, "version": version, "helpLink": func() string {
+}, "version": version, "tailwind": func() string { return tailwindPath }, "helpLink": func() string {
 	if helpSite == nil {
 		return ""
 	}
@@ -334,11 +334,11 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := pageTemplates.ExecuteTemplate(w, "index.html", struct {
-			Title, Script string
-			WebUI         bool
-			Theme         template.CSS
-			CAs           []indexCA
-		}{title, tailwindPath, webui, pageTheme(rootDir), cas}); err != nil {
+			Title string
+			WebUI bool
+			Theme template.CSS
+			CAs   []indexCA
+		}{title, webui, pageTheme(rootDir), cas}); err != nil {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		}
 	})
@@ -523,9 +523,9 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		if err := pageTemplates.ExecuteTemplate(w, "self-cert.html", struct {
-			Title, Script string
-			Theme         template.CSS
-		}{caCert.Subject.CommonName, tailwindPath, pageTheme(rootDir)}); err != nil {
+			Title string
+			Theme template.CSS
+		}{caCert.Subject.CommonName, pageTheme(rootDir)}); err != nil {
 			slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 		}
 	})
@@ -672,8 +672,8 @@ func init() {
 	}
 	oidc.Page = func(w io.Writer, rootDir, title string) error {
 		return pageTemplates.ExecuteTemplate(w, "oidc-callback.html", struct {
-			Title, Script string
-			Theme         template.CSS
-		}{title, tailwindPath, pageTheme(rootDir)})
+			Title string
+			Theme template.CSS
+		}{title, pageTheme(rootDir)})
 	}
 }

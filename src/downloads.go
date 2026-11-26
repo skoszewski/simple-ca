@@ -164,10 +164,10 @@ func downloadsPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := pageTemplates.ExecuteTemplate(w, "downloads.html", struct {
-		Title, Script, Path string
-		Theme               template.CSS
-		Files               []download
-	}{title, tailwindPath, downloadsPath, pageTheme(rootDir), files}); err != nil {
+		Title, Path string
+		Theme       template.CSS
+		Files       []download
+	}{title, downloadsPath, pageTheme(rootDir), files}); err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 	}
 }
@@ -243,11 +243,11 @@ func aptPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := pageTemplates.ExecuteTemplate(w, "apt.html", struct {
-		Title, Script, Commands string
-		Theme                   template.CSS
-		Packages                []string
-		NoKey, PlainHTTP        bool
-	}{title, tailwindPath, commands, pageTheme(rootDir), packages, keyErr != nil, strings.HasPrefix(origin, "http://")}); err != nil {
+		Title, Commands  string
+		Theme            template.CSS
+		Packages         []string
+		NoKey, PlainHTTP bool
+	}{title, commands, pageTheme(rootDir), packages, keyErr != nil, strings.HasPrefix(origin, "http://")}); err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 	}
 }
