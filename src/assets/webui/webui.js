@@ -1,10 +1,11 @@
-// The parts the token, certificate and audit pages share, after picker.js, oidc.js and login.js. The
+// The parts the token, certificate, audit and secret pages share, after picker.js, oidc.js and login.js. The
 // page draws one CA from the API, sending the token, which the tab keeps, as its bearer token; the
 // CA on the page is in the address as ?ca=. The script of the page, loaded after this one, defines
 // showCA, which draws the CA.
 const params = new URLSearchParams(location.search);
 const base = location.pathname.replace(/\/$/, "");
-const pageScope = base.endsWith("/certificates") ? "certs" : base.endsWith("/audit") ? "audit" : "tokens";
+const pageScope = base.endsWith("/certificates") ? "certs" : base.endsWith("/audit") ? "audit"
+  : base.endsWith("/secrets") ? "secrets" : "tokens";
 let caID = params.get("ca") || "";
 let info = null;
 const $ = (id) => document.getElementById(id);
@@ -156,7 +157,8 @@ function currentCA() {
   params.set("ca", caID);
   history.replaceState(null, "", base + "/?" + params);
   const query = new URLSearchParams({ ca: caID });
-  for (const [id, path] of [["tokens-link", "/tokens/"], ["certs-link", "/certificates/"], ["audit-link", "/audit/"]]) {
+  for (const [id, path] of [["tokens-link", "/tokens/"], ["certs-link", "/certificates/"], ["audit-link", "/audit/"],
+    ["secrets-link", "/secrets/"]]) {
     if ($(id)) {
       $(id).href = path + "?" + query;
     }

@@ -117,6 +117,8 @@ writes it, and it can be written or edited by hand. A setting not described here
 - `database` - the PostgreSQL tables in place of JSON files, see [Database](database.md):
   - `schema` - the schema of the tables, `public` by default;
   - `tokens_db` - the table of the tokens of `tokens-db.json` of the root CA and its issuing CAs;
+  - `secrets_db` - the table of the [secrets](secrets.md) of `secrets-db.json` of the root CA and
+    its issuing CAs;
   - `oidc_users` - the table of the document of `oidc-users.json`.
 - `federation` - the JWTs for [workload identity federation](workload-identity.md), which a token
   with the scope `federate` gets and `token issue` prints:

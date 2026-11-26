@@ -59,9 +59,9 @@ func runTokenCreate(args []string) error {
 	fs.Func("claim", "`name=value` claim of the JWTs of the scope federate, a string; may be specified\n"+
 		"multiple times", claimFlag(&fed.Claims))
 	var scopes, certTypes, domains, ips, clients []string
-	fs.Func("scope", "`scope` of the token: sign, sign-ca, tokens, certs, audit, federate, or * for all but\n"+
-		"sign-ca; sign-ca only for an issuing CA of path length 1; may be specified multiple times\n"+
-		"(default: sign)", func(s string) error {
+	fs.Func("scope", "`scope` of the token: sign, sign-ca, tokens, certs, audit, secrets, federate, or * for\n"+
+		"all but sign-ca; sign-ca only for an issuing CA of path length 1; may be specified multiple\n"+
+		"times (default: sign)", func(s string) error {
 		scopes = append(scopes, s)
 		return nil
 	})

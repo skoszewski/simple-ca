@@ -286,4 +286,4 @@ func CreateCA(caDir, caName string, days int, issuingCA, baseURL, keyType string
 }
 
 // ReservedNames are the issuing CA names that the pages of serve take as their paths.
-var ReservedNames = []string{"help", "docs", "tokens", "certificates", "audit", "downloads", "apt"}
+var ReservedNames = []string{"help", "docs", "tokens", "certificates", "audit", "secrets", "downloads", "apt"}

@@ -96,10 +96,12 @@ type FederationConfig struct {
 
 // DatabaseConfig names the PostgreSQL tables that replace JSON files of the root CA directory and
 // its issuing CAs: the schema holding them, public when empty; TokensDB, the tokens of
-// tokens-db.json; and OIDCUsers, the document of oidc-users.json. An empty table keeps its file.
+// tokens-db.json; SecretsDB, the secrets of secrets-db.json; and OIDCUsers, the document of
+// oidc-users.json. An empty table keeps its file.
 type DatabaseConfig struct {
 	Schema    string `json:"schema,omitempty"`
 	TokensDB  string `json:"tokens_db,omitempty"`
+	SecretsDB string `json:"secrets_db,omitempty"`
 	OIDCUsers string `json:"oidc_users,omitempty"`
 }
 
@@ -252,7 +254,8 @@ func LoadConfig(caDir string) (*Config, error) {
 		}
 	}
 	db := cfg.Database
-	for _, n := range [][2]string{{"schema", db.Schema}, {"tokens_db", db.TokensDB}, {"oidc_users", db.OIDCUsers}} {
+	for _, n := range [][2]string{{"schema", db.Schema}, {"tokens_db", db.TokensDB}, {"secrets_db", db.SecretsDB},
+		{"oidc_users", db.OIDCUsers}} {
 		if n[1] != "" && !SQLNameRE.MatchString(n[1]) {
 			return nil, fmt.Errorf("database.%s of %q: %q is not a name of lower-case letters, digits and _, "+
 				"such as tokens", n[0], cfg.Path, n[1])
@@ -261,8 +264,8 @@ func LoadConfig(caDir string) (*Config, error) {
 	switch {
 	case strings.HasPrefix(db.Schema, "pg_"):
 		return nil, fmt.Errorf("database.schema of %q: %q starts with pg_, which PostgreSQL reserves", cfg.Path, db.Schema)
-	case db.Schema != "" && db.TokensDB == "" && db.OIDCUsers == "":
-		return nil, fmt.Errorf("database.schema of %q: no table is given with tokens_db or oidc_users", cfg.Path)
+	case db.Schema != "" && db.TokensDB == "" && db.SecretsDB == "" && db.OIDCUsers == "":
+		return nil, fmt.Errorf("database.schema of %q: no table is given with tokens_db, secrets_db or oidc_users", cfg.Path)
 	}
 	return cfg, nil
 }

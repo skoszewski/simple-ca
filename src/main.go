@@ -69,7 +69,7 @@ func resolveTLS(cert, key string) (string, string, error) {
 }
 
 // commands lists the groups and the commands of simple-ca in the order of the usage text: the
-// groups of cli.CertGroups with token before key, then audit and serve.
+// groups of cli.CertGroups with token and secret before key, then audit, database and serve.
 var commands = func() []cli.Command {
 	groups := cli.CertGroups()
 	key := slices.IndexFunc(groups, func(c cli.Command) bool { return c.Name == "key" })
@@ -84,13 +84,18 @@ var commands = func() []cli.Command {
 			{Name: "issue", Summary: "Print a JWT of a token type, not stored, for workload identity federation.", Run: runTokenIssue},
 			{Name: "jwks", Summary: "Print the JSON Web Key Set verifying the tokens of a CA.", Run: runTokenJWKS},
 		}},
+		{Name: "secret", Summary: "Manage the one-time secrets of a CA, shown once at /secret-get of serve.", Sub: []cli.Command{
+			{Name: "create", Summary: "Create a secret of a CA and print its one-time code.", Run: runSecretCreate},
+			{Name: "list", Summary: "List the secrets of a CA, without their values.", Run: runSecretList},
+			{Name: "revoke", Summary: "Remove a secret of a CA before its code is used.", Run: runSecretRevoke},
+		}},
 	}, groups[key:], []cli.Command{
 		{Name: "audit", Summary: "Read the audit log of a root CA and its issuing CAs.", Sub: []cli.Command{
 			{Name: "list", Summary: "Print the records of the audit log, filtered.", Run: runAuditList},
 		}},
-		{Name: "database", Summary: "Keep the tokens and the OIDC profiles in PostgreSQL in place of JSON files.", Sub: []cli.Command{
+		{Name: "database", Summary: "Keep the tokens, the secrets and the OIDC profiles in PostgreSQL in place of JSON files.", Sub: []cli.Command{
 			{Name: "setup", Summary: "Create the schema and the tables simple-ca.json names.", Run: runDatabaseSetup},
-			{Name: "migrate", Summary: "Move tokens-db.json or oidc-users.json to its table.", Run: runDatabaseMigrate},
+			{Name: "migrate", Summary: "Move tokens-db.json, secrets-db.json or oidc-users.json to its table.", Run: runDatabaseMigrate},
 		}},
 		{Name: "serve", Summary: "Serve the CA certificates, CRLs, ACME, the signing API and the web pages over HTTP.", Run: runServe},
 	})

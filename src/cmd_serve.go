@@ -54,8 +54,8 @@ func runServe(args []string) error {
 	downloads := fs.String("downloads", "", "serve the files of this `directory` with a matching NAME.sha256 at /downloads/")
 	packages := fs.String("packages", "", "serve this apt repository `directory` at /apt/")
 	logRequests := fs.Bool("request-log", false, "log each request (default: serve.request_log of simple-ca.json)")
-	webui := fs.Bool("webui", false, "serve the token page at /tokens/, the certificate page at /certificates/ and the\n"+
-		"audit page at /audit/")
+	webui := fs.Bool("webui", false, "serve the token page at /tokens/, the certificate page at /certificates/, the\n"+
+		"audit page at /audit/ and the secret page at /secrets/")
 	var proxies []string
 	fs.Func("trusted-proxy", "`address` or prefix of a proxy trusted to name the client in X-Forwarded-For; may be\n"+
 		"specified multiple times (default: serve.trusted_proxies of simple-ca.json)", func(s string) error {
@@ -145,7 +145,7 @@ func runServe(args []string) error {
 		pages := [][2]string{{"index", "/"}}
 		if *webui {
 			pages = append(pages, [2]string{"tokens", tokensPath}, [2]string{"certificates", certsPath},
-				[2]string{"audit", auditPagePath})
+				[2]string{"audit", auditPagePath}, [2]string{"secrets", secretsPath})
 		}
 		if *docs && docsSite != nil {
 			pages = append(pages, [2]string{"docs", docsPath})

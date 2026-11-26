@@ -32,13 +32,14 @@ import (
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cli"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/database"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/oidc"
+	"github.com/skoszewski/simple-ca/src/pkg/simpleca/secrets"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/tokens"
 )
 
 // ---- database commands ------------------------------------------------------
 
 // databaseObjects are the objects database migrate moves, by their keys of the database section.
-var databaseObjects = []string{"tokens_db", "oidc_users"}
+var databaseObjects = []string{"tokens_db", "secrets_db", "oidc_users"}
 
 // databaseConfig returns the root CA directory of --ca-dir and its simple-ca.json.
 func databaseConfig(caDir string) (string, *simpleca.Config, error) {
@@ -63,7 +64,7 @@ func runDatabaseSetup(args []string) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Database.TokensDB == "" && cfg.Database.OIDCUsers == "" {
+	if cfg.Database.TokensDB == "" && cfg.Database.SecretsDB == "" && cfg.Database.OIDCUsers == "" {
 		return fmt.Errorf("the database section of %q names no table", cfg.Path)
 	}
 	tables, err := database.Setup(context.Background(), cfg.Database)
@@ -78,29 +79,39 @@ func runDatabaseSetup(args []string) error {
 
 // runDatabaseMigrate runs database migrate.
 func runDatabaseMigrate(args []string) error {
-	fs := cli.NewFlagSet("database migrate", "tokens_db|oidc_users",
-		"Moves tokens-db.json of the root CA of --ca-dir and its issuing CAs (tokens_db), or its\n"+
-			"oidc-users.json (oidc_users), to the table the database section of simple-ca.json names,\n"+
-			"and renames each file moved to NAME.migrated.")
+	fs := cli.NewFlagSet("database migrate", "tokens_db|secrets_db|oidc_users",
+		"Moves tokens-db.json of the root CA of --ca-dir and its issuing CAs (tokens_db), their\n"+
+			"secrets-db.json (secrets_db), or its oidc-users.json (oidc_users), to the table the\n"+
+			"database section of simple-ca.json names, and renames each file moved to NAME.migrated.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	rest, _, err := cli.ParseArgs(fs, args, 1, 1)
 	if err != nil {
 		return err
 	}
 	if !slices.Contains(databaseObjects, rest[0]) {
-		return fmt.Errorf("unknown object %q; give tokens_db or oidc_users", rest[0])
+		return fmt.Errorf("unknown object %q; give tokens_db, secrets_db or oidc_users", rest[0])
 	}
 	rootDir, cfg, err := databaseConfig(*caDir)
 	if err != nil {
 		return err
 	}
 	count := 0
-	if rest[0] == "oidc_users" {
+	switch rest[0] {
+	case "oidc_users":
 		if count, err = oidc.MigrateUsers(rootDir, cfg); err != nil {
 			return err
 		}
 		fmt.Printf("%s: %d profiles\n", oidc.UsersFile, count)
-	} else {
+	case "secrets_db":
+		counts, err := secrets.Migrate(rootDir, cfg)
+		if err != nil {
+			return err
+		}
+		for _, m := range counts {
+			fmt.Printf("%s: %d secrets\n", cmp.Or(m.CA, simpleca.AuditRootCA), m.Count)
+			count += m.Count
+		}
+	default:
 		counts, err := tokens.Migrate(rootDir, cfg)
 		if err != nil {
 			return err

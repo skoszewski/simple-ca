@@ -52,9 +52,9 @@ const TokensFile = "tokens-db.json"
 
 // TokenScopes are the scopes a token may have: sign for the signing API and the signing form,
 // SignCA, tokens for the token page of serve --webui, certs for its certificate page, audit for
-// its audit page, federate for the JWTs of a token type at /api/federation-token, and SelfCert;
-// the scope * is all of them but SignCA and SelfCert.
-var TokenScopes = []string{"sign", SignCA, "tokens", "certs", "audit", "federate", SelfCert}
+// its audit page, secrets for its secret page, federate for the JWTs of a token type at
+// /api/federation-token, and SelfCert; the scope * is all of them but SignCA and SelfCert.
+var TokenScopes = []string{"sign", SignCA, "tokens", "certs", "audit", "secrets", "federate", SelfCert}
 
 // SignCA is the scope of the CA certificates of path length 0 an issuing CA of path length 1
 // signs at /CA/api/sign-ca. Only a token of such a CA has it, and the scope * does not stand for it.
@@ -132,12 +132,16 @@ func (t *APIToken) Pending() bool {
 	return t.Setup != nil
 }
 
-// SetupCodeHash returns the hex SHA-256 of the setup code, in upper case without dashes and
-// spaces, as it is stored.
+// SetupCodeHash returns the hex SHA-256 of the setup code, as NormalSetupCode gives it, as it is
+// stored.
 func SetupCodeHash(code string) string {
-	code = strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(code)))
-	sum := sha256.Sum256([]byte(code))
+	sum := sha256.Sum256([]byte(NormalSetupCode(code)))
 	return fmt.Sprintf("%x", sum)
+}
+
+// NormalSetupCode returns the setup code in upper case, without dashes and spaces.
+func NormalSetupCode(code string) string {
+	return strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(code)))
 }
 
 // NewTokenSetup returns, for a setupValid, the setup of a token valid for valid once its new
@@ -152,20 +156,26 @@ func NewTokenSetup(valid, setupValid time.Duration, setupClients []string) (*Tok
 	case setupValid < time.Second:
 		return nil, "", errors.New("the validity of a setup code must be at least 1s")
 	}
-	prefixes, err := toPrefixes("setup code network", setupClients, false)
+	prefixes, err := ToPrefixes("setup code network", setupClients, false)
 	if err != nil {
 		return nil, "", err
 	}
-	b := make([]byte, 10)
-	rand.Read(b)
-	s := base32.StdEncoding.EncodeToString(b)
-	code := s[0:4] + "-" + s[4:8] + "-" + s[8:12] + "-" + s[12:16]
+	code := NewSetupCode()
 	return &TokenSetup{Code: SetupCodeHash(code), Clients: prefixes, Valid: simpleca.DurationText(valid)}, code, nil
 }
 
-// toPrefixes returns the addresses and prefixes of values, what they are named in its error, as
+// NewSetupCode returns a new one-time code of 80 random bits, such as ABCD-EFGH-IJKL-MNOP, the
+// setup code of a token or the code of a secret.
+func NewSetupCode() string {
+	b := make([]byte, 10)
+	rand.Read(b)
+	s := base32.StdEncoding.EncodeToString(b)
+	return s[0:4] + "-" + s[4:8] + "-" + s[8:12] + "-" + s[12:16]
+}
+
+// ToPrefixes returns the addresses and prefixes of values, what they are named in its error, as
 // masked prefixes, an address as the prefix of that address alone; with any, "*" is kept.
-func toPrefixes(what string, values []string, any bool) ([]string, error) {
+func ToPrefixes(what string, values []string, any bool) ([]string, error) {
 	var prefixes []string
 	for _, s := range values {
 		if s == "*" && any {
@@ -591,11 +601,11 @@ func PrepareToken(caDir, name string, fed *TokenFederate, valid time.Duration, s
 		}
 		names = append(names, d)
 	}
-	prefixes, err := toPrefixes("IP address", ips, true)
+	prefixes, err := ToPrefixes("IP address", ips, true)
 	if err != nil {
 		return nil, nil, err
 	}
-	clientPrefixes, err := toPrefixes("client", clients, false)
+	clientPrefixes, err := ToPrefixes("client", clients, false)
 	if err != nil {
 		return nil, nil, err
 	}

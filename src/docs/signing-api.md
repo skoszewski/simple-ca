@@ -23,6 +23,7 @@ only once, so copy it then.
 | `tokens` | the [token page](#token-page) of `serve --webui` |
 | `certs` | the [certificate page](usage.md#certificate-page) of `serve --webui` |
 | `audit` | the [audit page](audit.md#the-audit-page) of `serve --webui` |
+| `secrets` | the [secret page](secrets.md#secret-page) of `serve --webui`, which creates [one-time secrets](secrets.md) |
 | `federate` | [`/api/federation-token`](#federation-tokens), the JWTs of a token type for workload identity federation |
 | `self-cert` | [`/api/self-cert`](oidc.md#user-certificates), the user certificate of the OIDC user the token was made for; given by the OIDC sign-in alone |
 | `*` | all of them but `sign-ca` and `self-cert`, given alone |
@@ -210,9 +211,9 @@ scope of the page, or not allowed from the client, stays kept for the other page
 another token given replaces it; an invalid token is forgotten. The page shows who is signed
 in, with a Sign out button; the name opens a dialog of the attributes of the token, as
 `token describe` prints them. The index page shows the name too, with Sign out, for a valid
-token, and otherwise a Login button opening the same dialog; it links to the token, certificate
-and audit pages only for a valid token, as `/api/links` answers (see [serve](serve.md)). A root
-CA token sees every CA; an issuing CA token sees only its
+token, and otherwise a Login button opening the same dialog; it links to the token, certificate,
+audit and secret pages only for a valid token, as `/api/links` answers (see [serve](serve.md)).
+A root CA token sees every CA; an issuing CA token sees only its
 own CA. The page shows one CA at a time, chosen in the CA selector, starting with the
 root CA. On it you can:
 
@@ -225,7 +226,8 @@ root CA. On it you can:
   page show it; it opens a dialog of the token type, the audience and the claims. The filters are:
   - **Status**: active, waiting for a setup code, expired or revoked, one or more, showing the
     tokens of any status chosen;
-  - **Scope**: sign, sign-ca, tokens, certs, audit or federate, one or more, showing the tokens
+  - **Scope**: sign, sign-ca, tokens, certs, audit, secrets or federate, one or more, showing the
+    tokens
     having every scope chosen, by name or by `*`, `sign-ca` by name alone;
   - **Federates**: one or more token types, or none, the tokens without the scope `federate`;
   - **Made by**: the OIDC sign-in or another way.
@@ -341,8 +343,8 @@ TOKEN=$(printf '%s' "$answer" | jq -er '.token // empty' 2>/dev/null) || printf 
 
 An answer without a token is printed, and leaves `TOKEN` empty.
 
-The page `/token-setup`, "Set up a token" on the index page and the token, certificate and audit
-pages, does the same in a browser: it asks
+The page `/token-setup`, "Set up a token" on the index page and the token, certificate, audit and
+secret pages, does the same in a browser: it asks
 for the code and shows the token once, with a Copy button and its attributes, as
 `token describe` prints them, or the error. With the [OIDC sign-in](oidc.md), it also has a
 "Sign in with LABEL" button, and shows the token of the sign-in once in the same way. Cancel, and
@@ -545,8 +547,9 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" "$CA_URL/api/federation-token
 `serve` counts the tokens, setup codes and OIDC ID tokens it refuses with
 `401 Unauthorized` for each client, an IPv6 client by its /64 prefix, and the requests that
 should carry one and carry none. This applies to the signing API, the signing forms,
-`/api/token-setup`, `/token-setup`, `/token-describe`, `/api/oidc-token`, `/api/self-cert` and the
-API of the token, certificate and audit pages. The first 5 refusals in a row are free; from the 6th:
+`/api/token-setup`, `/token-setup`, `/api/secret-get`, `/secret-get`, `/token-describe`,
+`/api/oidc-token`, `/api/self-cert` and the API of the token, certificate, audit and secret pages.
+The first 5 refusals in a row are free; from the 6th:
 
 - the client is held back for 1 second, a time that doubles with each further refusal, up to
   15 minutes;

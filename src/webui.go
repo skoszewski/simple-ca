@@ -46,18 +46,19 @@ import (
 // ---- the token and certificate pages of serve -------------------------------
 
 // tokensPath is the route serve --webui shows the token page under, certsPath the route of the
-// certificate page, and auditPagePath that of the audit page.
+// certificate page, auditPagePath that of the audit page, and secretsPath that of the secret page.
 const (
 	tokensPath    = "/tokens/"
 	certsPath     = "/certificates/"
 	auditPagePath = "/audit/"
+	secretsPath   = "/secrets/"
 )
 
 // webuiScripts are the scripts of the pages, served at their paths: theme.js, which every page
-// loads in its head; picker.js, oidc.js, login.js and webui.js, which the token, certificate and
-// audit pages load, then tokens.js, certs.js or audit.js; the signing form of serve loads
-// picker.js, oidc.js and sign.js, its setup code page picker.js, oidc.js and setup.js, its OIDC
-// callback page oidc.js, its index page picker.js, with webui oidc.js and login.js, index.js and
+// loads in its head; picker.js, oidc.js, login.js and webui.js, which the token, certificate,
+// audit and secret pages load, then tokens.js, certs.js, audit.js or secrets.js; the signing form
+// of serve loads picker.js, oidc.js and sign.js, its setup code page picker.js, oidc.js and
+// setup.js, its secret page "Get a secret" picker.js and secret-get.js, its OIDC callback page oidc.js, its index page picker.js, with webui oidc.js and login.js, index.js and
 // copy.js, and its downloads and apt pages copy.js.
 //
 //go:embed assets/webui/*.js
@@ -75,7 +76,7 @@ var webuiScriptHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Re
 })
 
 // webuiServer serves the page of its scope, the token page for tokens, the certificate page for
-// certs or the audit page for audit, for the root CA in rootDir and its issuing CAs, below its
+// certs, the audit page for audit or the secret page for secrets, for the root CA in rootDir and its issuing CAs, below its
 // path with the prefix stripped: the page at /, and its API below /api/, for the requests carrying
 // a token with that scope as their bearer token, from the clients the token allows, the address of a client behind the
 // trusted proxies read from X-Forwarded-For. A copy of it answers each request, with the name, the
@@ -278,7 +279,8 @@ func (s *webuiServer) mux() *http.ServeMux {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		page := map[string]string{"tokens": "tokens.html", "certs": "certs.html", "audit": "audit.html"}[s.scope]
+		page := map[string]string{"tokens": "tokens.html", "certs": "certs.html", "audit": "audit.html",
+			"secrets": "secrets.html"}[s.scope]
 		if err := pageTemplates.ExecuteTemplate(w, page, struct{ Script string }{tailwindPath}); err != nil {
 			slog.Error("serve.error", "error", err.Error())
 		}
@@ -299,7 +301,8 @@ type pageLink struct {
 // with the scope self-cert the page of its user certificate. A token refused is answered as the
 // pages answer it.
 func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool) {
-	links := []pageLink{{"Set up a token", "/token-setup"}, {"Describe a token", "/token-describe"}}
+	links := []pageLink{{"Set up a token", "/token-setup"}, {"Get a secret", "/secret-get"},
+		{"Describe a token", "/token-describe"}}
 	if downloadsDir != "" {
 		links = append(links, pageLink{"Downloads", downloadsPath})
 	}
@@ -325,7 +328,7 @@ func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool
 		}
 		if webui {
 			links = append(links, pageLink{"Tokens", tokensPath}, pageLink{"Certificates", certsPath},
-				pageLink{"Audit log", auditPagePath})
+				pageLink{"Audit log", auditPagePath}, pageLink{"Secrets", secretsPath})
 		}
 	}
 	answer.Links = links
@@ -347,7 +350,7 @@ func webuiFail(w http.ResponseWriter, status int, message string) {
 
 // api answers a request of the API carrying a token of the webui as its bearer token: GET
 // /api/cas, the CAs the token opens with what the forms of the page start with, and the requests
-// of the tokens or the certificates.
+// of the tokens, the certificates, the audit log or the secrets.
 func (s *webuiServer) api(w http.ResponseWriter, r *http.Request) {
 	ui := *s
 	if !ui.authenticate(w, r) {
@@ -360,6 +363,8 @@ func (s *webuiServer) api(w http.ResponseWriter, r *http.Request) {
 		ui.certAPI(w, r)
 	case ui.scope == "audit":
 		ui.auditAPI(w, r)
+	case ui.scope == "secrets":
+		ui.secretAPI(w, r)
 	default:
 		ui.tokenAPI(w, r)
 	}
@@ -596,6 +601,8 @@ func (s *webuiServer) listCAs(w http.ResponseWriter) {
 		}
 		answer["names"], answer["reasons"] = names, reasons
 		answer["defaults"] = map[string]int{"days": cmp.Or(cfg.Days.Cert, 365), "crl_days": cmp.Or(cfg.Days.CRL, 30)}
+	case "secrets":
+		answer["defaults"] = map[string]string{"valid": simpleca.DurationText(secretValid)}
 	case "tokens":
 		defaults := webuiDefaults{Valid: cmp.Or(cfg.Tokens.Valid, "1h"), Types: cfg.Tokens.Types,
 			Domains: cfg.Tokens.Domains, IPs: cfg.Tokens.IPs,

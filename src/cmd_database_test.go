@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/cert"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/database"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/oidc"
+	"github.com/skoszewski/simple-ca/src/pkg/simpleca/secrets"
 	"github.com/skoszewski/simple-ca/src/pkg/simpleca/tokens"
 )
 
@@ -47,6 +50,8 @@ func TestDatabaseRefusals(t *testing.T) {
 		{"", []string{"database", "migrate", "users"}, `unknown object "users"`},
 		{`{"oidc_users": "oidc_users"}`, []string{"database", "migrate", "oidc_users"}, "does not exist"},
 		{`{"tokens_db": "tokens"}`, []string{"database", "migrate", "tokens_db"}, "no tokens-db.json"},
+		{"", []string{"database", "migrate", "secrets_db"}, "database.secrets_db"},
+		{`{"secrets_db": "secrets"}`, []string{"database", "migrate", "secrets_db"}, "no secrets-db.json"},
 	} {
 		os.Remove(filepath.Join(root, simpleca.ConfigFile))
 		if c.section != "" {
@@ -96,11 +101,19 @@ func TestDatabaseMigrate(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	secretFile := filepath.Join(t.TempDir(), "value")
+	if err := os.WriteFile(secretFile, []byte("migrated value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, err := tokCapture(t, "secret", "create", "--ca-dir", servers, "--file", secretFile, "moved")
+	if err != nil {
+		t.Fatal(err)
+	}
 	users := `{"profiles": [{"name": "viewer", "token": {"scopes": ["certs"]}}], "rules": [{"users": ["alice"], "profile": "viewer"}]}`
 	if err := os.WriteFile(filepath.Join(root, oidc.UsersFile), []byte(users), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	dbConfig(t, root, `{"schema": "`+schema+`", "tokens_db": "tokens", "oidc_users": "oidc_users"}`)
+	dbConfig(t, root, `{"schema": "`+schema+`", "tokens_db": "tokens", "secrets_db": "secrets", "oidc_users": "oidc_users"}`)
 	for range 2 {
 		if out, err := tokCapture(t, "database", "setup", "--ca-dir", root); err != nil || !strings.Contains(out, schema+`"."tokens"`) {
 			t.Fatalf("database setup: %q, %v", out, err)
@@ -168,5 +181,24 @@ func TestDatabaseMigrate(t *testing.T) {
 	}
 	if _, err := tokCapture(t, "database", "migrate", "--ca-dir", root, "oidc_users"); err == nil {
 		t.Error("a second database migrate oidc_users succeeded")
+	}
+
+	// The secrets are moved, listed and taken once through the table.
+	if out, err := tokCapture(t, "database", "migrate", "--ca-dir", root, "secrets_db"); err != nil || out != "servers: 1 secrets\n" {
+		t.Fatalf("database migrate secrets_db: %q, %v", out, err)
+	}
+	if simpleca.FileExists(filepath.Join(servers, secrets.SecretsFile)) {
+		t.Error("secrets-db.json of servers is not renamed")
+	}
+	if out, err := tokCapture(t, "secret", "list", "--ca-dir", servers); err != nil || !strings.Contains(out, "moved") {
+		t.Errorf("secret list of the table: %q, %v", out, err)
+	}
+	client := netip.MustParseAddr("127.0.0.1")
+	if ca, name, value, err := secrets.Take(root, strings.TrimSpace(code), client); err != nil || ca != "servers" || name != "moved" ||
+		string(value) != "migrated value" {
+		t.Errorf("secrets.Take of the table: %q %q %q %v", ca, name, value, err)
+	}
+	if _, _, _, err := secrets.Take(root, strings.TrimSpace(code), client); !errors.Is(err, secrets.ErrUnknown) {
+		t.Errorf("a second secrets.Take of the table: %v", err)
 	}
 }

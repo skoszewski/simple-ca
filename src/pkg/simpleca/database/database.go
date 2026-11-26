@@ -128,6 +128,11 @@ func Setup(ctx context.Context, db simpleca.DatabaseConfig) ([]string, error) {
 		statements = append(statements, "CREATE TABLE IF NOT EXISTS "+Table(db, db.TokensDB)+
 			" (ca text NOT NULL, name text NOT NULL, token jsonb NOT NULL, PRIMARY KEY (ca, name))")
 	}
+	if db.SecretsDB != "" {
+		tables = append(tables, Table(db, db.SecretsDB))
+		statements = append(statements, "CREATE TABLE IF NOT EXISTS "+Table(db, db.SecretsDB)+
+			" (ca text NOT NULL, name text NOT NULL, secret jsonb NOT NULL, PRIMARY KEY (ca, name))")
+	}
 	if db.OIDCUsers != "" {
 		tables = append(tables, Table(db, db.OIDCUsers))
 		statements = append(statements, "CREATE TABLE IF NOT EXISTS "+Table(db, db.OIDCUsers)+

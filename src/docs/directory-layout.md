@@ -21,6 +21,9 @@ CA_DIR/
   tokens-db.json           tokens of the root CA (token create)
   tokens-db.json.lock      lock of tokens-db.json while it is changed
   tokens-db.json.migrated  tokens-db.json after database migrate tokens_db
+  secrets-db.json          one-time secrets of the root CA (secret create)
+  secrets-db.json.lock     lock of secrets-db.json while it is changed
+  secrets-db.json.migrated secrets-db.json after database migrate secrets_db
   {name}_cert.pem          certificate issued by the root CA
   {name}_key.pem           key of a certificate issued by the root CA
   {name}.pfx               PKCS#12 bundle (cert pfx)
@@ -37,6 +40,9 @@ CA_DIR/
     tokens-db.json         tokens of the issuing CA (token create)
     tokens-db.json.lock    lock of tokens-db.json while it is changed
     tokens-db.json.migrated tokens-db.json after database migrate tokens_db
+    secrets-db.json        one-time secrets of the issuing CA (secret create)
+    secrets-db.json.lock   lock of secrets-db.json while it is changed
+    secrets-db.json.migrated secrets-db.json after database migrate secrets_db
     {name}_cert.pem        certificate issued by the issuing CA
     {name}_key.pem         key of a certificate issued by the issuing CA
     {name}.pfx             PKCS#12 bundle (cert pfx)

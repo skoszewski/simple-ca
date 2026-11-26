@@ -39,6 +39,10 @@ simple-ca token issue  [--ca-dir DIR] --token-type TYPE [--audience AUDIENCE]
                        [--claim NAME=VALUE ...] [--valid DURATION] NAME
 simple-ca token jwks   [--ca-dir DIR]
 
+simple-ca secret create [--ca-dir DIR] [--valid PERIOD] [--network PREFIXES]... [--file FILE] NAME
+simple-ca secret list   [--ca-dir DIR]
+simple-ca secret revoke [--ca-dir DIR] NAME
+
 simple-ca key encrypt  [--ca-dir DIR] [--all]
 simple-ca key decrypt  [--ca-dir DIR] [--all]
 
@@ -46,7 +50,7 @@ simple-ca audit list   [--ca-dir DIR] [--event EVENT] [--ca NAME] [--actor ACTOR
                        [--since TIME] [--until TIME]
 
 simple-ca database setup   [--ca-dir DIR]
-simple-ca database migrate [--ca-dir DIR] tokens_db|oidc_users
+simple-ca database migrate [--ca-dir DIR] tokens_db|secrets_db|oidc_users
 
 simple-ca serve        [--ca-dir DIR] [--address ADDRESS] [--port PORT]
                        [--tls-cert FILE --tls-key FILE] [--docs] [--webui]

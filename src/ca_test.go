@@ -10,7 +10,7 @@ import (
 
 func TestReservedNames(t *testing.T) {
 	var pages []string
-	for _, path := range []string{helpPath, docsPath, tokensPath, certsPath, auditPagePath, downloadsPath, aptPath} {
+	for _, path := range []string{helpPath, docsPath, tokensPath, certsPath, auditPagePath, secretsPath, downloadsPath, aptPath} {
 		pages = append(pages, strings.Trim(path, "/"))
 	}
 	if !slices.Equal(cert.ReservedNames, pages) {

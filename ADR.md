@@ -485,6 +485,7 @@ so there are no import cycles:
 | `pkg/simpleca`, the base | the settings of `simple-ca.json` and their types, keys and the passphrase, the helpers, the audit log and `LockFile` |
 | `jose`, `cert` | JWS, JWK and the signing of JWTs; the certificate types, CAs, certificates, requests, revocation, CRLs, `index.txt`, PKCS#12 and `openssl.cnf` |
 | `tokens`, `acme` | the token store, setup codes, token types and the JWTs of federation; the ACME server with its handlers |
+| `secrets` | the store of the one-time secrets, encrypted with keys derived from their codes |
 | `oidc` | the OIDC client, the profiles of `oidc-users.json` and the sign-in handlers |
 | `cli` | the commands of the groups `ca`, `cert`, `crl` and `key` |
 
@@ -620,3 +621,22 @@ pages must not sign CAs. A token with `*` may still grant it on the token page, 
 of the pages can make one. The answer holds the root CA in `chain`, unlike `/api/sign`, so the
 other PKI can check the whole path against the root it was given; storing, recording, the errors
 and the counting of refused tokens are shared with `/api/sign`.
+
+## A one-time secret is encrypted with a key derived from its code, and removed when it is shown
+
+A secret is handed out as a setup code is: the creator gets a one-time code, and its holder sees
+the value once, at `/api/secret-get` or on `/secret-get`, which need no token and look through
+every CA, as `/api/token-setup` does. Unlike a token, which the server signs anew at the exchange,
+a secret has to be stored until then, so its value is encrypted with AES-256-GCM under a key that
+HKDF-SHA-256 derives from the code and a random salt of the secret, with its CA and name as
+additional data. The store keeps the SHA-256 of the code to find the secret, and the ciphertext,
+so a copy of `secrets-db.json` or of its table discloses no value without its code, which the
+server never stores. The 80 random bits of the code make an offline search of the store as
+infeasible as one of the token setup codes.
+
+The value is removed when it is shown, and an expired secret when its CA's secrets are next
+saved, so no value outlives its code. A secret is kept per CA, in its directory or the table of
+`database.secrets_db`, with the same lock and storage as its tokens, so a token of an issuing CA
+manages the secrets of its own CA alone. The scope `secrets` opens the secret page, and `*` stands
+for it, as it does for the other pages: the holder of every scope of the pages is the operator who
+may hand out secrets.

@@ -15,20 +15,22 @@ terminal, and does not start without it. With `--docs`,
 it also shows the guides of `simple-ca`, the files of `src/docs/`, at `/docs/`.
 
 With `--webui`, it also serves the [token page](signing-api.md#token-page) at `/tokens/`, the
-[certificate page](usage.md#certificate-page) at `/certificates/` and the
-[audit page](audit.md#the-audit-page) at `/audit/`. They ask for a token with the scope `tokens`,
-`certs` or `audit`, or for the [OIDC sign-in](oidc.md) when `simple-ca.json` sets it up. Over
+[certificate page](usage.md#certificate-page) at `/certificates/`, the
+[audit page](audit.md#the-audit-page) at `/audit/` and the [secret page](secrets.md#secret-page)
+at `/secrets/`. They ask for a token with the scope `tokens`, `certs`, `audit` or `secrets`, or
+for the [OIDC sign-in](oidc.md) when `simple-ca.json` sets it up. Over
 plain HTTP, the tokens cross the network in clear, which `serve` mentions at start for an address
 other than a loopback one; `--tls-cert` and `--tls-key` serve the pages over HTTPS where that
-matters. The names `help`, `docs`, `tokens`, `certificates`, `audit`, `downloads` and `apt` cannot
-be issuing CA names, because the pages use those paths.
+matters. The names `help`, `docs`, `tokens`, `certificates`, `audit`, `secrets`, `downloads` and
+`apt` cannot be issuing CA names, because the pages use those paths.
 
 The index page draws the links of its header from `/api/links`. A request without a token gets
-those of the public pages: "Set up a token", "Describe a token", and "Downloads" and "Apt" when
-they are served. A request with a valid token of the root CA or an issuing CA as its bearer
-token, used from a client the token allows, also gets "Tokens", "Certificates" and "Audit log"
-with `--webui`, and the name of the token, and with the scope `self-cert` "Get my certificate",
-`/self-cert`, with `self_cert: true`. A refused token is answered as the pages answer it, and
+those of the public pages: "Set up a token", "Get a secret", "Describe a token", and "Downloads"
+and "Apt" when they are served. A request with a valid token of the root CA or an issuing CA as
+its bearer token, used from a client the token allows, also gets "Tokens", "Certificates",
+"Audit log" and "Secrets" with `--webui`, and the name of the token, and with the scope
+`self-cert` "Get my certificate", `/self-cert`, with `self_cert: true`. A refused token is
+answered as the pages answer it, and
 counts as a [refused credential](signing-api.md#refused-credentials). With `--webui`, the index
 page has a Login button where it shows who is signed in. It opens the login dialog of the pages:
 
@@ -98,6 +100,8 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/NAME/sign` | the signing form of the issuing CA `NAME` | `text/html` |
 | `/token-setup` | the exchange of a [setup code](signing-api.md#setup-code-exchange) for its token | `text/html` |
 | `/api/token-setup` | the exchange of a setup code, `POST` | `application/json` |
+| `/secret-get` | "Get a secret", the value of a [one-time secret](secrets.md#get-a-secret) shown once to the holder of its code | `text/html` |
+| `/api/secret-get` | the value of a one-time secret for its code, `POST` | `application/json` |
 | `/api/links` | the links of the index page: the public pages, and with a valid bearer token also the pages of `--webui`, with the name of the token | `application/json` |
 | `/token-describe` | the attributes of a token pasted into it, see [Describe a token](signing-api.md#describe-a-token) | `text/html` |
 | `/api/federation-token` | a JWT of the token type of a token of the root CA with the scope `federate`, `POST`, see [Federation tokens](signing-api.md#federation-tokens) | `application/json` |
@@ -144,7 +148,8 @@ served at `/assets/tailwindcss-browser-4.3.3.js`; `/assets/webui/theme.js` sets 
 `/assets/webui/picker.js` draws the dropdown choosers, the index page opens its dialogs with the
 script `/assets/webui/index.js`, the copy buttons of the index and downloads pages copy with
 `/assets/webui/copy.js`, the signing forms choose the certificate type with
-`/assets/webui/sign.js`, and `/token-setup` shows the token with `/assets/webui/setup.js`, so the
+`/assets/webui/sign.js`, `/token-setup` shows the token with `/assets/webui/setup.js`, and
+`/secret-get` the secret with `/assets/webui/secret-get.js`, so the
 pages load nothing from other sites. The
 [OIDC sign-in](oidc.md), `/assets/webui/oidc.js`, sends the browser to the provider, and the page
 `/oidc-callback` redeems the code at the token endpoint of the provider. The page `/self-cert`
@@ -159,9 +164,9 @@ does not exist is `404 Not Found`. No other file is served, but those of `--down
 `src/help/index.md`, embedded in the
 executable, as a page drawn by the `render` package of
 [serve-markdown](https://github.com/skoszewski/serve-markdown), with an outline of its headings;
-the index page, the token, certificate and audit pages, the signing forms and `/token-setup` link
-to it as "Signing help" below the page, beside the version and the theme button, opening it in a
-new tab. The page's
+the index page, the token, certificate, audit and secret pages, the signing forms and
+`/token-setup` link to it as "Signing help" below the page, beside the version and the theme
+button, opening it in a new tab. The page's
 browser files are those of the
 serve-markdown release `src/go.mod` names, which the release builds and the `src/Dockerfile`
 embed. An executable built without them, as `go install` builds it, has no `/help/` page: the route is

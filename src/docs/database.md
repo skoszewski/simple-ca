@@ -2,11 +2,13 @@
 title: Database
 ---
 
-simple-ca keeps the tokens of each CA and the OIDC profiles of the root CA in PostgreSQL, in place
-of their JSON files, when the `database` section of `simple-ca.json` of the root CA names a table
-for them:
+simple-ca keeps the tokens and the secrets of each CA and the OIDC profiles of the root CA in
+PostgreSQL, in place of their JSON files, when the `database` section of `simple-ca.json` of the
+root CA names a table for them:
 
 - `tokens_db` - the tokens of `tokens-db.json` of the root CA and of each issuing CA;
+- `secrets_db` - the [one-time secrets](secrets.md) of `secrets-db.json` of the root CA and of
+  each issuing CA;
 - `oidc_users` - the document of `oidc-users.json` of the root CA (see [OIDC sign-in](oidc.md)).
 
 A table not named keeps its file. The commands and `serve` read and write the tables as they do
@@ -19,6 +21,7 @@ the files, so nothing else changes.
   "database": {
     "schema": "pki_lab",
     "tokens_db": "tokens",
+    "secrets_db": "secrets",
     "oidc_users": "oidc_users"
   }
 }
@@ -29,6 +32,8 @@ the files, so nothing else changes.
   without a table.
 - `tokens_db` - the table of the tokens: a row of each token, with the ID of its CA, empty for the
   root CA, its name and the token as `jsonb`.
+- `secrets_db` - the table of the secrets: a row of each secret, with the ID of its CA, empty for
+  the root CA, its name and the secret, its value encrypted, as `jsonb`.
 - `oidc_users` - the table of the OIDC profiles: one row, `oidc-users`, holding the document of
   `oidc-users.json` as `jsonb`.
 
@@ -77,6 +82,7 @@ needs `SELECT`, `INSERT`, `DELETE` and `UPDATE` on them.
 
 ```sh
 simple-ca database migrate --ca-dir /etc/simple-ca tokens_db
+simple-ca database migrate --ca-dir /etc/simple-ca secrets_db
 simple-ca database migrate --ca-dir /etc/simple-ca oidc_users
 ```
 
@@ -84,17 +90,20 @@ simple-ca database migrate --ca-dir /etc/simple-ca oidc_users
 
 - `tokens_db` - the `tokens-db.json` of the root CA and of each issuing CA, under their locks, in
   one transaction, and prints the count of tokens of each CA, `/` for the root CA;
+- `secrets_db` - the `secrets-db.json` of the root CA and of each issuing CA, in the same way,
+  and prints the count of secrets of each CA;
 - `oidc_users` - `oidc-users.json`, which must be valid as `serve` reads it, and prints the count
   of its profiles.
 
-Each file moved is renamed to `tokens-db.json.migrated` or `oidc-users.json.migrated`. A table
-that already holds the tokens of one of the CAs, or the document, is not changed and nothing is
+Each file moved is renamed to `tokens-db.json.migrated`, `secrets-db.json.migrated` or
+`oidc-users.json.migrated`. A table that already holds the tokens or the secrets of one of the
+CAs, or the document, is not changed and nothing is
 moved. The migration is recorded in the [audit log](audit.md) as `database.migrate`, with the
 `object` and the `count`.
 
 Once a table is named, a file left beside it is not read as an empty table: a command or a request
-on the tokens of that CA fails, naming the file as not migrated, and the OIDC sign-in reports it
-as an `oidc.users` error in the log and gives no profile.
+on the tokens or the secrets of that CA fails, naming the file as not migrated, and the OIDC
+sign-in reports it as an `oidc.users` error in the log and gives no profile.
 
 ## Changing the OIDC profiles
 

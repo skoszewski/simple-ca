@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.24.0
+
+feature: one-time secrets, created by tokens of the new scope secrets on the secret page, its API
+or with simple-ca secret, are shown once to the holder of their code on the page Get a secret.
+
+- The scope `secrets` opens the secret page `/secrets/` of `serve --webui`, which lists, creates
+  and revokes the secrets of a CA, and its API below `/secrets/api/`; `*` stands for it.
+- A secret is a value of up to 16 KiB with a one-time code, valid from 1 second to 30 days, 1 day
+  by default, and usable from the networks given, any without them.
+- The page `/secret-get`, "Get a secret" beside "Set up a token", and `POST /api/secret-get`
+  show the value of the secret of a code once, and remove it; refused codes count as refused
+  credentials.
+- `simple-ca secret create`, `list` and `revoke` manage the secrets of a CA; `create` reads the
+  value from `--file` or the standard input and prints the code.
+- The secrets of each CA are kept in `secrets-db.json`, encrypted with a key derived from their
+  codes, or in the PostgreSQL table of `database.secrets_db`, which `database setup` creates and
+  `database migrate secrets_db` fills.
+- The audit log records `secret.create`, `secret.get` and `secret.revoke`, without the values.
+- `secrets` is no longer a name of an issuing CA, as the secret page uses that path.
+
 ## 1.23.2
 
 fix: build.mjs builds with Docker alone, on the Docker context that --context forces, and its

@@ -166,9 +166,10 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 }
 
 // templateFiles are the pages of serve, in the style of Tailwind CSS from its browser build:
-// index.html, the list of the CAs; sign.html, the signing form; tokens.html and certs.html, the
-// tokens and the certificates of the CAs, with the parts they share in webui-common.html;
-// token-setup.html, the setup code page; token-describe.html, the page describing a token;
+// index.html, the list of the CAs; sign.html, the signing form; tokens.html, certs.html,
+// audit.html and secrets.html, the tokens, the certificates, the audit log and the secrets of the
+// CAs, with the parts they share in webui-common.html; token-setup.html, the setup code page;
+// secret-get.html, the page showing a secret once; token-describe.html, the page describing a token;
 // downloads.html, the downloads page; apt.html, the apt page; oidc-callback.html, the page the OIDC provider sends the
 // browser back to; self-cert.html, the page of the user certificate of the OIDC user signed in; and theme.html, the colours all of them share and the version line below each
 // of them.
@@ -471,6 +472,17 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		tokenSetupPage(w, r, rootDir)
 	})
 
+	// The secrets of all the CAs, taken with their one-time codes at /api/secret-get, and on the
+	// page /secret-get.
+	mux.HandleFunc("POST /api/secret-get", func(w http.ResponseWriter, r *http.Request) {
+		apiSecretGet(w, r, rootDir)
+	})
+	for _, method := range []string{"GET", "POST"} {
+		mux.HandleFunc(method+" /secret-get", func(w http.ResponseWriter, r *http.Request) {
+			secretGetPage(w, r, rootDir)
+		})
+	}
+
 	// The links of the index page, by the token of the request.
 	mux.HandleFunc("GET /api/links", func(w http.ResponseWriter, r *http.Request) {
 		apiLinks(w, r, rootDir, webui)
@@ -601,8 +613,8 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		})
 	}
 
-	// The help at /help/, the guides at /docs/ and the token and certificate pages are served by a
-	// mux in front of the routes of the CAs.
+	// The help at /help/, the guides at /docs/ and the token, certificate, audit and secret pages are
+	// served by a mux in front of the routes of the CAs.
 	top := http.NewServeMux()
 	if helpSite != nil {
 		top.Handle(helpPath, helpSite)
@@ -624,7 +636,8 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		})
 	}
 	if webui {
-		for path, scope := range map[string]string{tokensPath: "tokens", certsPath: "certs", auditPagePath: "audit"} {
+		for path, scope := range map[string]string{tokensPath: "tokens", certsPath: "certs", auditPagePath: "audit",
+			secretsPath: "secrets"} {
 			top.Handle(path, http.StripPrefix(strings.TrimSuffix(path, "/"), (&webuiServer{rootDir: rootDir, scope: scope}).mux()))
 		}
 	}

@@ -1,4 +1,4 @@
-{{/* The parts the token, certificate and audit pages share: the top of the page, titled with its
+{{/* The parts the token, certificate, audit and secret pages share: the top of the page, titled with its
      name, with the links to the index page and to the other pages, but not to itself, and the CA
      chooser, and the dialogs: those of login-dialogs, the one showing the signed-in token, and the
      one asking for a confirmation. */}}
@@ -11,6 +11,7 @@
             <div class="mt-2 flex flex-wrap gap-4">
               <a class="text-sm text-head-link hover:underline" href="/">All CAs</a>
               <a class="text-sm text-head-link hover:underline" href="/token-setup">Set up a token</a>
+              <a class="text-sm text-head-link hover:underline" href="/secret-get">Get a secret</a>
               <a class="text-sm text-head-link hover:underline" href="/token-describe">Describe a token</a>
               {{- if ne . "Tokens"}}
               <a id="tokens-link" class="text-sm text-head-link hover:underline" href="/tokens/">Tokens</a>
@@ -20,6 +21,9 @@
               {{- end}}
               {{- if ne . "Audit log"}}
               <a id="audit-link" class="text-sm text-head-link hover:underline" href="/audit/">Audit log</a>
+              {{- end}}
+              {{- if ne . "Secrets"}}
+              <a id="secrets-link" class="text-sm text-head-link hover:underline" href="/secrets/">Secrets</a>
               {{- end}}
             </div>
           </div>

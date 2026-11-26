@@ -67,10 +67,13 @@ command of its own;
 - [Workload identity federation](src/docs/workload-identity.md) - JWTs of token types that Google
   and Microsoft Entra exchange for their own credentials, issued to tokens with the scope
   `federate`.
+- [One-time secrets](src/docs/secrets.md) - values a token with the scope `secrets` creates, shown
+  once to the holder of their one-time code on the page "Get a secret".
 - [Audit log](src/docs/audit.md) - what changed a CA and who changed it, in `audit.log`, the
   systemd journal and container logs.
-- [Database](src/docs/database.md) - the tokens and the OIDC profiles in PostgreSQL tables in
-  place of `tokens-db.json` and `oidc-users.json`, with `database setup` and `database migrate`.
+- [Database](src/docs/database.md) - the tokens, the secrets and the OIDC profiles in PostgreSQL
+  tables in place of `tokens-db.json`, `secrets-db.json` and `oidc-users.json`, with
+  `database setup` and `database migrate`.
 - [Signing API clients](src/docs/examples.md) - the clients in `examples/`,
   `src/cmd/request-cert/`, `src/cmd/token-setup/` and `src/cmd/request-token/`, in Python,
   Node.js, Go and the shell.

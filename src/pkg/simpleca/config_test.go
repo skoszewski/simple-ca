@@ -61,12 +61,17 @@ func TestLoadConfigRefusesUnknownSettings(t *testing.T) {
 
 func TestLoadConfigDatabase(t *testing.T) {
 	dir := t.TempDir()
-	writeConfig(t, dir, `{"database": {"schema": "pki_lab", "tokens_db": "tokens", "oidc_users": "oidc_users"}}`)
-	if cfg, err := LoadConfig(dir); err != nil || cfg.Database != (DatabaseConfig{"pki_lab", "tokens", "oidc_users"}) {
+	writeConfig(t, dir, `{"database": {"schema": "pki_lab", "tokens_db": "tokens", "secrets_db": "secrets", "oidc_users": "oidc_users"}}`)
+	if cfg, err := LoadConfig(dir); err != nil || cfg.Database != (DatabaseConfig{"pki_lab", "tokens", "secrets", "oidc_users"}) {
 		t.Errorf("LoadConfig of a database section: %+v, %v", cfg, err)
+	}
+	writeConfig(t, dir, `{"database": {"schema": "pki_lab", "secrets_db": "secrets"}}`)
+	if _, err := LoadConfig(dir); err != nil {
+		t.Errorf("LoadConfig of a schema with secrets_db alone: %v", err)
 	}
 	for name, settings := range map[string]string{
 		"a quoted table":         `{"database": {"tokens_db": "Tokens"}}`,
+		"a quoted secrets table": `{"database": {"secrets_db": "Secrets"}}`,
 		"a schema-qualified one": `{"database": {"tokens_db": "pki.tokens"}}`,
 		"a long name":            `{"database": {"oidc_users": "` + strings.Repeat("a", 64) + `"}}`,
 		"a bad schema":           `{"database": {"schema": "1st", "tokens_db": "tokens"}}`,

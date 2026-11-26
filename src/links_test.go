@@ -59,8 +59,8 @@ func TestAPILinks(t *testing.T) {
 		}
 		return h
 	}
-	short := []string{"/token-setup", "/token-describe"}
-	full := append(slices.Clone(short), tokensPath, certsPath, auditPagePath)
+	short := []string{"/token-setup", "/secret-get", "/token-describe"}
+	full := append(slices.Clone(short), tokensPath, certsPath, auditPagePath, secretsPath)
 
 	withWebUI := httptest.NewServer(newServeMux(caDir, false, true))
 	defer withWebUI.Close()

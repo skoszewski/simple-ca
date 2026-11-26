@@ -67,7 +67,7 @@ async function showCA() {
           { name: "status", label: "Status", multiple: true, match: (t, values) => values.includes(tokenStatus(t)),
             choices: [["", "all"], ["active", "active"], ["pending", "waiting for a setup code"], ["expired", "expired"], ["revoked", "revoked"]] },
           { name: "scope", label: "Scope", multiple: true, match: (t, values) => values.every((scope) => scope === "sign-ca" ? t.scopes.includes(scope) : allowsScope(t.scopes, scope)),
-            choices: [["", "all"], ...["sign", "sign-ca", "tokens", "certs", "audit", "federate"].map((s) => [s, s])] },
+            choices: [["", "all"], ...["sign", "sign-ca", "tokens", "certs", "audit", "secrets", "federate"].map((s) => [s, s])] },
           { name: "federates", label: "Federates", multiple: true,
             match: (t, values) => values.includes(t.federate ? t.federate.type : "none"),
             choices: [["", "all"], ...info.token_types.map((type) => [type.name, typeLabel(type.name)]), ["none", "none"]] },

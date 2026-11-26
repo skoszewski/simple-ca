@@ -255,7 +255,7 @@ func TestSelfCert(t *testing.T) {
 		t.Errorf("certificate of henry: %d %v, want one of Clients CA", status, answer)
 	}
 	// The scope * stands for the other scopes, beside self-cert.
-	if _, answer := tokenOf(idToken("sam", nil)); scopesOf(answer) != "[sign tokens certs audit federate self-cert]" {
+	if _, answer := tokenOf(idToken("sam", nil)); scopesOf(answer) != "[sign tokens certs audit secrets federate self-cert]" {
 		t.Errorf("sign-in of sam: %v, want every scope with self-cert", answer)
 	}
 
