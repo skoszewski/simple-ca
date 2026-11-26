@@ -330,7 +330,9 @@ func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool
 		}
 		if webui {
 			links = append(links, pageLink{"Tokens", tokensPath}, pageLink{"Certificates", certsPath},
-				pageLink{"Audit log", auditPagePath}, pageLink{"Secrets", secretsPath})
+				pageLink{"Secrets", secretsPath},
+				// The audit log is always the last link; links of new pages go before it.
+				pageLink{"Audit log", auditPagePath})
 		}
 	}
 	answer.Links = links

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.24.4
+
+fix: the link to the secret page comes before the link to the audit log, which is always the last.
+
+- The headers of the index page and of the token, certificate, secret and audit pages, and the
+  links of `/api/links`, list "Secrets" before "Audit log", which is the last link.
+
 ## 1.24.3
 
 fix: the pages of serve load Tailwind CSS after the style of their theme, so they no longer show

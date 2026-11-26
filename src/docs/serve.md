@@ -28,9 +28,9 @@ The index page draws the links of its header from `/api/links`. A request withou
 those of the public pages: "Set up a token", "Get a secret", "Describe a token", and "Downloads"
 and "Apt" when they are served. A request with a valid token of the root CA or an issuing CA as
 its bearer token, used from a client the token allows, also gets "Tokens", "Certificates",
-"Audit log" and "Secrets" with `--webui`, the name of the token, and its attributes in
-`user_token`, as the token page lists a token, which the name on the index page opens in a
-dialog; with the scope `self-cert` it also gets "Get my certificate", `/self-cert`, with
+"Secrets" and "Audit log", always the last link, with `--webui`, the name of the token, and its
+attributes in `user_token`, as the token page lists a token, which the name on the index page
+opens in a dialog; with the scope `self-cert` it also gets "Get my certificate", `/self-cert`, with
 `self_cert: true`. A refused token is answered as the pages answer it, and
 counts as a [refused credential](signing-api.md#refused-credentials). With `--webui`, the index
 page has a Login button where it shows who is signed in. It opens the login dialog of the pages:

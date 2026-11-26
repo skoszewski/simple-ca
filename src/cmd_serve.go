@@ -145,7 +145,7 @@ func runServe(args []string) error {
 		pages := [][2]string{{"index", "/"}}
 		if *webui {
 			pages = append(pages, [2]string{"tokens", tokensPath}, [2]string{"certificates", certsPath},
-				[2]string{"audit", auditPagePath}, [2]string{"secrets", secretsPath})
+				[2]string{"secrets", secretsPath}, [2]string{"audit", auditPagePath})
 		}
 		if *docs && docsSite != nil {
 			pages = append(pages, [2]string{"docs", docsPath})
