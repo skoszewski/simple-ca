@@ -49,8 +49,8 @@ const secretValid = 24 * time.Hour
 func runSecretCreate(args []string) error {
 	fs := cli.NewFlagSet("secret create", "NAME",
 		"Creates the secret NAME of the CA in --ca-dir, of the contents of --file or of the standard\n"+
-			"input, and prints its one-time code. The code shows the value once on the page /secret-get\n"+
-			"of serve, or at /api/secret-get, and the secret is removed then.")
+			"input, and prints its one-time code. The code shows the value once on the page /get-secret\n"+
+			"of serve, or at /api/get-secret, and the secret is removed then.")
 	caDir := fs.String("ca-dir", "", "CA `directory`, root or issuing CA")
 	valid := cli.DurationVar(fs, "valid", secretValid, "validity `period` of the code: minutes, or a number with h or d, such as 30, 8h\n"+
 		"or 7d; at most 30d")

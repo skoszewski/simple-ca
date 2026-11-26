@@ -122,7 +122,7 @@ func TestAuthGuard(t *testing.T) {
 		{"the token page with its token", "GET", "/tokens/api/cas", admin, ""},
 		{"the signing API", "POST", "/api/sign", forged, `{"csr": "", "type": "server", "name": "web", "days": 30}`},
 		{"a setup code", "POST", "/api/token-setup", "", `{"code": "AAAA-BBBB-CCCC-DDDD"}`},
-		{"the code of a secret", "POST", "/api/secret-get", "", `{"code": "AAAA-BBBB-CCCC-DDDD"}`},
+		{"the code of a secret", "POST", "/api/get-secret", "", `{"code": "AAAA-BBBB-CCCC-DDDD"}`},
 	} {
 		if resp := call(c.method, c.path, c.token, c.body); resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") == "" {
 			t.Errorf("%s while held back: %d, Retry-After %q, want 429", c.name, resp.StatusCode, resp.Header.Get("Retry-After"))

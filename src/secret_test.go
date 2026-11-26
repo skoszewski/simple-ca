@@ -140,13 +140,13 @@ func TestSecretWebUI(t *testing.T) {
 	}
 }
 
-func TestSecretGet(t *testing.T) {
+func TestGetSecret(t *testing.T) {
 	caDir := secretCA(t)
 	server := httptest.NewServer(newServeMux(caDir, false, false))
 	defer server.Close()
 	get := func(body string) (int, map[string]any) {
 		t.Helper()
-		resp, err := http.Post(server.URL+"/api/secret-get", "application/json", strings.NewReader(body))
+		resp, err := http.Post(server.URL+"/api/get-secret", "application/json", strings.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -197,24 +197,24 @@ func TestSecretGet(t *testing.T) {
 		want int
 		text string
 	}{{http.StatusOK, "&lt;b&gt;pass&lt;/b&gt;"}, {http.StatusUnauthorized, "unknown or used code"}} {
-		resp, err := http.PostForm(server.URL+"/secret-get", url.Values{"code": {page}})
+		resp, err := http.PostForm(server.URL+"/get-secret", url.Values{"code": {page}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != c.want || !strings.Contains(string(body), c.text) || resp.Header.Get("Cache-Control") != "no-store" {
-			t.Errorf("POST /secret-get: %d, want %d with %q", resp.StatusCode, c.want, c.text)
+			t.Errorf("POST /get-secret: %d, want %d with %q", resp.StatusCode, c.want, c.text)
 		}
 	}
-	resp, err := http.Get(server.URL + "/secret-get")
+	resp, err := http.Get(server.URL + "/get-secret")
 	if err != nil || resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /secret-get: %v, %v", resp, err)
+		t.Fatalf("GET /get-secret: %v, %v", resp, err)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if !strings.Contains(string(body), `name="code"`) {
-		t.Error("GET /secret-get shows no form asking for the code")
+		t.Error("GET /get-secret shows no form asking for the code")
 	}
 	audit, _ := os.ReadFile(filepath.Join(caDir, simpleca.AuditFile))
 	if strings.Count(string(audit), "secret.get") != 3 || strings.Contains(string(audit), "pass") {

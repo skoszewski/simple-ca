@@ -58,7 +58,7 @@ const (
 // loads in its head; picker.js, oidc.js, login.js and webui.js, which the token, certificate,
 // audit and secret pages load, then tokens.js, certs.js, audit.js or secrets.js; the signing form
 // of serve loads picker.js, oidc.js and sign.js, its setup code page picker.js, oidc.js and
-// setup.js, its secret page "Get a secret" picker.js and secret-get.js, its OIDC callback page oidc.js, its index page picker.js, with webui oidc.js and login.js, index.js and
+// setup.js, its secret page "Get a secret" picker.js and get-secret.js, its OIDC callback page oidc.js, its index page picker.js, with webui oidc.js and login.js, index.js and
 // copy.js, and its downloads and apt pages copy.js.
 //
 //go:embed assets/webui/*.js
@@ -301,7 +301,7 @@ type pageLink struct {
 // the token, and with the scope self-cert the page of its user certificate. A token refused is answered as the
 // pages answer it.
 func apiLinks(w http.ResponseWriter, r *http.Request, rootDir string, webui bool) {
-	links := []pageLink{{"Set up a token", "/token-setup"}, {"Get a secret", "/secret-get"},
+	links := []pageLink{{"Set up a token", "/token-setup"}, {"Get a secret", "/get-secret"},
 		{"Describe a token", "/token-describe"}}
 	if downloadsDir != "" {
 		links = append(links, pageLink{"Downloads", downloadsPath})

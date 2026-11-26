@@ -6,7 +6,7 @@ A secret of a CA is a value, such as a password, a key or a connection string, t
 once to whoever has its one-time code. The holder of a token with the scope `secrets` creates it,
 on the secret page, at its API or with `secret create`, and gets the code, which they hand to the
 recipient over any channel. The recipient enters the code on the page "Get a secret", or sends it
-to `/api/secret-get`, and sees the value once; the secret is removed then, and the code no longer
+to `/api/get-secret`, and sees the value once; the secret is removed then, and the code no longer
 works. A secret whose code is not used expires with it.
 
 The code has the form of a [setup code](signing-api.md#one-time-setup-codes),
@@ -85,7 +85,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 ## Get a secret
 
 `serve` shows a secret of the root CA or of any of its issuing CAs to the holder of its code at
-`/api/secret-get`, with `--webui` or without it. A request is a `POST` with a JSON body of at most
+`/api/get-secret`, with `--webui` or without it. A request is a `POST` with a JSON body of at most
 1 KiB, and needs no token:
 
 ```json
@@ -107,10 +107,10 @@ refused codes, which count as [refused credentials](signing-api.md#refused-crede
 SERVER=http://pki.example.com:8080
 CODE=K7QF-M2XA-JP4D-W5ZR
 jq -n --arg code "$CODE" '{code: $code}' | curl -sS \
-  -H 'Content-Type: application/json' --data @- "$SERVER/api/secret-get" | jq -r .secret
+  -H 'Content-Type: application/json' --data @- "$SERVER/api/get-secret" | jq -r .secret
 ```
 
-The page `/secret-get`, "Get a secret" on the index page and beside "Set up a token" on the token,
+The page `/get-secret`, "Get a secret" on the index page and beside "Set up a token" on the token,
 certificate, audit and secret pages, does the same in a browser: it asks for the code and shows
 the value once, with a Copy button, or the error. Cancel, and Close once the value is shown,
 return to the page of `serve` it was opened from, or to the index page; so does Escape.

@@ -169,7 +169,7 @@ func runHTTPServer(handler http.Handler, address string, port int, tlsCert, tlsK
 // index.html, the list of the CAs; sign.html, the signing form; tokens.html, certs.html,
 // audit.html and secrets.html, the tokens, the certificates, the audit log and the secrets of the
 // CAs, with the parts they share in webui-common.html; token-setup.html, the setup code page;
-// secret-get.html, the page showing a secret once; token-describe.html, the page describing a token;
+// get-secret.html, the page showing a secret once; token-describe.html, the page describing a token;
 // downloads.html, the downloads page; apt.html, the apt page; oidc-callback.html, the page the OIDC provider sends the
 // browser back to; self-cert.html, the page of the user certificate of the OIDC user signed in; and theme.html, the colours all of them share and the version line below each
 // of them.
@@ -472,14 +472,14 @@ func newServeMux(rootDir string, docs, webui bool) *http.ServeMux {
 		tokenSetupPage(w, r, rootDir)
 	})
 
-	// The secrets of all the CAs, taken with their one-time codes at /api/secret-get, and on the
-	// page /secret-get.
-	mux.HandleFunc("POST /api/secret-get", func(w http.ResponseWriter, r *http.Request) {
-		apiSecretGet(w, r, rootDir)
+	// The secrets of all the CAs, taken with their one-time codes at /api/get-secret, and on the
+	// page /get-secret.
+	mux.HandleFunc("POST /api/get-secret", func(w http.ResponseWriter, r *http.Request) {
+		apiGetSecret(w, r, rootDir)
 	})
 	for _, method := range []string{"GET", "POST"} {
-		mux.HandleFunc(method+" /secret-get", func(w http.ResponseWriter, r *http.Request) {
-			secretGetPage(w, r, rootDir)
+		mux.HandleFunc(method+" /get-secret", func(w http.ResponseWriter, r *http.Request) {
+			getSecretPage(w, r, rootDir)
 		})
 	}
 

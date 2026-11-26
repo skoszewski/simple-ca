@@ -101,8 +101,8 @@ simple-ca serve --ca-dir /etc/simple-ca --trusted-proxy 127.0.0.1
 | `/NAME/sign` | the signing form of the issuing CA `NAME` | `text/html` |
 | `/token-setup` | the exchange of a [setup code](signing-api.md#setup-code-exchange) for its token | `text/html` |
 | `/api/token-setup` | the exchange of a setup code, `POST` | `application/json` |
-| `/secret-get` | "Get a secret", the value of a [one-time secret](secrets.md#get-a-secret) shown once to the holder of its code | `text/html` |
-| `/api/secret-get` | the value of a one-time secret for its code, `POST` | `application/json` |
+| `/get-secret` | "Get a secret", the value of a [one-time secret](secrets.md#get-a-secret) shown once to the holder of its code | `text/html` |
+| `/api/get-secret` | the value of a one-time secret for its code, `POST` | `application/json` |
 | `/api/links` | the links of the index page: the public pages, and with a valid bearer token also the pages of `--webui`, with the name and the attributes of the token | `application/json` |
 | `/token-describe` | the attributes of a token pasted into it, see [Describe a token](signing-api.md#describe-a-token) | `text/html` |
 | `/api/federation-token` | a JWT of the token type of a token of the root CA with the scope `federate`, `POST`, see [Federation tokens](signing-api.md#federation-tokens) | `application/json` |
@@ -150,7 +150,7 @@ served at `/assets/tailwindcss-browser-4.3.3.js`; `/assets/webui/theme.js` sets 
 script `/assets/webui/index.js`, the copy buttons of the index and downloads pages copy with
 `/assets/webui/copy.js`, the signing forms choose the certificate type with
 `/assets/webui/sign.js`, `/token-setup` shows the token with `/assets/webui/setup.js`, and
-`/secret-get` the secret with `/assets/webui/secret-get.js`, so the
+`/get-secret` the secret with `/assets/webui/get-secret.js`, so the
 pages load nothing from other sites. The
 [OIDC sign-in](oidc.md), `/assets/webui/oidc.js`, sends the browser to the provider, and the page
 `/oidc-callback` redeems the code at the token endpoint of the provider. The page `/self-cert`

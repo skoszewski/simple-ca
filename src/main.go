@@ -84,7 +84,7 @@ var commands = func() []cli.Command {
 			{Name: "issue", Summary: "Print a JWT of a token type, not stored, for workload identity federation.", Run: runTokenIssue},
 			{Name: "jwks", Summary: "Print the JSON Web Key Set verifying the tokens of a CA.", Run: runTokenJWKS},
 		}},
-		{Name: "secret", Summary: "Manage the one-time secrets of a CA, shown once at /secret-get of serve.", Sub: []cli.Command{
+		{Name: "secret", Summary: "Manage the one-time secrets of a CA, shown once at /get-secret of serve.", Sub: []cli.Command{
 			{Name: "create", Summary: "Create a secret of a CA and print its one-time code.", Run: runSecretCreate},
 			{Name: "list", Summary: "List the secrets of a CA, without their values.", Run: runSecretList},
 			{Name: "revoke", Summary: "Remove a secret of a CA before its code is used.", Run: runSecretRevoke},

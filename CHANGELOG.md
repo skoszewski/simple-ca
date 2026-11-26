@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.24.2
+
+fix: the page "Get a secret" is served at /get-secret, and its API at /api/get-secret.
+
+- The page "Get a secret" moves from `/secret-get` to `/get-secret`, and the API showing a secret
+  from `POST /api/secret-get` to `POST /api/get-secret`.
+
 ## 1.24.1
 
 fix: the name of the signed-in token on the index page opens the dialog of its attributes, as on

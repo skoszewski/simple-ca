@@ -625,7 +625,7 @@ and the counting of refused tokens are shared with `/api/sign`.
 ## A one-time secret is encrypted with a key derived from its code, and removed when it is shown
 
 A secret is handed out as a setup code is: the creator gets a one-time code, and its holder sees
-the value once, at `/api/secret-get` or on `/secret-get`, which need no token and look through
+the value once, at `/api/get-secret` or on `/get-secret`, which need no token and look through
 every CA, as `/api/token-setup` does. Unlike a token, which the server signs anew at the exchange,
 a secret has to be stored until then, so its value is encrypted with AES-256-GCM under a key that
 HKDF-SHA-256 derives from the code and a random salt of the secret, with its CA and name as

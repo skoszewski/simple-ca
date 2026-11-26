@@ -64,11 +64,11 @@ func takeSecret(w http.ResponseWriter, r *http.Request, rootDir, code, via strin
 	return caID, name, value, err
 }
 
-// apiSecretGet answers POST /api/secret-get, a JSON body {"code": "..."} of at most
+// apiGetSecret answers POST /api/get-secret, a JSON body {"code": "..."} of at most
 // setupCodeMaxBody bytes from a client behind the trusted proxies, with the CA ID, the name and
 // the value of the secret of the code, which is removed then; a value that is not UTF-8 text is
 // sent in base64, with "encoding": "base64".
-func apiSecretGet(w http.ResponseWriter, r *http.Request, rootDir string) {
+func apiGetSecret(w http.ResponseWriter, r *http.Request, rootDir string) {
 	var req struct {
 		Code string `json:"code"`
 	}
@@ -105,11 +105,11 @@ func apiSecretGet(w http.ResponseWriter, r *http.Request, rootDir string) {
 	webuiReply(w, http.StatusOK, answer)
 }
 
-// secretGetPage serves /secret-get for the root CA in rootDir and its issuing CAs: GET shows the
+// getSecretPage serves /get-secret for the root CA in rootDir and its issuing CAs: GET shows the
 // form asking for a code, and POST takes the secret of the code, as takeSecret does, and shows its
 // value once, or the form again with the error. The client is the one clientAddr finds with the
 // trusted proxies.
-func secretGetPage(w http.ResponseWriter, r *http.Request, rootDir string) {
+func getSecretPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 	caCert, err := simpleca.LoadCert(filepath.Join(rootDir, "ca_cert.pem"))
 	if err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
@@ -147,7 +147,7 @@ func secretGetPage(w http.ResponseWriter, r *http.Request, rootDir string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	if err := pageTemplates.ExecuteTemplate(w, "secret-get.html", page); err != nil {
+	if err := pageTemplates.ExecuteTemplate(w, "get-secret.html", page); err != nil {
 		slog.Error("serve.error", "path", r.URL.Path, "error", err.Error())
 	}
 }
