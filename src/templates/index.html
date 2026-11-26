@@ -78,7 +78,7 @@
     </div>
 
     {{- range $i, $ca := .CAs}}
-    <dialog id="info-{{$i}}" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+    <dialog id="info-{{$i}}" class="m-auto w-[calc(100%-2rem)] max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form method="dialog" class="space-y-4 px-6 py-5">
         <div class="flex flex-wrap items-baseline justify-between gap-2">
           <h2 class="text-lg font-semibold">{{.Name}}</h2>

@@ -18,7 +18,7 @@
 
     {{template "webui-dialogs"}}
 
-    <dialog id="create-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+    <dialog id="create-dialog" class="m-auto w-[calc(100%-2rem)] max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form id="create-form" class="grid grid-cols-1 gap-4 px-6 py-5 text-sm sm:grid-cols-2">
         <h2 id="create-title" class="text-lg font-semibold sm:col-span-2">Create a token</h2>
         <p id="create-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-bad-ink sm:col-span-2"></p>
@@ -66,7 +66,7 @@
       </form>
     </dialog>
 
-    <dialog id="json-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+    <dialog id="json-dialog" class="m-auto w-[calc(100%-2rem)] max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form method="dialog" class="space-y-4 px-6 py-5">
         <h2 id="json-title" class="text-lg font-semibold"></h2>
         <pre id="json-text" class="max-h-[60vh] overflow-auto rounded-lg border border-line bg-field px-3 py-2 font-mono text-xs"></pre>
@@ -76,7 +76,7 @@
       </form>
     </dialog>
 
-    <dialog id="federate-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+    <dialog id="federate-dialog" class="m-auto w-[calc(100%-2rem)] max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form method="dialog" class="space-y-4 px-6 py-5">
         <h2 id="federate-title" class="text-lg font-semibold"></h2>
         <dl id="federate-attributes" class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm"></dl>

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.24.6
+
+fix: the dialogs of the pages keep a margin on phones, and the buttons of the login dialog wrap
+instead of leaving the screen.
+
+- On phones, the dialogs of the index, token, certificate, secret and audit pages leave 1rem on
+  each side instead of touching the edges of the screen.
+- The buttons of the login dialog wrap to a second line when they do not fit, so "Login with
+  token" stays visible next to an OIDC login button.
+
 ## 1.24.5
 
 fix: the index page shows its CAs as stacked rows on phones and tablets, and the page headers keep

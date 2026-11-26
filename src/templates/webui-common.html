@@ -45,14 +45,14 @@
      token or a code once, and the one showing the signed-in token; the pages and the index page
      share them, with login.js. */}}
 {{define "login-dialogs" -}}
-    <dialog id="login" class="m-auto w-full max-w-xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+    <dialog id="login" class="m-auto w-[calc(100%-2rem)] max-w-xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form id="login-form" class="space-y-4 px-6 py-5">
         <p id="login-error" class="hidden rounded-lg border border-bad-line bg-bad px-4 py-3 text-sm text-bad-ink"></p>
         <label class="block space-y-1 text-sm">
           <span class="block font-medium">Token or setup code</span>
           <input id="login-token" type="password" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono">
         </label>
-        <div class="flex justify-end gap-2 whitespace-nowrap">
+        <div class="flex flex-wrap justify-end gap-2 whitespace-nowrap">
           <button type="submit" class="rounded-lg bg-action px-4 py-2 text-sm font-semibold text-action-ink shadow-sm hover:bg-action-hover">Login with token</button>
           <button id="login-oidc" type="button" class="hidden rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle"></button>
           <button id="login-cancel" type="button" class="rounded-lg border border-field-line px-4 py-2 text-sm font-medium hover:bg-subtle">Cancel</button>
@@ -60,7 +60,7 @@
       </form>
     </dialog>
 
-    <dialog id="shown" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+    <dialog id="shown" class="m-auto w-[calc(100%-2rem)] max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form method="dialog" class="space-y-4 px-6 py-5">
         <p id="shown-text" class="text-sm"></p>
         <textarea id="shown-value" readonly rows="5" autocorrect="off" autocapitalize="off" spellcheck="false" class="w-full rounded-lg border border-field-line bg-field px-3 py-2 font-mono text-xs"></textarea>
@@ -72,7 +72,7 @@
       </form>
     </dialog>
 
-    <dialog id="user-dialog" class="m-auto w-full max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+    <dialog id="user-dialog" class="m-auto w-[calc(100%-2rem)] max-w-2xl rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form method="dialog" class="space-y-4 px-6 py-5">
         <h2 class="text-lg font-semibold">Your token</h2>
         <dl id="user-attributes" class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm"></dl>
@@ -86,7 +86,7 @@
 {{define "webui-dialogs" -}}
     {{template "login-dialogs"}}
 
-    <dialog id="confirm" class="m-auto w-full max-w-md overflow-visible rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
+    <dialog id="confirm" class="m-auto w-[calc(100%-2rem)] max-w-md overflow-visible rounded-2xl border border-line bg-card p-0 text-ink shadow-lg backdrop:bg-black/50">
       <form method="dialog" class="space-y-5 px-6 py-5">
         <p id="confirm-message" class="text-sm"></p>
         <div id="confirm-extra"></div>
