@@ -4,7 +4,7 @@
      one asking for a confirmation. */}}
 
 {{define "webui-top" -}}
-        <div class="flex items-start justify-between gap-4 rounded-t-2xl bg-head px-6 py-4 text-head-ink">
+        <div class="flex items-start justify-between gap-4 rounded-t-2xl bg-head px-6 py-4 text-head-ink max-sm:flex-col">
           <div>
             <h1 class="text-xl font-semibold">{{.}}</h1>
             <p id="title" class="mt-1 text-sm text-head-muted">simple-ca</p>
@@ -29,8 +29,8 @@
             </div>
           </div>
           <div id="user-row" class="hidden items-center gap-3 text-sm">
-            <button id="user" type="button" title="Show the token" class="text-head-muted underline decoration-dotted underline-offset-4 hover:text-head-ink"></button>
-            <button id="sign-out" type="button" class="rounded-lg border border-head-muted px-2.5 py-1 text-xs font-medium">Sign out</button>
+            <button id="user" type="button" title="Show the token" class="text-left text-head-muted underline decoration-dotted underline-offset-4 hover:text-head-ink"></button>
+            <button id="sign-out" type="button" class="rounded-lg border border-head-muted px-2.5 py-1 text-xs font-medium whitespace-nowrap">Sign out</button>
           </div>
         </div>
         <div id="chooser-row" class="hidden items-center gap-3 border-b border-line px-6 py-4">

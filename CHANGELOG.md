@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.24.5
+
+fix: the index page shows its CAs as stacked rows on phones and tablets, and the page headers keep
+the signed-in token readable on phones.
+
+- Below 1024 pixels, each CA of the index page is a stacked row of its name, role and Info button,
+  its expiry and its sign form link, in place of a table whose sign form link column was broken
+  into short lines and pushed out of view.
+- On phones, the signed-in token and the Sign out button of the index, token, certificate, secret
+  and audit pages are below the title and the links instead of in a narrow column beside them.
+
 ## 1.24.4
 
 fix: the link to the secret page comes before the link to the audit log, which is always the last.

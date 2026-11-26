@@ -107,7 +107,7 @@ func TestServe(t *testing.T) {
 	if strings.Contains(string(page), "https://") {
 		t.Fatalf("the index page loads a resource from another site:\n%s", page)
 	}
-	if !strings.Contains(string(page), `<tr id="issuing-ca">`) {
+	if !strings.Contains(string(page), `<tr id="issuing-ca" `) {
 		t.Fatalf("the index page has no row with the ID issuing-ca:\n%s", page)
 	}
 

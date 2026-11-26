@@ -9,7 +9,7 @@
   <body class="min-h-screen bg-page text-ink">
     <div class="mx-auto max-w-5xl px-4 py-10 sm:py-16 xl:w-11/12 xl:max-w-[160rem] 2xl:w-5/6">
       <div class="overflow-hidden rounded-2xl border border-line bg-card shadow-lg">
-        <div class="flex items-start justify-between gap-4 bg-head px-6 py-4 text-head-ink">
+        <div class="flex items-start justify-between gap-4 bg-head px-6 py-4 text-head-ink max-sm:flex-col">
           <div>
             <h1 class="text-xl font-semibold">{{.Title}}</h1>
             <p class="mt-1 text-sm text-head-muted">CA certificates and certificate revocation lists, served by simple-ca</p>
@@ -19,8 +19,8 @@
           <div class="flex items-center gap-3 text-sm">
             <button id="login-open" type="button" class="hidden rounded-lg border border-head-muted px-2.5 py-1 text-xs font-medium">Login</button>
             <div id="user-row" class="hidden items-center gap-3">
-              <button id="user" type="button" title="Show the token" class="text-head-muted underline decoration-dotted underline-offset-4 hover:text-head-ink"></button>
-              <button id="sign-out" type="button" class="rounded-lg border border-head-muted px-2.5 py-1 text-xs font-medium">Sign out</button>
+              <button id="user" type="button" title="Show the token" class="text-left text-head-muted underline decoration-dotted underline-offset-4 hover:text-head-ink"></button>
+              <button id="sign-out" type="button" class="rounded-lg border border-head-muted px-2.5 py-1 text-xs font-medium whitespace-nowrap">Sign out</button>
             </div>
           </div>
           {{- end}}
@@ -36,8 +36,10 @@
           </div>
         </div>
         <main class="overflow-x-auto px-6 py-5">
-          <table class="w-full text-left text-sm">
-            <thead class="text-muted">
+          {{- /* Below lg each CA is a stacked row: the name, the role and Info, then the validity, then the
+                 sign form link, each labelled in place of the hidden column headers. */}}
+          <table class="w-full text-left text-sm max-lg:block">
+            <thead class="text-muted max-lg:hidden">
               <tr>
                 <th class="py-1 pr-3 font-medium">CA</th>
                 <th class="py-1 pr-3 font-medium">Role</th>
@@ -46,22 +48,22 @@
                 <th class="py-1"></th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-line">
+            <tbody class="divide-y divide-line max-lg:block">
               {{- range $i, $ca := .CAs}}
-              <tr{{if .ID}} id="{{.ID}}"{{end}}>
-                <td class="py-2 pr-3 font-medium whitespace-nowrap">
+              <tr{{if .ID}} id="{{.ID}}"{{end}} class="max-lg:grid max-lg:grid-cols-[auto_1fr_auto] max-lg:items-center max-lg:gap-x-3 max-lg:gap-y-1.5 max-lg:py-3">
+                <td class="py-2 pr-3 font-medium max-lg:p-0 lg:whitespace-nowrap">
                   <span data-subject="{{json .SubjectAttributes}}">{{.Name}}</span>
                 </td>
-                <td class="py-2 pr-3"><span class="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-subtle-ink">{{.Role}}</span></td>
-                <td class="py-2 pr-3 whitespace-nowrap">{{.NotAfter}}
-                  <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium {{if eq .Expiry "expired"}}bg-bad text-bad-ink{{else if .ExpiresSoon}}bg-warn text-warn-ink{{else}}bg-good text-good-ink{{end}}">{{.Expiry}}</span>
+                <td class="py-2 pr-3 max-lg:p-0"><span class="rounded-full bg-subtle px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-subtle-ink">{{.Role}}</span></td>
+                <td class="py-2 pr-3 max-lg:col-span-3 max-lg:p-0 lg:whitespace-nowrap"><span class="text-muted lg:hidden">Valid until </span>{{.NotAfter}}
+                  <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap {{if eq .Expiry "expired"}}bg-bad text-bad-ink{{else if .ExpiresSoon}}bg-warn text-warn-ink{{else}}bg-good text-good-ink{{end}}">{{.Expiry}}</span>
                 </td>
-                <td class="py-2 pr-3 font-mono text-xs break-all">
-                  {{- if .SignForm}}<span class="inline-flex items-center gap-1.5"><a class="text-link hover:underline" href="{{.Path}}sign">{{.SignForm}}</a>
+                <td class="py-2 pr-3 font-mono text-xs max-lg:col-span-3 max-lg:p-0 max-lg:break-words lg:break-all">
+                  {{- if .SignForm}}<span class="inline-flex items-center gap-1.5 max-lg:flex-wrap"><span class="font-sans text-sm whitespace-nowrap text-muted lg:hidden">Sign form</span><a class="min-w-0 text-link hover:underline" href="{{.Path}}sign">{{.SignForm}}</a>
                   <button type="button" data-copy="{{.SignForm}}" title="Copy the link" aria-label="Copy the link" class="shrink-0 rounded p-1 text-muted hover:bg-subtle hover:text-ink"></button></span>
-                  {{- else}}<span class="text-muted">-</span>{{end -}}
+                  {{- else}}<span class="font-sans text-sm text-muted lg:hidden">Sign form </span><span class="text-muted">-</span>{{end -}}
                 </td>
-                <td class="py-2 text-right">
+                <td class="py-2 text-right max-lg:col-start-3 max-lg:row-start-1 max-lg:p-0">
                   <div class="flex justify-end gap-2">
                     <button type="button" data-info="info-{{$i}}" class="rounded-lg border border-field-line px-2.5 py-1 text-xs font-medium hover:bg-subtle">Info</button>
                   </div>

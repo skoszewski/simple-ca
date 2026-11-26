@@ -132,6 +132,9 @@ the attributes of the subject, its role, Root CA or Subordinate CA, and its expi
 left, marked when fewer than 30 are left, and in the Sign Form Link column the URL of its
 [signing form](signing-api.md#signing-form) when its key is on the server, `-` without it; the
 copy button after the URL copies it to the clipboard.
+On screens narrower than 1024 pixels, such as phones and tablets in portrait, each CA is a stacked
+row instead of a table row: its name, role and Info button, then its expiry, then its sign form
+link, labelled "Valid until" and "Sign form".
 The Info button of a CA opens a dialog of its subject, issuer, serial number, validity period, key
 and SHA-256 fingerprint, its current CRL, with
 its number, the count of revoked certificates and its next update, marked when overdue, the URLs
